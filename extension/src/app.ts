@@ -32,19 +32,55 @@ const playing = () => !!P().isPlaying();
 let toastT: any = null;
 function msg(text: string, cls = '') { const e = $('status'); e.textContent = text; e.title = text; e.className = 'st-status ' + cls; clearTimeout(toastT); if (cls !== 'err') toastT = setTimeout(() => { e.textContent = ''; }, 8000); }
 
-/* ---------- clock: Spotify progress, smoothed like now() in reference ---------- */
+/* ---------- clock ----------
+   Player.getProgress() extrapolates the player *state*, which trails the audio. Like Spicy Lyrics, prefer the
+   audio-side position (PlayerAPI._contextPlayer.getPositionState, async IPC): stamp each sample at the round-trip
+   midpoint, keep the anchor while the value doesn't move (extrapolate through gaps), fall back to getProgress()
+   if it stalls or is missing. Then add a small lead for audio-output latency and low-pass the result. */
+const LEAD = 0.1;          // s, output-latency compensation (user fine-tunes with "сдвиг")
+const STALL = 500;         // ms without a new audio-side value while playing -> use player state
+const SNAP = 0.5;          // s, larger corrections jump (seek / track change)
+const TAU = 300;           // ms, smoothing time constant (frame-rate independent)
+const POS = { pos: 0, at: 0, fresh: -1e9, raw: NaN, busy: false, ok: false };
+function pollPosition() {
+  const cp = (Spicetify as any).Platform?.PlayerAPI?._contextPlayer;
+  if (!cp?.getPositionState || POS.busy) return;
+  POS.busy = true; const t0 = performance.now();
+  Promise.resolve(cp.getPositionState({})).then((r: any) => {
+    const t1 = performance.now(), v = Number(r && r.position);
+    if (!Number.isFinite(v)) return;
+    POS.ok = true;
+    if (v !== POS.raw || !playing()) { POS.raw = v; POS.pos = v; POS.at = (t0 + t1) / 2; POS.fresh = t1; }
+  }).catch(() => { POS.ok = false; }).finally(() => { POS.busy = false; });
+}
+function rawPos() { // seconds
+  const p = performance.now();
+  if (POS.ok && (!playing() || p - POS.fresh < STALL)) return (playing() ? POS.pos + (p - POS.at) : POS.pos) / 1000;
+  return (P().getProgress() || 0) / 1000;
+}
 const CLK = { base: 0, pt: 0, hold: 0 };
+/* theme colors for the canvas ("r,g,b"), read from the CSS tokens whenever the theme changes */
+const TH = { t: '255,255,255', a: '30,215,96', a2: '255,122,200' };
+function readTheme() {
+  if (!root) return;
+  const pr = document.createElement('i'); root.appendChild(pr);
+  const rgb = (v: string) => { pr.style.color = `var(${v})`; return (getComputedStyle(pr).color.match(/[\d.]+/g) || []).slice(0, 3).join(','); };
+  TH.t = rgb('--txt') || TH.t; TH.a = rgb('--acc') || TH.a; TH.a2 = rgb('--acc2') || TH.a2; pr.remove();
+}
+function setTheme(th: string) { root.dataset.theme = th; store.set('theme', th); readTheme(); drawWave(); }
 function now() {
-  const ct = (P().getProgress() || 0) / 1000, p = performance.now();
-  if (!playing()) { if (p >= CLK.hold) CLK.base = ct; CLK.pt = p; return CLK.base; }
-  const pred = CLK.base + (p - CLK.pt) / 1000, e = ct - pred;
-  if (p < CLK.hold && Math.abs(e) > 0.1) return pred; // our own seek hasn't reached the player state yet
-  CLK.base = Math.abs(e) > 0.1 ? ct : pred + e * 0.25; CLK.pt = p; // big jump = seek/stall -> snap; small = ease in
+  pollPosition();
+  const p = performance.now(), target = rawPos() + (playing() ? LEAD : 0);
+  if (!playing()) { if (p >= CLK.hold) CLK.base = target; CLK.pt = p; return CLK.base; }
+  const dt = p - CLK.pt, pred = CLK.base + dt / 1000, e = target - pred;
+  CLK.pt = p;
+  if (p < CLK.hold && Math.abs(e) > 0.1) { CLK.base = pred; return pred; } // our own seek hasn't reached the player yet
+  CLK.base = Math.abs(e) > SNAP ? target : pred + e * (1 - Math.exp(-dt / TAU));
   return CLK.base;
 }
 function seekTo(t: number) {
   t = Math.max(0, t); P().seek(Math.round(t * 1000)); // integer = ms (fractions 0..1 would be read as percent)
-  CLK.base = t; CLK.pt = performance.now(); CLK.hold = CLK.pt + 800; lastAct = -2;
+  CLK.base = t; CLK.pt = performance.now(); CLK.hold = CLK.pt + 800; POS.raw = NaN; POS.fresh = -1e9; lastAct = -2;
 }
 let playStop: any = null;
 function playWord(w: { a: number; b: number }) { clearTimeout(playStop); seekTo(w.a); P().play(); playStop = setTimeout(() => P().pause(), (w.b - w.a) * 1000 + 60); }
@@ -111,7 +147,7 @@ function curTrack(): (TrackInfo & { uri: string }) | null {
 }
 function projectJSON() { // same shape as the web editor's .spicy.json (+ uri)
   return JSON.stringify({ v: 1, meta: { uri: S.uri, title: S.meta.title, artist: S.meta.artist, lang: $('lang').value, mode: mode() },
-    lines: S.lines.map(l => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || null })) });
+    lines: S.lines.map(l => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || null, agent: l.agent })) });
 }
 let saveT: any = null;
 function scheduleSave() { clearTimeout(saveT); saveT = setTimeout(saveProject, 600); }
@@ -130,7 +166,7 @@ function applyProject(p: any) {
   const m = p.meta || {};
   if (m.lang) $('lang').value = m.lang;
   if (m.mode) { const r = root.querySelector(`input[name=st-mode][value=${m.mode}]`) as HTMLInputElement | null; if (r) r.checked = true; }
-  setLines(p.lines.map((l: any) => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || undefined })));
+  setLines(p.lines.map((l: any) => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || undefined, agent: l.agent })));
 }
 async function loadTrack(force = false) {
   const tr = curTrack();
@@ -163,6 +199,21 @@ function loadManual(text: string) {
 }
 
 /* ---------- lines editor ---------- */
+/* singers per line (duets): v1 left, v2 right (opposite-aligned in Spicy Lyrics), v1000 together */
+const AGENTS = [
+  { id: 'v1', label: '1', title: 'Исполнитель 1 — строка слева' },
+  { id: 'v2', label: '2', title: 'Исполнитель 2 — строка справа' },
+  { id: 'v1000', label: '1+2', title: 'Вместе' },
+] as const;
+const agentOf = (i: number) => AGENTS.find(a => a.id === (S.lines[i]?.agent || 'v1'))!;
+function paintAgent(b: HTMLElement, i: number) { const a = agentOf(i); b.textContent = a.label; b.title = a.title + ' (клик или V — сменить)'; b.dataset.agent = a.id; }
+function cycleAgent(i: number) {
+  const l = S.lines[i]; if (!l) return;
+  const next = AGENTS[(AGENTS.indexOf(agentOf(i)) + 1) % AGENTS.length].id;
+  if (next === 'v1') delete l.agent; else l.agent = next;
+  const b = root.querySelector('#st-ln' + i + ' .st-ag') as HTMLElement | null; if (b) paintAgent(b, i);
+  buildPreview(true); scheduleSave();
+}
 function renderEditor() {
   const box = $('lines'); box.innerHTML = '';
   if (!S.lines.length) box.innerHTML = '<div class="st-hint">Тут будут строки трека.</div>';
@@ -171,6 +222,8 @@ function renderEditor() {
     row.innerHTML = '<div class="t"></div><div><div class="o"></div><input type="text" placeholder="перевод…"></div>';
     const t = row.querySelector('.t') as HTMLElement; t.textContent = mmss(l.t) + '.' + Math.floor((l.t % 1) * 10);
     t.onclick = () => { seekTo(l.t); selectWord(i, 0); };
+    const ag = document.createElement('button'); ag.className = 'st-ag'; paintAgent(ag, i);
+    ag.onclick = e => { e.stopPropagation(); cycleAgent(i); }; row.querySelector('.t')!.after(ag);
     (row.querySelector('.o') as HTMLElement).textContent = l.text;
     const inp = row.querySelector('input') as HTMLInputElement; inp.value = l.tr || '';
     inp.oninput = () => {
@@ -249,7 +302,7 @@ function buildPreview(keepPos?: boolean) {
   if (!S.lines.length) { inner.innerHTML = '<div class="st-empty">Тут появится превью караоке</div>'; return; }
   S.lines.forEach((l, i) => {
     const { wm, wb } = lineWords(i);
-    const el = document.createElement('div'); el.className = 'st-pl'; el.id = 'st-pl' + i;
+    const el = document.createElement('div'); el.className = 'st-pl'; el.id = 'st-pl' + i; el.dataset.agent = l.agent || 'v1';
     el.innerHTML = mkWords(wm) + (wb ? `<span class="bg">${mkWords(wb)}</span>` : '');
     el.querySelectorAll<HTMLElement>(':scope > .w').forEach((n, k) => n.textContent = plainW(wm[k].word));
     if (wb) el.querySelectorAll<HTMLElement>('.bg .w').forEach((n, k) => n.textContent = plainW(wb[k].word));
@@ -472,7 +525,7 @@ function drawWave() {
   if (playing() && !W.drag) { if (t < W.start || t > W.start + w / W.px * 0.8) W.start = Math.max(0, t - w / W.px * 0.25); }
   const t0 = W.start, t1 = t0 + w / W.px, X = (tt: number) => (tt - t0) * W.px, LANE = W.LANE;
   // ruler
-  g.fillStyle = 'rgba(255,255,255,.35)'; g.font = '10px ui-monospace,monospace'; g.textBaseline = 'top';
+  g.fillStyle = `rgba(${TH.t},.35)`; g.font = '10px ui-monospace,monospace'; g.textBaseline = 'top';
   const step = W.px > 400 ? 0.5 : W.px > 150 ? 1 : W.px > 60 ? 2 : 5;
   for (let s = Math.ceil(t0 / step) * step; s < t1; s += step) { const x = X(s); g.fillRect(x, h - 6, 1, 6); g.fillText(mmss(s) + (step < 1 ? '.' + Math.round((s % 1) * 10) : ''), x + 3, h - 15); }
   // lower band: source lines (LRC timing) with original text, for orientation
@@ -480,8 +533,8 @@ function drawWave() {
   S.lines.forEach(l => {
     if (l.end < t0 || l.t > t1) return;
     const x1 = X(l.t), x2 = X(l.end);
-    g.fillStyle = 'rgba(255,255,255,.06)'; g.fillRect(x1, LANE + 6, Math.max(2, x2 - x1 - 2), h - LANE - 26);
-    g.fillStyle = 'rgba(255,255,255,.3)'; g.fillRect(x1, LANE + 6, 1, h - LANE - 26);
+    g.fillStyle = `rgba(${TH.t},.06)`; g.fillRect(x1, LANE + 6, Math.max(2, x2 - x1 - 2), h - LANE - 26);
+    g.fillStyle = `rgba(${TH.t},.3)`; g.fillRect(x1, LANE + 6, 1, h - LANE - 26);
     g.save(); g.beginPath(); g.rect(x1 + 4, LANE + 6, Math.max(0, x2 - x1 - 8), h - LANE - 26); g.clip(); g.fillText(plainW(l.text), x1 + 6, LANE + 6 + (h - LANE - 26) / 2); g.restore();
   });
   // word boxes
@@ -494,18 +547,18 @@ function drawWave() {
       const x1 = X(wd.a), x2 = X(wd.b); if (x2 < -2 || x1 > w + 2) return;
       const sel = S.sel && S.sel.i === i && S.sel.k === k;
       if (wd.real) {
-        g.fillStyle = sel ? 'rgba(255,122,200,.45)' : wd.g ? 'rgba(182,156,255,.16)' : 'rgba(182,156,255,.35)'; g.fillRect(x1, 3, Math.max(2, x2 - x1), LANE - 6);
-        g.strokeStyle = sel ? '#ff7ac8' : 'rgba(182,156,255,.9)'; g.fillStyle = sel ? '#ff7ac8' : 'rgba(182,156,255,.95)'; g.fillRect(x1, 3, 3, LANE - 6); g.fillRect(x2 - 3, 3, 3, LANE - 6); if (wd.g) g.setLineDash([3, 3]); g.strokeRect(x1 + .5, 3.5, Math.max(2, x2 - x1) - 1, LANE - 7); g.setLineDash([]);
-      } else { g.setLineDash([3, 3]); g.strokeStyle = sel ? '#ff7ac8' : 'rgba(255,255,255,.25)'; g.strokeRect(x1 + .5, 3.5, Math.max(2, x2 - x1) - 1, LANE - 7); g.setLineDash([]); }
+        g.fillStyle = sel ? `rgba(${TH.a2},.45)` : wd.g ? `rgba(${TH.a},.16)` : `rgba(${TH.a},.35)`; g.fillRect(x1, 3, Math.max(2, x2 - x1), LANE - 6);
+        g.strokeStyle = sel ? `rgb(${TH.a2})` : `rgba(${TH.a},.9)`; g.fillStyle = sel ? `rgb(${TH.a2})` : `rgba(${TH.a},.95)`; g.fillRect(x1, 3, 3, LANE - 6); g.fillRect(x2 - 3, 3, 3, LANE - 6); if (wd.g) g.setLineDash([3, 3]); g.strokeRect(x1 + .5, 3.5, Math.max(2, x2 - x1) - 1, LANE - 7); g.setLineDash([]);
+      } else { g.setLineDash([3, 3]); g.strokeStyle = sel ? `rgb(${TH.a2})` : `rgba(${TH.t},.25)`; g.strokeRect(x1 + .5, 3.5, Math.max(2, x2 - x1) - 1, LANE - 7); g.setLineDash([]); }
       g.save(); g.beginPath(); g.rect(x1 + 2, 3, Math.max(0, x2 - x1 - 4), LANE - 6); g.clip();
-      g.fillStyle = wd.real ? '#fff' : 'rgba(255,255,255,.45)'; g.fillText((wd.b - wd.a >= 1 ? '✦ ' : '') + plainW(wd.word) + (wd.sp === false ? '-' : ''), x1 + 5, LANE / 2 + 1); g.restore();
+      g.fillStyle = wd.real ? `rgb(${TH.t})` : `rgba(${TH.t},.45)`; g.fillText((wd.b - wd.a >= 1 ? '✦ ' : '') + plainW(wd.word) + (wd.sp === false ? '-' : ''), x1 + 5, LANE / 2 + 1); g.restore();
       W.boxes.push({ i, k, a: wd.a, b: wd.b, real: !!wd.real });
     });
   }
   // joined edges (touching words) get a bright joint so you can see what moves together
   const rb = W.boxes.filter(b => b.real).sort((p, q) => p.a - q.a);
-  for (let q = 0; q + 1 < rb.length; q++) if (Math.abs(rb[q].b - rb[q + 1].a) <= JOIN) { g.fillStyle = '#fff'; g.fillRect(X(rb[q].b) - 1, 3, 2, LANE - 6); }
-  g.fillStyle = '#fff'; g.fillRect(X(t), 0, 1.5, h); // playhead
+  for (let q = 0; q + 1 < rb.length; q++) if (Math.abs(rb[q].b - rb[q + 1].a) <= JOIN) { g.fillStyle = `rgb(${TH.t})`; g.fillRect(X(rb[q].b) - 1, 3, 2, LANE - 6); }
+  g.fillStyle = `rgb(${TH.t})`; g.fillRect(X(t), 0, 1.5, h); // playhead
   if (W.flash) {
     const age = (performance.now() - W.flash.at) / 800;
     if (age < 1) { const fx = X(W.flash.t), col = ({ F: '110,231,183', G: '182,156,255', H: '255,122,200' } as any)[W.flash.kind]; g.fillStyle = `rgba(${col},${(1 - age).toFixed(2)})`; g.fillRect(fx - 1.5, 0, 3, h); g.font = '800 13px ui-monospace,monospace'; g.textBaseline = 'top'; g.fillText(W.flash.kind, fx + 5, LANE + 4); }
@@ -680,7 +733,7 @@ function runQa() {
 }
 
 /* ---------- hotkeys (capture phase: Spotify must not see the keys we use, e.g. Space) ---------- */
-const KEYS = new Set(['KeyM', 'KeyU', 'KeyN', 'KeyL', 'KeyR', 'Comma', 'Period', 'Space', 'KeyF', 'KeyG', 'KeyH', 'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Delete', 'Backspace']);
+const KEYS = new Set(['KeyV', 'KeyM', 'KeyU', 'KeyN', 'KeyL', 'KeyR', 'Comma', 'Period', 'Space', 'KeyF', 'KeyG', 'KeyH', 'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Delete', 'Backspace']);
 function onKey(e: KeyboardEvent) {
   if (!S.open) return;
   const tg = e.target as HTMLElement, tag = tg && tg.tagName;
@@ -703,6 +756,7 @@ function onKey(e: KeyboardEvent) {
   if (c === 'ArrowLeft') return seekTo(now() - (e.shiftKey ? 1 : 5));
   if (c === 'ArrowRight') return seekTo(now() + (e.shiftKey ? 1 : 5));
   if (c === 'Comma' || c === 'Period') return nudgeWord((c === 'Comma' ? -1 : 1) * (e.shiftKey ? 0.05 : 0.01));
+  if (c === 'KeyV') { if (S.sel) cycleAgent(S.sel.i); return; }
   if (c === 'KeyM') return joinWords();
   if (c === 'KeyU') return splitWord();
   if (e.repeat) return;
@@ -754,6 +808,7 @@ const HTML = `
   </div></details>
   <details class="st-menu"><summary class="st-btn">⚙</summary><div class="st-pop">
     <label class="st-opt"><span>Реакция, мс<small>вычитается из момента нажатия F/G/H</small></span><input type="number" id="st-lat" value="100" step="10" min="0" max="500"></label>
+    <label class="st-opt"><span>Тема</span><select id="st-theme"><option value="auto">как в Spotify</option><option value="dark">чёрная</option><option value="light">белая</option></select></label>
     <label class="st-opt"><span>Сдвиг превью, мс<small>отстаёт → плюс, спешит → минус</small></span><input type="number" id="st-voff" value="0" step="10"></label>
     <label class="st-opt"><span>Магнит <kbd>N</kbd></span><input type="checkbox" id="st-snapChk" checked></label>
     <label class="st-opt"><span>Эффекты слов в превью</span><input type="checkbox" id="st-fxChk" checked></label>
@@ -766,6 +821,7 @@ const HTML = `
   <div class="st-stage"><div class="st-lyr"><div class="st-lyrIn" id="st-lyrIn"></div></div></div>
 </div>
 <div class="st-dock" id="st-dock">
+  <div class="st-grip" id="st-grip" title="Потяни, чтобы изменить высоту панели (двойной клик — как было)"></div>
   <div class="st-dbar">
     <select id="st-layer" title="Что размечаем"><option value="tr">перевод</option><option value="orig">оригинал</option></select>
     <span class="st-guide" id="st-guide"></span>
@@ -844,10 +900,31 @@ function mount() {
   root.addEventListener('mouseup', e => { const t = (e.target as HTMLElement).closest('button'); if (t) setTimeout(() => t.blur(), 0); });
   root.addEventListener('click', e => root.querySelectorAll('details[open]').forEach(d => { if (!d.contains(e.target as Node)) (d as HTMLDetailsElement).open = false; }));
   $('help').onclick = (e: MouseEvent) => { if (e.target === $('help')) $('help').hidden = true; };
+  { const th = store.get('theme', 'auto'); $('theme').value = th; root.dataset.theme = th; $('theme').onchange = () => setTheme($('theme').value); }
+  setupGrip();
   window.addEventListener('keydown', onKey, true);
   window.addEventListener('beforeunload', saveProject);
   setupWave(); renderEditor(); buildPreview(); renderSync();
   if (!store.get('helpSeen', '')) { $('help').hidden = false; store.set('helpSeen', '1'); }
+}
+
+/* bottom panel height: drag the grip; the timeline grows with it */
+function setDockH(h: number) {
+  const max = Math.max(220, (root.clientHeight || innerHeight) - 160);
+  h = clamp(Math.round(h), 200, max);
+  root.style.setProperty('--dockH', h + 'px'); root.style.setProperty('--waveH', Math.round(clamp(h * 0.36, 100, 300)) + 'px');
+  store.set('dockH', String(h)); drawWave();
+}
+function setupGrip() {
+  const g = $('grip'), dock = $('dock');
+  setDockH(+store.get('dockH', '330') || 330);
+  g.onpointerdown = (e: PointerEvent) => {
+    e.preventDefault(); g.setPointerCapture(e.pointerId); g.classList.add('drag');
+    const y0 = e.clientY, h0 = dock.getBoundingClientRect().height;
+    g.onpointermove = (m: PointerEvent) => setDockH(h0 + (y0 - m.clientY));
+    g.onpointerup = () => { g.onpointermove = null; g.classList.remove('drag'); };
+  };
+  g.ondblclick = () => setDockH(330);
 }
 
 /* the panel covers only Spotify's main view: top bar (window controls), sidebars and the player stay usable */
@@ -875,7 +952,7 @@ function place() {
 export function toggle(open = !S.open) {
   if (!root) { mount(); addEventListener('resize', place); }
   S.open = open; root.hidden = !open;
-  if (open) place();
+  if (open) { place(); readTheme(); }
   if (open) { loadTrack(); lastAct = -2; requestAnimationFrame(frame); } else saveProject();
 }
 export function onSongChange() { if (S.open) loadTrack(); }

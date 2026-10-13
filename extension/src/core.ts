@@ -2,7 +2,9 @@
 // Временная копия чистых функций из reference/index.html (секция «core» до «app»), логика не менялась, добавлены только типы.
 
 export type Span = { a: number | null; b: number | null; g?: 1 };
-export type Line = { t: number; end: number; text: string; tr: string; sync?: { tr?: Span[]; orig?: Span[] } };
+/** Singer of a line (TTML ttm:agent). Spicy Lyrics: v1 = main (left), v2 = second (right), v1000 = together. */
+export type Agent = 'v1' | 'v2' | 'v1000';
+export type Line = { t: number; end: number; text: string; tr: string; sync?: { tr?: Span[]; orig?: Span[] }; agent?: Agent };
 export type Unit = { w: string; sp: boolean };
 export type Word = { word: string; sp: boolean; a: number; b: number; real?: boolean };
 export type Mode = 'translation' | 'bilingual';
@@ -122,14 +124,14 @@ export function buildTTML(o: TTMLOpts) {
   const bilingual = mode === 'bilingual';
   const wordTiming = bilingual || wordSpread;
   const sh = (ws: Word[]) => ws.map(w => ({ word: w.word, sp: w.sp, a: Math.max(0, w.a + shift), b: Math.max(0, w.b + shift) }));
-  const items: { a: number; b: number; mainText: string; main: Word[] | null; bg: Word[] | null }[] = [];
+  const items: { a: number; b: number; mainText: string; main: Word[] | null; bg: Word[] | null; agent: Agent }[] = [];
   for (const l of lines) {
     const hasTr = l.tr && l.tr.trim();
     const mainLayer = bilingual ? 'orig' : (hasTr ? 'tr' : 'orig');
     const mainText = mainLayer === 'tr' ? l.tr.trim() : l.text;
     if (!mainText || !mainText.trim()) continue;
     const sync = l.sync || {};
-    const it = { a: Math.max(0, l.t + shift), b: Math.max(0, l.end + shift), mainText, main: null as Word[] | null, bg: null as Word[] | null };
+    const it = { a: Math.max(0, l.t + shift), b: Math.max(0, l.end + shift), mainText, main: null as Word[] | null, bg: null as Word[] | null, agent: (l.agent || 'v1') as Agent };
     if (wordTiming) {
       it.main = sh(getWords(mainText, sync[mainLayer], l.t, l.end));
       if (bilingual && hasTr) it.bg = sh(getWords(l.tr.trim().replace(/[()]/g, ''), sync.tr, l.t, l.end));
@@ -147,14 +149,16 @@ export function buildTTML(o: TTMLOpts) {
       inner = spans(l.main!);
       if (l.bg) inner += `<span ttm:role="x-bg">${spans(l.bg)}</span>`;
     } else inner = esc(plainW(l.mainText));
-    body += `      <p begin="${fmtTime(l.a)}" end="${fmtTime(l.b)}" ttm:agent="v1" itunes:key="L${i + 1}">${inner}</p>\n`;
+    body += `      <p begin="${fmtTime(l.a)}" end="${fmtTime(l.b)}" ttm:agent="${l.agent}" itunes:key="L${i + 1}">${inner}</p>\n`;
   });
+  const used = ['v1', 'v2', 'v1000'].filter(id => id === 'v1' || items.some(i => i.agent === id));
+  const agents = used.map(id => `      <ttm:agent type="${id === 'v1000' ? 'group' : 'person'}" xml:id="${id}"/>`).join('\n');
   const sw = songwriters.filter(Boolean).map(s => `<songwriter>${esc(s)}</songwriter>`).join('');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" itunes:timing="${wordTiming ? 'Word' : 'Line'}" xml:lang="${esc(lang)}">
   <head>
     <metadata>
-      <ttm:agent type="person" xml:id="v1"/>
+${agents}
       <iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal"><songwriters>${sw}</songwriters></iTunesMetadata>
     </metadata>
   </head>
