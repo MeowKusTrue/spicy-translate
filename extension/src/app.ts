@@ -1,5 +1,6 @@
 // Панель редактора поверх Spotify. Логика разметки — порт reference/index.html (секция app), часы — плеер Spotify вместо <audio>.
 import css from './style.css';
+import { importLyrics, liveLines } from './core.ts';
 import { buildTTML, entriesToLines, fmtTime, getWords, parseLRC, parsePlain, plainW, qaCheck, splitWords, syllabify, syncComplete, units, unitsText, wordList,
   type Line, type Mode, type Span, type TTMLOpts, type Word } from './core.ts';
 import { findLyrics, type TrackInfo } from './lrclib.ts';
@@ -7,7 +8,7 @@ import { agentsByTime, readSpicyCache, spicyToLines } from './spicyCache.ts';
 import { putToSpicy } from './spicy.ts';
 
 declare const Spicetify: any;
-type Layer = 'tr' | 'orig';
+type Layer = 'tr' | 'orig' | 'bg' | 'bgo'; // bg/bgo = background vocals: translation / original
 type VW = { word: string; sp: boolean; a: number | null; b: number | null; real?: boolean; g?: boolean; ghost?: boolean };
 
 const K = 'spicy-translate:';
@@ -88,7 +89,7 @@ let playStop: any = null;
 function playWord(w: { a: number; b: number }) { clearTimeout(playStop); seekTo(w.a); P().play(); playStop = setTimeout(() => P().pause(), (w.b - w.a) * 1000 + 60); }
 
 /* ---------- words / layers ---------- */
-function layerText(l: Line, layer: Layer) { return layer === 'tr' ? (l.tr || '') : l.text; }
+function layerText(l: Line, layer: Layer) { return layer === 'tr' ? (l.tr || '') : layer === 'orig' ? l.text : layer === 'bg' ? (l.bg?.tr || '') : (l.bg?.text || ''); }
 function wordsOf(i: number, layer: Layer) { return wordList(layerText(S.lines[i], layer)); }
 function ensureSync(i: number, layer: Layer): Span[] {
   const l = S.lines[i], n = wordsOf(i, layer).length;
@@ -149,7 +150,7 @@ function curTrack(): (TrackInfo & { uri: string }) | null {
 }
 function projectJSON() { // same shape as the web editor's .spicy.json (+ uri)
   return JSON.stringify({ v: 1, meta: { uri: S.uri, title: S.meta.title, artist: S.meta.artist, lang: $('lang').value, mode: mode() },
-    lines: S.lines.map(l => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || null, agent: l.agent })) });
+    lines: S.lines.map(l => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || null, agent: l.agent, bg: l.bg })) });
 }
 let saveT: any = null;
 function scheduleSave() { clearTimeout(saveT); saveT = setTimeout(saveProject, 600); }
@@ -168,7 +169,7 @@ function applyProject(p: any) {
   const m = p.meta || {};
   if (m.lang) $('lang').value = m.lang;
   if (m.mode) { const r = root.querySelector(`input[name=st-mode][value=${m.mode}]`) as HTMLInputElement | null; if (r) r.checked = true; }
-  setLines(p.lines.map((l: any) => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || undefined, agent: l.agent })));
+  setLines(p.lines.map((l: any) => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || undefined, agent: l.agent, bg: l.bg })));
 }
 async function loadTrack(force = false) {
   const tr = curTrack();
@@ -214,6 +215,15 @@ async function agentsFromSpicy() {
   renderEditor(); buildPreview(true); drawWave(); scheduleSave();
   msg(`Исполнители из Spicy: сопоставил строк ${n} из ${S.lines.length} (по времени начала).`, n ? 'ok' : 'err');
 }
+async function importFile(f: File) {
+  if (!S.uri) return msg('Сначала включи трек — проект привязывается к треку Spotify.', 'err');
+  const { lines, kind } = importLyrics(await f.text(), f.name, S.meta.duration);
+  if (!lines.length) return msg('В файле не нашлось строк.', 'err');
+  if (S.lines.some(l => l.tr || l.sync) && !confirm(`Заменить проект строками из «${f.name}»? Перевод и разметка этого трека пропадут.`)) return;
+  setLines(lines); scheduleSave();
+  const extra = [lines.some(l => l.sync?.orig) && 'разметка слов', lines.some(l => l.agent) && 'исполнители', lines.some(l => l.bg) && 'бэки'].filter(Boolean).join(', ');
+  msg(`Импорт ${kind.toUpperCase()}: строк ${lines.length}${extra ? ' · ' + extra : ''}${kind === 'text' ? ' · без таймингов: строки разложены по треку, точную синхру задай F/G' : ''}.`, 'ok');
+}
 function loadManual(text: string) {
   if (!S.uri) return msg('Сначала включи трек.', 'err');
   const e = parseLRC(text), synced = e.length > 0;
@@ -258,24 +268,47 @@ function setAgent(agent: 'v1' | 'v2' | 'v1000') {
 }
 function renderEditor() {
   const box = $('lines'); box.innerHTML = '';
-  if (!S.lines.length) box.innerHTML = '<div class="st-hint">Тут будут строки трека.</div>';
+  if (!S.lines.length) box.innerHTML = '<div class="st-hint">Тут будут строки трека. Нет в LRCLIB и Spicy? «Текст» → импорт файла или вставь текст.</div>';
   S.lines.forEach((l, i) => {
     const row = document.createElement('div'); row.className = 'st-ln' + (S.picked.has(i) ? ' picked' : ''); row.id = 'st-ln' + i;
     row.onclick = e => { if (!(e.target as HTMLElement).closest('input,button,.t')) pickLine(i, e); };
-    row.innerHTML = '<div class="t"></div><div><div class="o"></div><input type="text" placeholder="перевод…"></div>';
+    row.innerHTML = '<div class="t"></div><div class="st-txt"><input class="o" type="text" title="Оригинал — можно править"><input class="tr" type="text" placeholder="перевод…"><div class="st-bgrow"></div></div>';
     const t = row.querySelector('.t') as HTMLElement; t.textContent = mmss(l.t) + '.' + Math.floor((l.t % 1) * 10);
     t.onclick = () => { seekTo(l.t); selectWord(i, 0); };
     const ag = document.createElement('button'); ag.className = 'st-ag'; paintAgent(ag, i);
-    ag.onclick = e => { e.stopPropagation(); cycleAgent(i); }; row.querySelector('.t')!.after(ag);
-    (row.querySelector('.o') as HTMLElement).textContent = l.text;
-    const inp = row.querySelector('input') as HTMLInputElement; inp.value = l.tr || '';
-    inp.oninput = () => {
-      l.tr = inp.value;
-      if (l.sync && l.sync.tr && l.sync.tr.length !== wordList(l.tr).length) delete l.sync.tr; // text changed -> old word timings no longer fit
-      refreshRowMark(i); buildPreview(true); renderSync(); scheduleSave();
-    };
+    ag.onclick = e => { e.stopPropagation(); cycleAgent(i); }; t.after(ag);
+    const o = row.querySelector('input.o') as HTMLInputElement, inp = row.querySelector('input.tr') as HTMLInputElement;
+    o.value = l.text; inp.value = l.tr || '';
+    o.oninput = () => editText(i, 'orig', o.value);
+    inp.oninput = () => editText(i, 'tr', inp.value);
+    renderBgRow(row.querySelector('.st-bgrow') as HTMLElement, i);
     box.appendChild(row); refreshRowMark(i);
   });
+}
+/** Text edits keep word timings when the word count is unchanged; otherwise that layer's timings are dropped. */
+function editText(i: number, layer: Layer, v: string) {
+  const l = S.lines[i];
+  if (layer === 'tr') l.tr = v; else if (layer === 'orig') l.text = v;
+  else { l.bg = l.bg || { text: '', tr: '' }; if (layer === 'bg') l.bg.tr = v; else l.bg.text = v; }
+  if (l.sync && l.sync[layer] && l.sync[layer]!.length !== wordList(layerText(l, layer)).length) delete l.sync[layer];
+  refreshRowMark(i); buildPreview(true); renderSync(); scheduleSave();
+}
+function renderBgRow(box: HTMLElement, i: number) {
+  const l = S.lines[i]; box.innerHTML = '';
+  if (!l.bg) {
+    const add = document.createElement('button'); add.className = 'st-addbg'; add.textContent = '+ бэк'; add.title = 'Добавить фоновый вокал (бэки, ад-либы) к этой строке';
+    add.onclick = e => { e.stopPropagation(); l.bg = { text: '', tr: '' }; renderBgRow(box, i); (box.querySelector('input') as HTMLInputElement)?.focus(); };
+    box.appendChild(add); return;
+  }
+  box.innerHTML = '<span class="st-bglab" title="Фоновый вокал: в Spicy мелкой строкой под основной">бэк</span><input class="bo" type="text" placeholder="бэк: оригинал"><input class="btr" type="text" placeholder="бэк: перевод"><button class="st-delbg" title="Убрать бэк">✕</button>';
+  const bo = box.querySelector('input.bo') as HTMLInputElement, btr = box.querySelector('input.btr') as HTMLInputElement;
+  bo.value = l.bg.text; btr.value = l.bg.tr;
+  bo.oninput = () => editText(i, 'bgo', bo.value);
+  btr.oninput = () => editText(i, 'bg', btr.value);
+  (box.querySelector('.st-delbg') as HTMLElement).onclick = e => {
+    e.stopPropagation(); delete l.bg; if (l.sync) { delete l.sync.bg; delete l.sync.bgo; }
+    renderBgRow(box, i); buildPreview(true); renderSync(); scheduleSave();
+  };
 }
 function refreshRowMark(i: number) {
   const row = root.querySelector('#st-ln' + i); if (!row) return;
@@ -296,10 +329,14 @@ function copyPrompt() {
 function parseLLM(txt: string) {
   const t = String(txt).replace(/```(?:json)?/g, ''), a = t.indexOf('['), b = t.lastIndexOf(']'); if (a < 0 || b < a) throw new Error('в ответе нет JSON-массива');
   const arr = JSON.parse(t.slice(a, b + 1)); if (!Array.isArray(arr)) throw new Error('ожидался массив');
-  return arr.map((x: any, k: number) => typeof x === 'string' ? { i: k, tr: x } : { i: x.i ?? k, tr: String(x.tr ?? x.text ?? '') });
+  return arr.map((x: any, k: number) => typeof x === 'string' ? { i: k, tr: x } : { i: x.i ?? k, tr: String(x.tr ?? x.text ?? ''), ...(x.bg ? { bg: String(x.bg) } : {}) });
 }
-function applyTr(rows: { i: number; tr: string }[]) {
-  let n = 0; rows.forEach(r => { const l = S.lines[r.i]; if (l && r.tr.trim()) { l.tr = r.tr.trim(); if (l.sync) delete l.sync.tr; n++; } });
+function applyTr(rows: { i: number; tr: string; bg?: string }[]) {
+  let n = 0; rows.forEach(r => {
+    const l = S.lines[r.i]; if (!l) return;
+    if (r.tr.trim()) { l.tr = r.tr.trim(); if (l.sync) delete l.sync.tr; n++; }
+    if (l.bg && r.bg && r.bg.trim()) { l.bg.tr = r.bg.trim(); if (l.sync) delete l.sync.bg; }
+  });
   if (n) { S.layer = 'tr'; $('layer').value = 'tr'; }
   renderEditor(); buildPreview(true); renderSync(); scheduleSave(); return n;
 }
@@ -316,8 +353,8 @@ async function llmTranslate() {
   let url = $('llmUrl').value.trim().replace(/\/+$/, ''); if (!url && prov === 'anthropic') url = 'https://api.anthropic.com';
   if (!model || !url) return msg('Укажи модель и Base URL.', 'err');
   store.set('llm', JSON.stringify({ prov, model, key, url: $('llmUrl').value.trim(), style }));
-  const sys = 'Ты литературный переводчик текстов песен. Переводи на язык: ' + langName() + '. Передавай смысл, настроение, сленг и рифму естественно, не дословно; число слов в строке держи близко к оригиналу (подсветка идёт по словам). Одинаковые строки (припев) переводи одинаково. Не склеивай и не разбивай строки. Ответ — ТОЛЬКО JSON-массив [{"i":число,"tr":"перевод"}], ровно по одному элементу на каждую входную строку, без комментариев и markdown.';
-  const user = 'Песня: ' + S.meta.artist + ' — ' + S.meta.title + '\n' + (style ? 'Заметки/глоссарий: ' + style + '\n' : '') + 'Строки:\n' + JSON.stringify(S.lines.map((l, i) => ({ i, text: plainW(l.text) })));
+  const sys = 'Ты литературный переводчик текстов песен. Переводи на язык: ' + langName() + '. Передавай смысл, настроение, сленг и рифму естественно, не дословно; число слов в строке держи близко к оригиналу (подсветка идёт по словам). Одинаковые строки (припев) переводи одинаково. Не склеивай и не разбивай строки. Если у строки есть поле bg (фоновый вокал, бэки), переведи и его в поле bg. Ответ — ТОЛЬКО JSON-массив [{"i":число,"tr":"перевод","bg":"перевод бэка, только если был bg"}], ровно по одному элементу на каждую входную строку, без комментариев и markdown.';
+  const user = 'Песня: ' + S.meta.artist + ' — ' + S.meta.title + '\n' + (style ? 'Заметки/глоссарий: ' + style + '\n' : '') + 'Строки:\n' + JSON.stringify(S.lines.map((l, i) => ({ i, text: plainW(l.text), ...(l.bg && l.bg.text.trim() ? { bg: plainW(l.bg.text) } : {}) })));
   $('llm').disabled = true; msg('LLM переводит всю песню…');
   try {
     const r = prov === 'anthropic'
@@ -334,9 +371,18 @@ async function llmTranslate() {
 /* ---------- preview ---------- */
 function mkWords(arr: Word[]) { return arr.map(w => `<span class="w${w.b - w.a >= 1 ? ' em' : ''}" data-a="${w.a}" data-b="${w.b}"></span>${w.sp === false ? '' : ' '}`).join(''); }
 function lineWords(i: number) {
-  const l = S.lines[i], ml = mainLayerFor(i);
+  const l = S.lines[i], ml = mainLayerFor(i), bi = mode() === 'bilingual';
   const wm = getWords(layerText(l, ml), l.sync && l.sync[ml], l.t, l.end);
-  const wb = mode() === 'bilingual' && l.tr && l.tr.trim() ? getWords(l.tr.trim(), l.sync && l.sync.tr, l.t, l.end) : null;
+  let wb: Word[] | null = null;
+  if (bi) { if (l.tr && l.tr.trim()) wb = getWords(l.tr.trim(), l.sync && l.sync.tr, l.t, l.end); }
+  else if (l.bg) { // background vocals under the line (translated if there is a translation)
+    const bl: Layer = l.bg.tr && l.bg.tr.trim() ? 'bg' : 'bgo', txt = layerText(l, bl).trim();
+    if (txt) {
+      const so = l.sync && l.sync.bgo, n = units(l.bg.text).length;
+      const [b0, b1] = syncComplete(so, n) ? [so[0].a!, so[n - 1].b!] : [l.t, l.end];
+      wb = getWords(txt, l.sync && l.sync[bl], b0, b1);
+    }
+  }
   return { wm, wb };
 }
 function buildPreview(keepPos?: boolean) {
@@ -360,14 +406,16 @@ function refreshPreviewLine(i: number) {
   const { wm, wb } = lineWords(i), nodes = el.querySelectorAll<HTMLElement>(':scope > .w');
   if (nodes.length !== wm.length) return buildPreview(true);
   nodes.forEach((n, k) => { n.dataset.a = String(wm[k].a); n.dataset.b = String(wm[k].b); n.classList.toggle('em', wm[k].b - wm[k].a >= 1); });
-  if (wb) el.querySelectorAll<HTMLElement>('.bg .w').forEach((n, k) => { if (wb[k]) { n.dataset.a = String(wb[k].a); n.dataset.b = String(wb[k].b); } });
+  const bn = el.querySelectorAll<HTMLElement>('.bg .w');
+  if ((wb ? wb.length : 0) !== bn.length) return buildPreview(true);
+  if (wb) bn.forEach((n, k) => { n.dataset.a = String(wb[k].a); n.dataset.b = String(wb[k].b); });
 }
 const RNG = { ver: -1, r: [] as { a: number; b: number }[] };
 function ranges() { // per-line [start,end] for the main layer, recomputed only when lyrics/timings change
   if (RNG.ver === S.ver && RNG.r.length === S.lines.length) return RNG.r;
   RNG.ver = S.ver; RNG.r = S.lines.map((l, i) => {
-    const ws = lineWords(i).wm;
-    return ws.length ? { a: Math.min(l.t, ws[0].a), b: Math.max(l.end, ws[ws.length - 1].b) } : { a: l.t, b: l.end };
+    const { wm, wb } = lineWords(i), ws = wm.concat(wb || []);
+    return ws.length ? { a: Math.min(l.t, ...ws.map(w => w.a)), b: Math.max(l.end, ...ws.map(w => w.b)) } : { a: l.t, b: l.end };
   });
   return RNG.r;
 }
@@ -382,27 +430,30 @@ function paintWords(nodes: any[], T: number) {
     const d = T >= b; if (n._d !== d) { n._d = d; n.classList.toggle('done', d); }
   }
 }
-let lastAct = -2, actNodes: any[] = [], nodesVer = -1, wasPlaying = false;
+let lastAct = -2, nodesVer = -1, wasPlaying = false, actKey = '';
+const liveNodes = new Map<number, any[]>();
+/* wheel over the preview scrolls it by hand; it returns to the current line 3 s after the last wheel */
+const SCR = { base: 0, manual: 0, until: 0 };
+function applyScroll() { const el = $('lyrIn') as HTMLElement; el.style.transition = SCR.manual ? 'transform .12s ease-out' : ''; el.style.transform = `translateY(${SCR.base + SCR.manual}px)`; }
 const LOOK = 0.3; // activate/scroll a line slightly before its first word, so CSS transitions finish on time
 function frame() {
   if (!S.open) return;
   if (performance.now() - placedAt > 250) place();
   const t = now(), T = t + S.voff / 1000, R = ranges(), pl = playing();
   if (pl !== wasPlaying) { wasPlaying = pl; $('dock').classList.toggle('rec', pl); }
-  let act = -1;
-  for (let i = 0; i < R.length; i++) { if (T + LOOK >= R[i].a) act = i; else break; }
-  const idx = act >= 0 && T <= R[act].b + 0.4 ? act : -1;
-  if (idx !== lastAct) {
-    paintWords(actNodes, T); lastAct = idx;
-    root.querySelectorAll('.st-pl').forEach((e, i) => e.className = 'st-pl' + (S.fx ? ' fx' : '') + (i === idx ? ' act' : (Math.abs(i - idx) === 1 ? ' near' : '')));
-    root.querySelectorAll('.st-ln').forEach((e, i) => e.classList.toggle('on', i === idx));
+  const { act, live, active, idx } = liveLines(R, T, LOOK), key = active.join(',');
+  if (key !== actKey || idx !== lastAct) {
+    actKey = key; lastAct = idx;
+    root.querySelectorAll('.st-pl').forEach((e, i) => e.className = 'st-pl' + (S.fx ? ' fx' : '') + (active.includes(i) ? ' act' : (Math.abs(i - idx) === 1 ? ' near' : '')));
+    root.querySelectorAll('.st-ln').forEach((e, i) => e.classList.toggle('on', active.includes(i)));
     const target = root.querySelector('#st-pl' + (idx >= 0 ? idx : Math.max(0, act))) as HTMLElement | null;
-    if (target) { const box = $('lyrIn').parentElement as HTMLElement; $('lyrIn').style.transform = `translateY(${-(target.offsetTop + target.offsetHeight / 2 - box.clientHeight / 2)}px)`; }
+    if (target) { const box = $('lyrIn').parentElement as HTMLElement; SCR.base = -(target.offsetTop + target.offsetHeight / 2 - box.clientHeight / 2); if (!SCR.manual) applyScroll(); }
     if (idx >= 0 && pl) { const r = root.querySelector('#st-ln' + idx); if (r) r.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
-    nodesVer = -1;
   }
-  if (nodesVer !== S.ver) { nodesVer = S.ver; actNodes = idx >= 0 ? [...root.querySelectorAll('#st-pl' + idx + ' .w')] : []; }
-  paintWords(actNodes, T);
+  if (SCR.manual && performance.now() > SCR.until) { SCR.manual = 0; applyScroll(); }
+  if (nodesVer !== S.ver) { nodesVer = S.ver; liveNodes.clear(); }
+  for (const [i, nodes] of liveNodes) if (!live.includes(i)) { paintWords(nodes, T); liveNodes.delete(i); } // final state on leave
+  for (const i of live) { let n = liveNodes.get(i); if (!n) { n = [...root.querySelectorAll('#st-pl' + i + ' .w')]; liveNodes.set(i, n); } paintWords(n, T); }
   for (const c of S.chips) { const on = c.dataset.a != null && T >= +c.dataset.a && T < +c.dataset.b!; if ((c as any)._now !== on) { (c as any)._now = on; c.classList.toggle('now', on); } }
   if (S.loop && S.sel && pl) {
     const vw = viewWords(S.sel.i, S.layer).filter(x => x.a != null);
@@ -413,11 +464,11 @@ function frame() {
 }
 
 /* ---------- undo ---------- */
-const stateJSON = () => JSON.stringify(S.lines.map(l => ({ s: l.sync || null, x: l.text, t: l.tr || '' })));
+const stateJSON = () => JSON.stringify(S.lines.map(l => ({ s: l.sync || null, x: l.text, t: l.tr || '', g: l.bg || null })));
 function snap() { S.undo.push(stateJSON()); if (S.undo.length > 200) S.undo.shift(); S.redo = []; }
 function restore(json: string) {
   const arr = JSON.parse(json); let txt = false;
-  S.lines.forEach((l, i) => { const a = arr[i]; if (!a) return; if (a.s) l.sync = a.s; else delete l.sync; if (l.text !== a.x || (l.tr || '') !== a.t) txt = true; l.text = a.x; l.tr = a.t; });
+  S.lines.forEach((l, i) => { const a = arr[i]; if (!a) return; if (a.s) l.sync = a.s; else delete l.sync; if (l.text !== a.x || (l.tr || '') !== a.t || JSON.stringify(l.bg || null) !== JSON.stringify(a.g)) txt = true; l.text = a.x; l.tr = a.t; if (a.g) l.bg = a.g; else delete l.bg; });
   if (txt) { renderEditor(); buildPreview(true); }
   afterSyncChange(true);
 }
@@ -831,6 +882,7 @@ const HTML = `
     <button id="st-reload">↻ Заново из LRCLIB (сбросит проект)</button>
     <textarea id="st-manual" placeholder="[00:12.30] первая строка&#10;[00:15.80] вторая строка&#10;или просто текст, строка за строкой"></textarea>
     <button id="st-manualApply">Загрузить LRC / текст</button>
+    <label class="st-btn" title="Свой текст для нового трека: .txt, .lrc, .srt, .ttml (наш, Apple, Spicy — с исполнителями, бэками и разметкой). Можно просто перетащить файл на панель.">📄 Импорт файла…<input type="file" id="st-file" accept=".txt,.lrc,.srt,.ttml,.xml" hidden></label>
   </div></details>
   <details class="st-menu"><summary class="st-btn">Перевод</summary><div class="st-pop wide">
     <select id="st-lang">${LANGS.map(([v, n]) => `<option value="${v}">на ${n}</option>`).join('')}</select>
@@ -874,7 +926,7 @@ const HTML = `
 <div class="st-dock" id="st-dock">
   <div class="st-grip" id="st-grip" title="Потяни, чтобы изменить высоту панели (двойной клик — как было)"></div>
   <div class="st-dbar">
-    <select id="st-layer" title="Что размечаем"><option value="tr">перевод</option><option value="orig">оригинал</option></select>
+    <select id="st-layer" title="Что размечаем"><option value="tr">перевод</option><option value="orig">оригинал</option><option value="bg">бэк: перевод</option><option value="bgo">бэк: оригинал</option></select>
     <span class="st-guide" id="st-guide"></span>
     <small class="st-stat" id="st-syncStat"></small>
     <button id="st-zoomOut" title="Ctrl+колесо">−</button><button id="st-zoomIn">+</button><button id="st-fit">⤢ строка</button>
@@ -926,6 +978,9 @@ function mount() {
   on('reload', () => { if (confirm('Перезагрузить текст из LRCLIB? Перевод и разметка этого трека пропадут.')) loadTrack(true); });
   on('fromSpicy', fromSpicy); on('agentsSpicy', agentsFromSpicy);
   on('ag1', () => setAgent('v1')); on('ag2', () => setAgent('v2')); on('ag3', () => setAgent('v1000'));
+  ($('file') as HTMLInputElement).onchange = (e: Event) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) importFile(f); (e.target as HTMLInputElement).value = ''; };
+  root.addEventListener('dragover', e => { if (e.dataTransfer?.types.includes('Files')) e.preventDefault(); });
+  root.addEventListener('drop', e => { const f = e.dataTransfer?.files?.[0]; if (f && /\.(txt|lrc|srt|ttml|xml)$/i.test(f.name)) { e.preventDefault(); importFile(f); } });
   on('manualApply', () => loadManual($('manual').value));
   on('prompt', copyPrompt); on('pasteApply', applyPaste); on('llm', llmTranslate);
   on('toSpicy', toSpicy); on('dl', download); on('qa', runQa);
@@ -956,6 +1011,7 @@ function mount() {
   $('help').onclick = (e: MouseEvent) => { if (e.target === $('help')) $('help').hidden = true; };
   { const th = store.get('theme', 'auto'); $('theme').value = th; root.dataset.theme = th; $('theme').onchange = () => setTheme($('theme').value); }
   setupGrip();
+  ($('lyrIn').parentElement as HTMLElement).addEventListener('wheel', (e: WheelEvent) => { e.preventDefault(); SCR.manual -= e.deltaY; SCR.until = performance.now() + 3000; applyScroll(); }, { passive: false });
   window.addEventListener('keydown', onKey, true);
   window.addEventListener('beforeunload', saveProject);
   setupWave(); renderEditor(); buildPreview(); renderSync();

@@ -45,7 +45,7 @@
 .st-ln{display:grid;grid-template-columns:50px 34px 1fr;gap:8px;padding:5px 8px;border-radius:9px;border:1px solid transparent}
 .st-ln.on{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 8%,transparent)}
 .st-ln .t{color:var(--mut);font:12px ui-monospace,monospace;padding-top:2px;cursor:pointer}
-.st-ln .o{font-size:12.5px;color:var(--mut)}
+.st-ln .st-txt{display:flex;flex-direction:column;gap:3px;min-width:0}
 .st-ln input{margin-top:3px;padding:5px 8px!important}
 .st-sd{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ok);margin-left:5px;vertical-align:middle}
 .st-stage{position:relative;border-radius:16px;overflow:hidden;border:1px solid var(--line);background:var(--stage)}
@@ -96,3 +96,14 @@
 .st-ln{cursor:default}
 .st-voice small{color:var(--mut);font-size:11px;margin-right:2px}
 .st .st-voice button[data-agent=v2]{color:var(--acc2)}.st .st-voice button[data-agent=v1000]{color:var(--acc)}
+.st .st-ln input.o{background:transparent!important;border-color:transparent!important;padding:2px 4px!important;font-size:12.5px;color:var(--mut)}
+.st .st-ln input.o:hover,.st .st-ln input.o:focus{border-color:var(--line)!important;color:var(--txt)}
+.st-bgrow{display:flex;gap:4px;align-items:center}
+.st-bgrow:empty{display:none}
+.st .st-addbg{padding:0 7px!important;font-size:11px!important;color:var(--mut);opacity:0;transition:opacity .15s}
+.st-ln:hover .st-addbg{opacity:1}
+.st-bglab{font:700 10px ui-monospace,monospace;color:var(--acc2);text-transform:uppercase;letter-spacing:.5px}
+.st .st-bgrow input{padding:3px 7px!important;font-size:12px!important}
+.st .st-delbg{padding:0 6px!important;font-size:11px!important}
+.st-pl .bg{font-size:.62em;opacity:.85}
+.st-lyr{cursor:ns-resize}

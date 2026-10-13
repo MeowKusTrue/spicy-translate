@@ -1,5 +1,6 @@
 // Data model (unchanged from the single-file version): S.lines[] with optional per-word sync layers.
-export type Layer = 'tr' | 'orig';
+/** tr/orig = main line; bg/bgo = background vocals (translation / original), TTML ttm:role="x-bg" */
+export type Layer = 'tr' | 'orig' | 'bg' | 'bgo';
 export type Mode = 'translation' | 'bilingual';
 /** Singer of a line (TTML ttm:agent). Spicy Lyrics: v1 = main (left), v2 = second (right, opposite-aligned), v1000 = together. */
 export type Agent = 'v1' | 'v2' | 'v1000';
@@ -12,7 +13,8 @@ export interface Line {
   end: number;    // next line start, max t+10
   text: string;   // original
   tr: string;     // translation
-  sync?: { tr?: WordSync[]; orig?: WordSync[] } | null;
+  sync?: { tr?: WordSync[]; orig?: WordSync[]; bg?: WordSync[]; bgo?: WordSync[] } | null;
+  bg?: { text: string; tr: string };  // background vocals of this line (ad-libs, backing)
   agent?: Agent;  // missing = v1
 }
 

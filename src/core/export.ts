@@ -1,5 +1,5 @@
 import type { Agent, ExportOpts, TimedWord } from './types.ts';
-import { getWords, plainW } from './words.ts';
+import { getWords, plainW, syncComplete, units } from './words.ts';
 
 const p2 = (n: number) => String(n).padStart(2, '0');
 const p3 = (n: number) => String(n).padStart(3, '0');
@@ -36,6 +36,15 @@ export function buildTTML(o: ExportOpts) {
     if (wordTiming) {
       it.main = sh(getWords(mainText, sync[mainLayer], l.t, l.end));
       if (bilingual && hasTr) it.bg = sh(getWords(l.tr.trim().replace(/[()]/g, ''), sync.tr, l.t, l.end));
+      else if (!bilingual && l.bg) { // background vocals: translated if there is a translation, else the original; no parentheses (Spicy rule)
+        const useTr = !!(l.bg.tr && l.bg.tr.trim()), text = (useTr ? l.bg.tr : l.bg.text || '').trim();
+        if (text) {
+          const so = sync.bgo, n = units(l.bg.text).length;
+          const [b0, b1] = syncComplete(so, n) ? [so[0].a, so[n - 1].b] : [l.t, l.end];
+          const ws = sh(getWords(text, sync[useTr ? 'bg' : 'bgo'], b0, b1)).map(w => ({ ...w, word: w.word.replace(/[()]/g, '') })).filter(w => w.word);
+          if (ws.length) it.bg = ws;
+        }
+      }
       const all = it.main.concat(it.bg || []);
       it.a = Math.min(...all.map(w => w.a)); it.b = Math.max(...all.map(w => w.b));
     }

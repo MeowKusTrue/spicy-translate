@@ -19,6 +19,20 @@ export async function readSpicyCache(uri: string): Promise<any | null> {
   } catch { return null; }
 }
 
+/** Spicy syllables -> text with our syllable marks + timings (null if nothing usable). Background vocals use this. */
+function sylls(list: any[]): { text: string; sync: Span[] } | null {
+  const us: Unit[] = [], sy: Span[] = [];
+  for (const s of list) {
+    const w = String(s?.Text ?? '').trim().replace(/\|/g, '¦').replace(/\s+/g, NBSP);
+    const a = num(s?.StartTime), b = num(s?.EndTime);
+    if (!w || !Number.isFinite(a) || !Number.isFinite(b)) continue;
+    us.push({ w, sp: !s.IsPartOfWord }); sy.push({ a: r3(a), b: r3(Math.max(a, b)) });
+  }
+  if (!us.length) return null;
+  us[us.length - 1].sp = true;
+  const text = unitsText(us);
+  return units(text).length === sy.length ? { text, sync: sy } : null;
+}
 /** Spicy lyrics object -> our lines. Returns null when there is nothing timed to take (e.g. Static lyrics). */
 export function spicyToLines(d: any, duration = 0): Line[] | null {
   if (!d || !Array.isArray(d.Content) || d.Type === 'Static') return null;
@@ -28,6 +42,7 @@ export function spicyToLines(d: any, duration = 0): Line[] | null {
     const agent: Agent | undefined = c.OppositeAligned ? 'v2' : undefined;
     if (c.Lead && Array.isArray(c.Lead.Syllables)) {
       const us: Unit[] = [], sy: Span[] = [];
+      const bg = sylls((Array.isArray(c.Background) ? c.Background : []).flatMap((g: any) => Array.isArray(g?.Syllables) ? g.Syllables : []));
       for (const s of c.Lead.Syllables) {
         // a syllable with inner spaces becomes one glued block; IsPartOfWord = continues into the next syllable (no space)
         const w = String(s?.Text ?? '').trim().replace(/\|/g, '¦').replace(/\s+/g, NBSP);
@@ -40,7 +55,8 @@ export function spicyToLines(d: any, duration = 0): Line[] | null {
       const text = unitsText(us), ok = units(text).length === sy.length;
       const t = Number.isFinite(num(c.Lead.StartTime)) ? c.Lead.StartTime : sy[0].a!;
       const end = Number.isFinite(num(c.Lead.EndTime)) ? c.Lead.EndTime : sy[sy.length - 1].b!;
-      out.push({ t: r3(t), end: r3(Math.max(end, t + 0.3)), text, tr: '', ...(ok ? { sync: { orig: sy } } : {}), ...(agent ? { agent } : {}) });
+      const sync: Line['sync'] = {}; if (ok) sync!.orig = sy; if (bg) sync!.bgo = bg.sync;
+      out.push({ t: r3(t), end: r3(Math.max(end, t + 0.3)), text, tr: '', ...(ok || bg ? { sync } : {}), ...(agent ? { agent } : {}), ...(bg ? { bg: { text: bg.text, tr: '' } } : {}) });
     } else if (typeof c.Text === 'string' && c.Text.trim() && Number.isFinite(num(c.StartTime))) {
       const t = c.StartTime, end = Number.isFinite(num(c.EndTime)) ? c.EndTime : t + 3;
       out.push({ t: r3(t), end: r3(Math.max(end, t + 0.3)), text: c.Text.trim(), tr: '', ...(agent ? { agent } : {}) });
@@ -51,7 +67,7 @@ export function spicyToLines(d: any, duration = 0): Line[] | null {
   const last = Math.max(...out.map(l => l.end));
   if (duration > 0 && last > duration * 20) for (const l of out) {
     l.t = r3(l.t / 1000); l.end = r3(l.end / 1000);
-    l.sync?.orig?.forEach(x => { x.a = r3(x.a! / 1000); x.b = r3(x.b! / 1000); });
+    for (const k of ['orig', 'bgo'] as const) l.sync?.[k]?.forEach(x => { x.a = r3(x.a! / 1000); x.b = r3(x.b! / 1000); });
   }
   return out.sort((x, y) => x.t - y.t);
 }
