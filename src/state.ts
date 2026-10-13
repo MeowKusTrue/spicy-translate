@@ -20,6 +20,7 @@ export const S = {
   hasAudio: false, playing: false, vt: 0, vStart: 0, rate: 1, vol: 0.3,
   audioBlob: null as Blob | null, audioUrl: '',
   // word sync
+  picked: new Set<number>(), pickAnchor: -1,
   layer: 'tr' as Layer, sel: null as { i: number; k: number } | null, undo: [] as string[], redo: [] as string[],
   dock: false, fx: true, snap: true, loop: false, voff: 0, lat: 100,
   ver: 0, // bumps whenever preview timings change

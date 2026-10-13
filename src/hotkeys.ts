@@ -4,7 +4,7 @@ import { now, pause, play, seekTo, setRate } from './audio.ts';
 import { PV } from './preview.ts';
 import { doRedo, doUndo, joinWords, mark, nudgeWord, resetWord, splitWord, stepWord } from './sync.ts';
 import { drawWave } from './waveform/wave.ts';
-import { cycleAgent } from './agents.ts';
+import { cycleAgent, setAgent } from './agents.ts';
 
 export function toggleDock(on?: boolean) {
   S.dock = on === undefined ? !S.dock : on;
@@ -22,7 +22,7 @@ export function updateKbd() {
 }
 const blurActive = () => { const a = document.activeElement; if (a instanceof HTMLElement && a !== document.body) a.blur(); };
 
-const KEYS = new Set(['KeyV', 'KeyM', 'KeyU', 'KeyN', 'KeyL', 'KeyR', 'Comma', 'Period', 'Space', 'KeyF', 'KeyG', 'KeyH', 'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'BracketLeft', 'BracketRight', 'Quote', 'Delete', 'Backspace']);
+const KEYS = new Set(['Digit1', 'Digit2', 'Digit3', 'KeyV', 'KeyM', 'KeyU', 'KeyN', 'KeyL', 'KeyR', 'Comma', 'Period', 'Space', 'KeyF', 'KeyG', 'KeyH', 'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'BracketLeft', 'BracketRight', 'Quote', 'Delete', 'Backspace']);
 function onKey(e: KeyboardEvent) {
   if (!S.dock || S.help) return;
   const tg = e.target as HTMLInputElement, tag = tg.tagName;
@@ -39,6 +39,9 @@ function onKey(e: KeyboardEvent) {
   if (c === 'BracketRight') return setRate(S.rate + 0.25);
   if (c === 'Quote') return setRate(1);
   if (c === 'Comma' || c === 'Period') return nudgeWord((c === 'Comma' ? -1 : 1) * (e.shiftKey ? 0.05 : 0.01));
+  if (c === 'Digit1') return setAgent('v1');
+  if (c === 'Digit2') return setAgent('v2');
+  if (c === 'Digit3') return setAgent('v1000');
   if (c === 'KeyV') { if (S.sel) cycleAgent(S.sel.i); return; }
   if (c === 'KeyM') return joinWords();
   if (c === 'KeyU') return splitWord();

@@ -9,7 +9,7 @@ import { selectWord } from '../sync.ts';
 import { LANGS, applyPaste, autoTranslate, clearTr, copyPrompt, llmTranslate } from '../translate.ts';
 import { copyTTML, download, gotoQa, runQa, saveLRC, saveProjectFile, saveSRT, toggleCode } from '../exporting.ts';
 import { drawWave } from '../waveform/wave.ts';
-import { agentOf, cycleAgent } from '../agents.ts';
+import { agentOf, cycleAgent, pickLine } from '../agents.ts';
 
 const set = (f: () => void) => { f(); emit(); };
 const St = ({ id, m }: { id: string; m: { msg: string; cls: string } }) => <div className={'status ' + m.cls} id={id}>{m.msg}</div>;
@@ -49,7 +49,7 @@ export function SearchCard() {
 
 function LineRow({ i }: { i: number }) {
   const l = S.lines[i];
-  return <div className="ln" id={'ln' + i}>
+  return <div className={'ln' + (S.picked.has(i) ? ' picked' : '')} id={'ln' + i} onClick={e => { if (!(e.target as HTMLElement).closest('input,button,.t')) pickLine(i, e); }}>
     <div className="t" onClick={() => { seekTo(l.t); selectWord(i, 0); }}>
       {mmss(l.t) + '.' + String(Math.floor((l.t % 1) * 10))}
       {lineState(i, mainLayerFor(i)) === 'done' && <i className="sd" title="слова синхронизированы" />}

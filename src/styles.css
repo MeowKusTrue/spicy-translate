@@ -208,3 +208,6 @@ button.danger{color:#ff9a9a}
 .ln .ag[data-agent=v1000]{color:var(--acc);border-color:color-mix(in srgb,var(--acc) 50%,transparent)}
 :root[data-theme=light] .status.err,:root[data-theme=light] .qa .err{color:#b42318}
 :root[data-theme=light] .qa .warn{color:#8a5a00}
+.ln.picked{background:color-mix(in srgb,var(--acc) 14%,transparent);border-color:color-mix(in srgb,var(--acc) 45%,transparent)}
+.actions .voice small{color:var(--mut);font-size:11px;margin-right:2px}
+.actions .voice button[data-agent=v2]{color:var(--acc2)}.actions .voice button[data-agent=v1000]{color:var(--acc)}

@@ -77,8 +77,8 @@ export function previewFrame(t: number) {
     document.querySelectorAll('.ln').forEach((e, i) => e.classList.toggle('on', i === idx));
     const target = document.getElementById('pl' + (idx >= 0 ? idx : Math.max(0, act)));
     const box = inner();
-    if (target && box) box.style.transform = `translateY(${-(target.offsetTop - 20)}px)`;
-    if (idx >= 0 && S.playing) { const r = document.getElementById('ln' + idx); if (r) r.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+    if (target && box) { const lyr = box.parentElement as HTMLElement; box.style.transform = `translateY(${-(target.offsetTop + target.offsetHeight / 2 - lyr.clientHeight / 2)}px)`; }
+    if (idx >= 0 && S.playing) { const r = document.getElementById('ln' + idx); if (r) r.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
     nodesVer = -1;
   }
   if (nodesVer !== S.ver) { nodesVer = S.ver; actNodes = idx >= 0 ? [...document.querySelectorAll<WNode>('#pl' + idx + ' .w')] : []; }

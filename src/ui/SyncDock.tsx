@@ -5,6 +5,7 @@ import { S, emit, layerText, lineState, ls, viewWords, wordsOf } from '../state.
 import { playWord } from '../audio.ts';
 import { dockMouseDown, setLoop, setSnap, toggleDock } from '../hotkeys.ts';
 import { setupGrip } from '../dockSize.ts';
+import { setAgent } from '../agents.ts';
 import {
   clearLayer, doRedo, doUndo, joinWords, mark, nudgeWord, playSel, resetLine, resetWord, selectWord,
   splitWord, spreadAll, spreadSelLine, stepWord, syllabifyLine, wordLabel,
@@ -91,6 +92,11 @@ export function SyncDock() {
         <button className="sm ic" id="wbBack" title="Сдвинуть слово −10 мс (,)" onClick={() => nudgeWord(-0.01)}>−10</button><button className="sm ic" id="wbFwd" title="Сдвинуть слово +10 мс (.)" onClick={() => nudgeWord(0.01)}>+10</button>
         <button className="sm ic" id="wbPlay" title="Проиграть слово (ПКМ по слову)" onClick={playSel}>▶</button>
         <button className="sm ic" id="wbReset" title="Сбросить слово (Del)" onClick={resetWord}>⌫</button>
+      </span>
+      <span className="grp voice"><small>голос</small>
+        <button className="sm ic" data-agent="v1" title="Исполнитель 1 — слева (клавиша 1). Выдели строки слева: клик, Shift — диапазон, Ctrl — по одной" onClick={() => setAgent('v1')}>1</button>
+        <button className="sm ic" data-agent="v2" title="Исполнитель 2 — справа (клавиша 2)" onClick={() => setAgent('v2')}>2</button>
+        <button className="sm ic" data-agent="v1000" title="Вместе (клавиша 3)" onClick={() => setAgent('v1000')}>1+2</button>
       </span>
       <span className="grp">
         <button className="sm" id="btnJoin" title="Склеить со следующим (M): два слова → один блок, два слога → один" onClick={joinWords}>⛓ Склеить</button>
