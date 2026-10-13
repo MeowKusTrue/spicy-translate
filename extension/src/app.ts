@@ -3,6 +3,7 @@ import css from './style.css';
 import { buildTTML, entriesToLines, fmtTime, getWords, parseLRC, parsePlain, plainW, qaCheck, splitWords, syllabify, syncComplete, units, unitsText, wordList,
   type Line, type Mode, type Span, type TTMLOpts, type Word } from './core.ts';
 import { findLyrics, type TrackInfo } from './lrclib.ts';
+import { agentsByTime, readSpicyCache, spicyToLines } from './spicyCache.ts';
 import { putToSpicy } from './spicy.ts';
 
 declare const Spicetify: any;
@@ -18,6 +19,7 @@ const S = {
   open: false, uri: '', meta: { title: '', artist: '', album: '', duration: 0 } as TrackInfo, lines: [] as Line[],
   layer: 'tr' as Layer, sel: null as null | { i: number; k: number }, undo: [] as string[], redo: [] as string[],
   snap: true, loop: false, fx: true, voff: 0, ver: 0, chips: [] as HTMLElement[], load: 0,
+  picked: new Set<number>(), pickAnchor: -1,
 };
 let root: HTMLElement;
 const $ = (id: string): any => root.querySelector('#st-' + id);
@@ -157,7 +159,7 @@ function saveProject() {
   if (!store.set('proj:' + S.uri, projectJSON())) msg('Не удалось сохранить проект (переполнен LocalStorage?) — скачай TTML.', 'err');
 }
 function setLines(lines: Line[]) {
-  S.lines = lines; S.undo = []; S.redo = []; S.sel = null;
+  S.lines = lines; S.undo = []; S.redo = []; S.sel = null; S.picked.clear(); S.pickAnchor = -1;
   S.layer = lines.some(l => l.tr && l.tr.trim()) ? 'tr' : 'orig'; $('layer').value = S.layer;
   renderEditor(); buildPreview();
   if (lines.length) selectWord(0, 0); else renderSync();
@@ -177,7 +179,11 @@ async function loadTrack(force = false) {
   const load = ++S.load;
   const saved = force ? null : store.get('proj:' + tr.uri, '');
   if (saved) { try { applyProject(JSON.parse(saved)); return msg('Восстановил твой проект для этого трека.', 'ok'); } catch {} }
-  setLines([]); msg('Ищу текст в LRCLIB…');
+  setLines([]); msg('Ищу текст…');
+  const sp = spicyToLines(await readSpicyCache(tr.uri), tr.duration);
+  if (load !== S.load) return;
+  if (sp) { setLines(sp); scheduleSave(); return msg(spicyMsg(sp), 'ok'); }
+  msg('В Spicy Lyrics этого трека нет — ищу в LRCLIB…');
   try {
     const d = await findLyrics({ ...tr, artist: tr.artist.split(', ')[0] });
     if (load !== S.load) return; // track changed meanwhile
@@ -190,6 +196,23 @@ async function loadTrack(force = false) {
       : off > 3 ? `Нашёл ${d.artistName} — ${d.trackName}, но длительность отличается на ${Math.round(off)} с — проверь тайминги.`
       : `LRCLIB: ${d.artistName} — ${d.trackName}, строк ${S.lines.length}.`, synced && off <= 3 ? 'ok' : 'err');
   } catch (e: any) { if (load === S.load) msg('Не достучался до LRCLIB: ' + e.message, 'err'); }
+}
+const spicyMsg = (sp: Line[]) => `Взял из Spicy Lyrics: строк ${sp.length}${sp.some(l => l.agent) ? ', с исполнителями' : ''}${sp.some(l => l.sync) ? ', оригинал уже размечен по слогам' : ''}.`;
+const NO_SPICY = 'В кэше Spicy Lyrics нет текста этого трека — открой его текст в Spicy Lyrics (кнопка в плеере) и нажми снова.';
+async function fromSpicy() {
+  if (!S.uri) return msg('Сначала включи трек.', 'err');
+  const sp = spicyToLines(await readSpicyCache(S.uri), S.meta.duration);
+  if (!sp) return msg(NO_SPICY, 'err');
+  if (S.lines.some(l => l.tr || l.sync) && !confirm('Заменить проект текстом из Spicy Lyrics? Перевод и разметка этого трека пропадут.')) return;
+  setLines(sp); scheduleSave(); msg(spicyMsg(sp), 'ok');
+}
+async function agentsFromSpicy() {
+  if (!S.lines.length) return msg('Сначала загрузи строки.', 'err');
+  const sp = spicyToLines(await readSpicyCache(S.uri), S.meta.duration);
+  if (!sp) return msg(NO_SPICY, 'err');
+  const n = agentsByTime(S.lines, sp);
+  renderEditor(); buildPreview(true); drawWave(); scheduleSave();
+  msg(`Исполнители из Spicy: сопоставил строк ${n} из ${S.lines.length} (по времени начала).`, n ? 'ok' : 'err');
 }
 function loadManual(text: string) {
   if (!S.uri) return msg('Сначала включи трек.', 'err');
@@ -214,11 +237,31 @@ function cycleAgent(i: number) {
   const b = root.querySelector('#st-ln' + i + ' .st-ag') as HTMLElement | null; if (b) paintAgent(b, i);
   buildPreview(true); scheduleSave();
 }
+function pickLine(i: number, e: MouseEvent) {
+  const P = S.picked;
+  if (e.shiftKey && S.pickAnchor >= 0) { P.clear(); for (let k = Math.min(S.pickAnchor, i); k <= Math.max(S.pickAnchor, i); k++) P.add(k); }
+  else if (e.ctrlKey || e.metaKey) { if (P.has(i)) P.delete(i); else P.add(i); S.pickAnchor = i; }
+  else { P.clear(); P.add(i); S.pickAnchor = i; }
+  paintPicked(); drawWave();
+}
+function paintPicked() { root.querySelectorAll('.st-ln').forEach((r, k) => r.classList.toggle('picked', S.picked.has(k))); }
+function setAgent(agent: 'v1' | 'v2' | 'v1000') {
+  const ids = S.picked.size ? [...S.picked] : S.sel ? [S.sel.i] : [];
+  if (!ids.length) return msg('Выдели строки слева (клик, Shift — диапазон, Ctrl — по одной) или выбери слово.', 'err');
+  for (const i of ids) {
+    const l = S.lines[i]; if (!l) continue;
+    if (agent === 'v1') delete l.agent; else l.agent = agent;
+    const b = root.querySelector('#st-ln' + i + ' .st-ag') as HTMLElement | null; if (b) paintAgent(b, i);
+  }
+  buildPreview(true); drawWave(); scheduleSave();
+  msg(`Голос «${AGENTS.find(a => a.id === agent)!.label}» → строк: ${ids.length}`, 'ok');
+}
 function renderEditor() {
   const box = $('lines'); box.innerHTML = '';
   if (!S.lines.length) box.innerHTML = '<div class="st-hint">Тут будут строки трека.</div>';
   S.lines.forEach((l, i) => {
-    const row = document.createElement('div'); row.className = 'st-ln'; row.id = 'st-ln' + i;
+    const row = document.createElement('div'); row.className = 'st-ln' + (S.picked.has(i) ? ' picked' : ''); row.id = 'st-ln' + i;
+    row.onclick = e => { if (!(e.target as HTMLElement).closest('input,button,.t')) pickLine(i, e); };
     row.innerHTML = '<div class="t"></div><div><div class="o"></div><input type="text" placeholder="перевод…"></div>';
     const t = row.querySelector('.t') as HTMLElement; t.textContent = mmss(l.t) + '.' + Math.floor((l.t % 1) * 10);
     t.onclick = () => { seekTo(l.t); selectWord(i, 0); };
@@ -354,8 +397,8 @@ function frame() {
     root.querySelectorAll('.st-pl').forEach((e, i) => e.className = 'st-pl' + (S.fx ? ' fx' : '') + (i === idx ? ' act' : (Math.abs(i - idx) === 1 ? ' near' : '')));
     root.querySelectorAll('.st-ln').forEach((e, i) => e.classList.toggle('on', i === idx));
     const target = root.querySelector('#st-pl' + (idx >= 0 ? idx : Math.max(0, act))) as HTMLElement | null;
-    if (target) $('lyrIn').style.transform = `translateY(${-(target.offsetTop - 20)}px)`;
-    if (idx >= 0 && pl) { const r = root.querySelector('#st-ln' + idx); if (r) r.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+    if (target) { const box = $('lyrIn').parentElement as HTMLElement; $('lyrIn').style.transform = `translateY(${-(target.offsetTop + target.offsetHeight / 2 - box.clientHeight / 2)}px)`; }
+    if (idx >= 0 && pl) { const r = root.querySelector('#st-ln' + idx); if (r) r.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
     nodesVer = -1;
   }
   if (nodesVer !== S.ver) { nodesVer = S.ver; actNodes = idx >= 0 ? [...root.querySelectorAll('#st-pl' + idx + ' .w')] : []; }
@@ -530,11 +573,13 @@ function drawWave() {
   for (let s = Math.ceil(t0 / step) * step; s < t1; s += step) { const x = X(s); g.fillRect(x, h - 6, 1, 6); g.fillText(mmss(s) + (step < 1 ? '.' + Math.round((s % 1) * 10) : ''), x + 3, h - 15); }
   // lower band: source lines (LRC timing) with original text, for orientation
   g.font = '12px system-ui'; g.textBaseline = 'middle';
-  S.lines.forEach(l => {
+  S.lines.forEach((l, li) => {
     if (l.end < t0 || l.t > t1) return;
-    const x1 = X(l.t), x2 = X(l.end);
-    g.fillStyle = `rgba(${TH.t},.06)`; g.fillRect(x1, LANE + 6, Math.max(2, x2 - x1 - 2), h - LANE - 26);
-    g.fillStyle = `rgba(${TH.t},.3)`; g.fillRect(x1, LANE + 6, 1, h - LANE - 26);
+    const x1 = X(l.t), x2 = X(l.end), ac = l.agent === 'v2' ? TH.a2 : l.agent === 'v1000' ? TH.a : TH.t, other = !!l.agent && l.agent !== 'v1';
+    g.fillStyle = `rgba(${ac},${other ? .18 : .06})`; g.fillRect(x1, LANE + 6, Math.max(2, x2 - x1 - 2), h - LANE - 26);
+    g.fillStyle = `rgba(${ac},${other ? .9 : .3})`; g.fillRect(x1, LANE + 6, other ? 3 : 1, h - LANE - 26);
+    if (S.picked.has(li)) { g.strokeStyle = `rgb(${TH.a})`; g.lineWidth = 1.5; g.strokeRect(x1 + .75, LANE + 6.75, Math.max(2, x2 - x1 - 3.5), h - LANE - 27.5); }
+    g.fillStyle = `rgba(${TH.t},.6)`;
     g.save(); g.beginPath(); g.rect(x1 + 4, LANE + 6, Math.max(0, x2 - x1 - 8), h - LANE - 26); g.clip(); g.fillText(plainW(l.text), x1 + 6, LANE + 6 + (h - LANE - 26) / 2); g.restore();
   });
   // word boxes
@@ -733,7 +778,7 @@ function runQa() {
 }
 
 /* ---------- hotkeys (capture phase: Spotify must not see the keys we use, e.g. Space) ---------- */
-const KEYS = new Set(['KeyV', 'KeyM', 'KeyU', 'KeyN', 'KeyL', 'KeyR', 'Comma', 'Period', 'Space', 'KeyF', 'KeyG', 'KeyH', 'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Delete', 'Backspace']);
+const KEYS = new Set(['Digit1', 'Digit2', 'Digit3', 'KeyV', 'KeyM', 'KeyU', 'KeyN', 'KeyL', 'KeyR', 'Comma', 'Period', 'Space', 'KeyF', 'KeyG', 'KeyH', 'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Delete', 'Backspace']);
 function onKey(e: KeyboardEvent) {
   if (!S.open) return;
   const tg = e.target as HTMLElement, tag = tg && tg.tagName;
@@ -743,6 +788,7 @@ function onKey(e: KeyboardEvent) {
     if (!$('help').hidden) $('help').hidden = true;
     else if (menus.length) menus.forEach(d => (d as HTMLDetailsElement).open = false);
     else if (act && root.contains(act) && /^(INPUT|TEXTAREA|SELECT)$/.test(act.tagName)) act.blur();
+    else if (S.picked.size) { S.picked.clear(); paintPicked(); drawWave(); }
     else toggle(false);
     return;
   }
@@ -756,6 +802,9 @@ function onKey(e: KeyboardEvent) {
   if (c === 'ArrowLeft') return seekTo(now() - (e.shiftKey ? 1 : 5));
   if (c === 'ArrowRight') return seekTo(now() + (e.shiftKey ? 1 : 5));
   if (c === 'Comma' || c === 'Period') return nudgeWord((c === 'Comma' ? -1 : 1) * (e.shiftKey ? 0.05 : 0.01));
+  if (c === 'Digit1') return setAgent('v1');
+  if (c === 'Digit2') return setAgent('v2');
+  if (c === 'Digit3') return setAgent('v1000');
   if (c === 'KeyV') { if (S.sel) cycleAgent(S.sel.i); return; }
   if (c === 'KeyM') return joinWords();
   if (c === 'KeyU') return splitWord();
@@ -777,6 +826,8 @@ const HTML = `
   <div class="st-ttl"><b id="st-title">Spicy Translate</b><small id="st-artist"></small></div>
   <span class="st-status" id="st-status"></span>
   <details class="st-menu"><summary class="st-btn">Текст</summary><div class="st-pop">
+    <button id="st-fromSpicy">⇣ Взять из Spicy Lyrics (текст, исполнители, слоги)</button>
+    <button id="st-agentsSpicy">⇣ Только исполнители из Spicy (перевод не трогает)</button>
     <button id="st-reload">↻ Заново из LRCLIB (сбросит проект)</button>
     <textarea id="st-manual" placeholder="[00:12.30] первая строка&#10;[00:15.80] вторая строка&#10;или просто текст, строка за строкой"></textarea>
     <button id="st-manualApply">Загрузить LRC / текст</button>
@@ -839,6 +890,7 @@ const HTML = `
       <button class="st-mk kh" id="st-H" title="Конец перед паузой / концом строки"><kbd>H</kbd>Конец</button>
     </span>
     <span class="st-grp"><button id="st-back" title=",">−10</button><button id="st-fwd" title=".">+10</button><button id="st-play" title="Проиграть слово">▶</button><button id="st-reset" title="Del">⌫</button></span>
+    <span class="st-grp st-voice"><small>голос</small><button id="st-ag1" data-agent="v1" title="Исполнитель 1 — слева (клавиша 1). Выдели строки слева: клик, Shift — диапазон, Ctrl — по одной">1</button><button id="st-ag2" data-agent="v2" title="Исполнитель 2 — справа (клавиша 2)">2</button><button id="st-ag3" data-agent="v1000" title="Вместе (клавиша 3)">1+2</button></span>
     <span class="st-grp"><button id="st-join" title="M">⛓ Склеить</button><button id="st-split" title="U">✂ Слоги</button>
       <details class="st-menu up"><summary class="st-btn">Строка ⋯</summary><div class="st-pop">
         <button id="st-sylLine">✂ Разбить строку на слоги</button>
@@ -872,6 +924,8 @@ function mount() {
   on('close', () => toggle(false));
   on('helpBtn', () => { $('help').hidden = false; }); on('helpClose', () => { $('help').hidden = true; });
   on('reload', () => { if (confirm('Перезагрузить текст из LRCLIB? Перевод и разметка этого трека пропадут.')) loadTrack(true); });
+  on('fromSpicy', fromSpicy); on('agentsSpicy', agentsFromSpicy);
+  on('ag1', () => setAgent('v1')); on('ag2', () => setAgent('v2')); on('ag3', () => setAgent('v1000'));
   on('manualApply', () => loadManual($('manual').value));
   on('prompt', copyPrompt); on('pasteApply', applyPaste); on('llm', llmTranslate);
   on('toSpicy', toSpicy); on('dl', download); on('qa', runQa);

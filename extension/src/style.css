@@ -92,3 +92,7 @@
 .st .st-ag{align-self:start;padding:1px 4px!important;font:700 11px ui-monospace,monospace!important;border-radius:7px!important;color:var(--mut)}
 .st .st-ag[data-agent=v2]{color:var(--acc2);border-color:color-mix(in srgb,var(--acc2) 50%,transparent)}
 .st .st-ag[data-agent=v1000]{color:var(--acc);border-color:color-mix(in srgb,var(--acc) 50%,transparent)}
+.st-ln.picked{background:color-mix(in srgb,var(--acc) 14%,transparent);border-color:color-mix(in srgb,var(--acc) 45%,transparent)}
+.st-ln{cursor:default}
+.st-voice small{color:var(--mut);font-size:11px;margin-right:2px}
+.st .st-voice button[data-agent=v2]{color:var(--acc2)}.st .st-voice button[data-agent=v1000]{color:var(--acc)}
