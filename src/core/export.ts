@@ -1,4 +1,4 @@
-import type { ExportOpts, TimedWord } from './types.ts';
+import type { Agent, ExportOpts, TimedWord } from './types.ts';
 import { getWords, plainW } from './words.ts';
 
 const p2 = (n: number) => String(n).padStart(2, '0');
@@ -17,7 +17,7 @@ export function esc(s: unknown) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-type Item = { a: number; b: number; mainText: string; main: TimedWord[] | null; bg: TimedWord[] | null };
+type Item = { a: number; b: number; mainText: string; main: TimedWord[] | null; bg: TimedWord[] | null; agent: Agent };
 
 export function buildTTML(o: ExportOpts) {
   const { lines, mode = 'translation', wordSpread = true, lang = 'ru', offset = 0, songwriters = [] } = o;
@@ -32,7 +32,7 @@ export function buildTTML(o: ExportOpts) {
     const mainText = mainLayer === 'tr' ? l.tr.trim() : l.text;
     if (!mainText || !mainText.trim()) continue;
     const sync = l.sync || {};
-    const it: Item = { a: Math.max(0, l.t + shift), b: Math.max(0, l.end + shift), mainText, main: null, bg: null };
+    const it: Item = { a: Math.max(0, l.t + shift), b: Math.max(0, l.end + shift), mainText, main: null, bg: null, agent: l.agent || 'v1' };
     if (wordTiming) {
       it.main = sh(getWords(mainText, sync[mainLayer], l.t, l.end));
       if (bilingual && hasTr) it.bg = sh(getWords(l.tr.trim().replace(/[()]/g, ''), sync.tr, l.t, l.end));
@@ -51,14 +51,16 @@ export function buildTTML(o: ExportOpts) {
       inner = spans(l.main!);
       if (l.bg) inner += `<span ttm:role="x-bg">${spans(l.bg)}</span>`;
     } else inner = esc(plainW(l.mainText));
-    body += `      <p begin="${fmtTime(l.a)}" end="${fmtTime(l.b)}" ttm:agent="v1" itunes:key="L${i + 1}">${inner}</p>\n`;
+    body += `      <p begin="${fmtTime(l.a)}" end="${fmtTime(l.b)}" ttm:agent="${l.agent}" itunes:key="L${i + 1}">${inner}</p>\n`;
   });
+  const used = ['v1', 'v2', 'v1000'].filter(id => id === 'v1' || items.some(i => i.agent === id));
+  const agents = used.map(id => `      <ttm:agent type="${id === 'v1000' ? 'group' : 'person'}" xml:id="${id}"/>`).join('\n');
   const sw = songwriters.filter(Boolean).map(s => `<songwriter>${esc(s)}</songwriter>`).join('');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" itunes:timing="${wordTiming ? 'Word' : 'Line'}" xml:lang="${esc(lang)}">
   <head>
     <metadata>
-      <ttm:agent type="person" xml:id="v1"/>
+${agents}
       <iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal"><songwriters>${sw}</songwriters></iTunesMetadata>
     </metadata>
   </head>

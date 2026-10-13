@@ -10,6 +10,7 @@ import { loadAudioFile } from './load.ts';
 import { installHotkeys } from './hotkeys.ts';
 import { startLoop } from './loop.ts';
 import { App } from './ui/App.tsx';
+import { initTheme } from './theme.ts';
 
 // prefs
 S.snap = ls.get('snap', '1') !== '0';
@@ -26,6 +27,7 @@ window.addEventListener('unhandledrejection', e => toast('Ошибка: ' + (e.r
 window.addEventListener('beforeunload', saveProject);
 document.addEventListener('visibilitychange', () => { if (document.hidden) saveProject(); });
 installHotkeys();
+initTheme();
 setVolume(Math.min(1, Math.max(0, parseFloat(ls.get('vol', '0.3')!) || 0.3)));
 buildPreview();
 startLoop();

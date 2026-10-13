@@ -9,6 +9,7 @@ import { selectWord } from '../sync.ts';
 import { LANGS, applyPaste, autoTranslate, clearTr, copyPrompt, llmTranslate } from '../translate.ts';
 import { copyTTML, download, gotoQa, runQa, saveLRC, saveProjectFile, saveSRT, toggleCode } from '../exporting.ts';
 import { drawWave } from '../waveform/wave.ts';
+import { agentOf, cycleAgent } from '../agents.ts';
 
 const set = (f: () => void) => { f(); emit(); };
 const St = ({ id, m }: { id: string; m: { msg: string; cls: string } }) => <div className={'status ' + m.cls} id={id}>{m.msg}</div>;
@@ -52,6 +53,7 @@ function LineRow({ i }: { i: number }) {
     <div className="t" onClick={() => { seekTo(l.t); selectWord(i, 0); }}>
       {mmss(l.t) + '.' + String(Math.floor((l.t % 1) * 10))}
       {lineState(i, mainLayerFor(i)) === 'done' && <i className="sd" title="слова синхронизированы" />}
+      <button className="ag" data-agent={agentOf(i).id} title={agentOf(i).title + ' (клик или V — сменить)'} onClick={e => { e.stopPropagation(); cycleAgent(i); }}>{agentOf(i).label}</button>
     </div>
     <div>
       <div className="o">{l.text}</div>

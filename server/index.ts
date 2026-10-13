@@ -58,7 +58,7 @@ const lastSearch: LrclibHit[] = [];
 const need = async () => { const s = await getState(); if (!s.project || !s.project.lines) throw new Error('проект пуст: сначала lyrics_search + load_lyrics (или открой проект в редакторе)'); return s.project; };
 const layerText = (l: C.Line, layer: Layer) => layer === 'tr' ? (l.tr || '') : l.text;
 const summary = (p: Project) => ({
-  meta: p.meta, lines: p.lines.map((l, i) => ({ i, t: +l.t.toFixed(2), end: +l.end.toFixed(2), text: l.text, tr: l.tr || '',
+  meta: p.meta, lines: p.lines.map((l, i) => ({ i, t: +l.t.toFixed(2), end: +l.end.toFixed(2), text: l.text, tr: l.tr || '', agent: l.agent || 'v1',
     wordsSynced: !!(l.sync && (['tr', 'orig'] as const).some(k => l.sync![k] && l.sync![k]!.length && l.sync![k]!.every(x => x.a != null && x.b != null && !x.g))) }))
 });
 
@@ -100,6 +100,15 @@ const tools: Record<string, Tool> = {
       for (const x of lines) { const l = p.lines[x.i]; if (!l) continue; const t = String(x.tr).trim(); if (t !== (l.tr || '')) { l.tr = t; if (l.sync) delete l.sync.tr; } n++; }
       if (lang) p.meta.lang = lang;
       await putProject(p, 'mcp'); return { ok: true, applied: n, total: p.lines.length };
+    }
+  },
+  set_agents: {
+    description: 'Назначить исполнителя строкам (дуэты). v1 — основной (слева), v2 — второй (справа, как в Spicy Lyrics), v1000 — вместе. Строки без назначения считаются v1.',
+    schema: { type: 'object', properties: { lines: { type: 'array', items: { type: 'object', properties: { i: { type: 'number' }, agent: { type: 'string', enum: ['v1', 'v2', 'v1000'] } }, required: ['i', 'agent'] } } }, required: ['lines'] },
+    async run({ lines }: { lines: { i: number; agent: 'v1' | 'v2' | 'v1000' }[] }) {
+      const p = await need(); let n = 0;
+      for (const x of lines) { const l = p.lines[x.i]; if (!l || !['v1', 'v2', 'v1000'].includes(x.agent)) continue; if (x.agent === 'v1') delete l.agent; else l.agent = x.agent; n++; }
+      await putProject(p, 'mcp'); return { ok: true, applied: n };
     }
   },
   set_word_timings: {

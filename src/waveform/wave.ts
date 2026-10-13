@@ -33,6 +33,13 @@ export async function buildPeaks(file: Blob) {
 }
 
 const canvas = () => document.getElementById('wave') as HTMLCanvasElement | null;
+/* theme colors ("r,g,b") for the canvas, read from CSS tokens on theme change */
+export const TH = { t: '255,255,255', a: '30,215,96', a2: '255,122,200' };
+export function readTheme() {
+  const pr = document.createElement('i'); document.body.appendChild(pr);
+  const rgb = (v: string) => { pr.style.color = `var(${v})`; return (getComputedStyle(pr).color.match(/[\d.]+/g) || []).slice(0, 3).join(','); };
+  TH.t = rgb('--txt') || TH.t; TH.a = rgb('--acc') || TH.a; TH.a2 = rgb('--acc2') || TH.a2; pr.remove();
+}
 export function drawWave() {
   const cv = canvas(); if (!cv || !S.dock) return;
   const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
@@ -44,18 +51,18 @@ export function drawWave() {
   const t0 = W.start, t1 = t0 + w / W.px, X = (tt: number) => (tt - t0) * W.px;
   const LANE = W.LANE, mid = LANE + (h - LANE) / 2, amp = (h - LANE) / 2 - 4;
   // ruler
-  g.fillStyle = 'rgba(255,255,255,.35)'; g.font = '10px ui-monospace,monospace'; g.textBaseline = 'top';
+  g.fillStyle = `rgba(${TH.t},.35)`; g.font = '10px ui-monospace,monospace'; g.textBaseline = 'top';
   const step = W.px > 400 ? 0.5 : W.px > 150 ? 1 : W.px > 60 ? 2 : 5;
   for (let s = Math.ceil(t0 / step) * step; s < t1; s += step) { const x = X(s); g.fillRect(x, h - 6, 1, 6); g.fillText(mmss(s) + (step < 1 ? '.' + Math.round((s % 1) * 10) : ''), x + 3, h - 15); }
   // waveform
   if (W.peaks) {
-    g.fillStyle = 'rgba(182,156,255,.55)';
+    g.fillStyle = `rgba(${TH.a},.55)`;
     for (let x = 0; x < w; x++) {
       const a = Math.floor((t0 + x / W.px) * W.pps), b = Math.max(a + 1, Math.floor((t0 + (x + 1) / W.px) * W.pps));
       let m = 0; for (let i = Math.max(0, a); i < b && i < W.peaks.length; i++) if (W.peaks[i] > m) m = W.peaks[i];
       const hh = Math.max(1, m * amp); g.fillRect(x, mid - hh, 1, hh * 2);
     }
-  } else { g.fillStyle = 'rgba(255,255,255,.25)'; g.font = '12px system-ui'; g.textBaseline = 'middle'; g.fillText('Загрузи аудио (♪ аудио) — тут появится волна', 14, mid); }
+  } else { g.fillStyle = `rgba(${TH.t},.25)`; g.font = '12px system-ui'; g.textBaseline = 'middle'; g.fillText('Загрузи аудио (♪ аудио) — тут появится волна', 14, mid); }
   // word boxes
   W.boxes = [];
   g.font = '600 15px system-ui'; g.textBaseline = 'middle';
@@ -67,20 +74,20 @@ export function drawWave() {
       const x1 = X(wd.a), x2 = X(wd.b); if (x2 < -2 || x1 > w + 2) return;
       const sel = S.sel && S.sel.i === i && S.sel.k === k;
       if (wd.real) {
-        g.fillStyle = sel ? 'rgba(255,122,200,.45)' : wd.g ? 'rgba(182,156,255,.16)' : 'rgba(182,156,255,.35)'; g.fillRect(x1, 3, Math.max(2, x2 - x1), LANE - 6);
-        g.fillStyle = 'rgba(255,255,255,.28)'; g.fillRect(x1, LANE, 1, h - LANE); g.fillRect(x2, LANE, 1, h - LANE);
-        g.strokeStyle = sel ? '#ff7ac8' : 'rgba(182,156,255,.9)'; g.lineWidth = 1; g.fillStyle = sel ? '#ff7ac8' : 'rgba(182,156,255,.95)'; g.fillRect(x1, 3, 3, LANE - 6); g.fillRect(x2 - 3, 3, 3, LANE - 6); if (wd.g) g.setLineDash([3, 3]); g.strokeRect(x1 + .5, 3.5, Math.max(2, x2 - x1) - 1, LANE - 7); g.setLineDash([]);
-      } else { g.setLineDash([3, 3]); g.strokeStyle = sel ? '#ff7ac8' : 'rgba(255,255,255,.25)'; g.strokeRect(x1 + .5, 3.5, Math.max(2, x2 - x1) - 1, LANE - 7); g.setLineDash([]); }
+        g.fillStyle = sel ? `rgba(${TH.a2},.45)` : wd.g ? `rgba(${TH.a},.16)` : `rgba(${TH.a},.35)`; g.fillRect(x1, 3, Math.max(2, x2 - x1), LANE - 6);
+        g.fillStyle = `rgba(${TH.t},.28)`; g.fillRect(x1, LANE, 1, h - LANE); g.fillRect(x2, LANE, 1, h - LANE);
+        g.strokeStyle = sel ? `rgb(${TH.a2})` : `rgba(${TH.a},.9)`; g.lineWidth = 1; g.fillStyle = sel ? `rgb(${TH.a2})` : `rgba(${TH.a},.95)`; g.fillRect(x1, 3, 3, LANE - 6); g.fillRect(x2 - 3, 3, 3, LANE - 6); if (wd.g) g.setLineDash([3, 3]); g.strokeRect(x1 + .5, 3.5, Math.max(2, x2 - x1) - 1, LANE - 7); g.setLineDash([]);
+      } else { g.setLineDash([3, 3]); g.strokeStyle = sel ? `rgb(${TH.a2})` : `rgba(${TH.t},.25)`; g.strokeRect(x1 + .5, 3.5, Math.max(2, x2 - x1) - 1, LANE - 7); g.setLineDash([]); }
       g.save(); g.beginPath(); g.rect(x1 + 2, 3, Math.max(0, x2 - x1 - 4), LANE - 6); g.clip();
-      g.fillStyle = wd.real ? '#fff' : 'rgba(255,255,255,.45)'; g.fillText((wd.b - wd.a >= 1 ? '✦ ' : '') + plainW(wd.word) + (wd.sp === false ? '-' : ''), x1 + 5, LANE / 2 + 1); g.restore();
+      g.fillStyle = wd.real ? `rgb(${TH.t})` : `rgba(${TH.t},.45)`; g.fillText((wd.b - wd.a >= 1 ? '✦ ' : '') + plainW(wd.word) + (wd.sp === false ? '-' : ''), x1 + 5, LANE / 2 + 1); g.restore();
       W.boxes.push({ i, k, a: wd.a, b: wd.b, real: !!wd.real, g: !!wd.g });
     });
   }
   // joined edges (touching words) get a bright joint so you can see what moves together
   const rb = W.boxes.filter(b => b.real).sort((p, q) => p.a - q.a);
-  for (let q = 0; q + 1 < rb.length; q++) if (Math.abs(rb[q].b - rb[q + 1].a) <= JOIN) { const jx = X(rb[q].b); g.fillStyle = '#fff'; g.fillRect(jx - 1, 3, 2, LANE - 6); }
+  for (let q = 0; q + 1 < rb.length; q++) if (Math.abs(rb[q].b - rb[q + 1].a) <= JOIN) { const jx = X(rb[q].b); g.fillStyle = `rgb(${TH.t})`; g.fillRect(jx - 1, 3, 2, LANE - 6); }
   // playhead
-  const px = X(t); g.fillStyle = '#fff'; g.fillRect(px, 0, 1.5, h);
+  const px = X(t); g.fillStyle = `rgb(${TH.t})`; g.fillRect(px, 0, 1.5, h);
   if (W.flash) { // F/G/H mark flash
     const age = (performance.now() - W.flash.at) / 800;
     if (age < 1) { const fx = X(W.flash.t), col = { F: '110,231,183', G: '182,156,255', H: '255,122,200' }[W.flash.kind]; g.fillStyle = `rgba(${col},${(1 - age).toFixed(2)})`; g.fillRect(fx - 1.5, 0, 3, h); g.font = '800 13px ui-monospace,monospace'; g.textBaseline = 'top'; g.fillText(W.flash.kind, fx + 5, LANE + 4); }

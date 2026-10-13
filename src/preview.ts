@@ -18,7 +18,7 @@ export function buildPreview(keepPos?: boolean) {
     const mainLayer = mainLayerFor(i);
     const wm = getWords(layerText(l, mainLayer), l.sync && l.sync[mainLayer], l.t, l.end);
     const wb = bi && l.tr && l.tr.trim() ? getWords(l.tr.trim(), l.sync && l.sync.tr, l.t, l.end) : null;
-    const el = document.createElement('div'); el.className = 'pl'; el.id = 'pl' + i;
+    const el = document.createElement('div'); el.className = 'pl'; el.id = 'pl' + i; el.dataset.agent = l.agent || 'v1';
     el.innerHTML = mkWords(wm) + (wb ? `<span class="bg">${mkWords(wb)}</span>` : '');
     el.querySelectorAll<HTMLElement>(':scope > .w').forEach((n, k) => n.textContent = plainW(wm[k].word));
     if (wb) el.querySelectorAll<HTMLElement>('.bg .w').forEach((n, k) => n.textContent = plainW(wb[k].word));

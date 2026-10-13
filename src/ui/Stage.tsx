@@ -4,6 +4,7 @@ import { S, emit, ls } from '../state.ts';
 import { pause, play, seekTo, setRate, setVolume } from '../audio.ts';
 import { PV } from '../preview.ts';
 import { loadAudioFile } from '../load.ts';
+import { setTheme, theme, type Theme } from '../theme.ts';
 
 // React must never re-render the lyrics container's children: preview.ts owns them.
 const Lyrics = memo(() => <div className="lyrics" id="lyr"><div className="lyrics-inner" id="lyrIn" /></div>);
@@ -29,6 +30,7 @@ export function Stage() {
             <input type="range" id="vol" min="0" max="1" step="0.01" value={S.vol} onChange={e => setVolume(parseFloat(e.target.value))} /></span></label>
           <label className="opt"><span>Скорость</span><select id="rate" value={String(S.rate)} onChange={e => setRate(parseFloat(e.target.value))}>{rates.map(r => <option key={r} value={String(r)}>{r}×</option>)}</select></label>
           <label className="opt"><span>Эффекты слов<small>подъём, свечение долгих</small></span><input type="checkbox" id="fxChk" checked={S.fx} onChange={e => { S.fx = e.target.checked; ls.set('fx', S.fx ? '1' : '0'); PV.lastAct = -2; emit(); }} /></label>
+          <label className="opt"><span>Тема</span><select id="theme" defaultValue={theme()} onChange={e => setTheme(e.target.value as Theme)}><option value="auto">как в системе</option><option value="dark">чёрная</option><option value="light">белая</option></select></label>
           <label className="opt"><span>Сдвиг анимации, мс<small>отстаёт → плюс, спешит → минус</small></span><input type="number" id="voff" step="10" defaultValue={S.voff} onChange={e => { S.voff = +e.target.value || 0; ls.set('voff', String(S.voff)); }} /></label>
         </div>
       </details>

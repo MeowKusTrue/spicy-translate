@@ -4,6 +4,7 @@ import { fmtTime, mmss, plainW, units } from '../core/index.ts';
 import { S, emit, layerText, lineState, ls, viewWords, wordsOf } from '../state.ts';
 import { playWord } from '../audio.ts';
 import { dockMouseDown, setLoop, setSnap, toggleDock } from '../hotkeys.ts';
+import { setupGrip } from '../dockSize.ts';
 import {
   clearLayer, doRedo, doUndo, joinWords, mark, nudgeWord, playSel, resetLine, resetWord, selectWord,
   splitWord, spreadAll, spreadSelLine, stepWord, syllabifyLine, wordLabel,
@@ -52,10 +53,13 @@ function Chips() {
 export function SyncDock() {
   const cv = useRef<HTMLCanvasElement>(null);
   useEffect(() => setupWave(cv.current!), []);
+  const gr = useRef<HTMLDivElement>(null);
+  useEffect(() => setupGrip(gr.current!), []);
   useEffect(() => { const f = () => drawWave(); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f); }, []);
   let done = 0; S.lines.forEach((_, i) => { if (lineState(i, S.layer) === 'done') done++; });
   const width = () => cv.current?.clientWidth || 800;
   return <div className={'dock' + (S.playing ? ' rec' : '')} id="dock" hidden={!S.dock} onMouseDown={dockMouseDown}>
+    <div className="grip" ref={gr} title="Потяни, чтобы изменить высоту панели (двойной клик — как было)"></div>
     <div className="bar">
       <b className="ttl">Разметка слов</b>
       <select id="layer" title="Что размечаем" value={S.layer} onChange={e => { S.layer = e.target.value as typeof S.layer; emit(); drawWave(); }}><option value="tr">перевод</option><option value="orig">оригинал</option></select>
