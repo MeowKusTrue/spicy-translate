@@ -1,0 +1,28 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Spicy Translate — стенд без Spotify</title>
+<!-- Фейковый Spicetify + фейковый LRCLIB (выдуманные строки), чтобы гонять панель в обычном браузере: npm run build, открыть этот файл. -->
+<body style="background:#121212;color:#fff;font-family:system-ui">
+<p>Фейковый плеер. Кнопка «Spicy Translate» ниже открывает панель.</p>
+<script>
+let pos = 0, ts = Date.now(), paused = true;
+const listeners = {};
+window.Spicetify = {
+  Player: {
+    data: { item: { uri: 'spotify:track:fake0000000000000000001', name: 'Paper Moon Kettle', artists: [{ name: 'Imaginary Band' }], album: { name: 'Nowhere' }, duration: { milliseconds: 60000 } } },
+    getProgress: () => paused ? pos : pos + Date.now() - ts, getDuration: () => 60000, isPlaying: () => !paused,
+    play() { if (paused) { ts = Date.now(); paused = false; } }, pause() { if (!paused) { pos += Date.now() - ts; paused = true; } },
+    togglePlay() { paused ? this.play() : this.pause(); }, seek(ms) { pos = ms; ts = Date.now(); },
+    addEventListener(t, f) { (listeners[t] = listeners[t] || []).push(f); },
+  },
+  LocalStorage: { get: k => localStorage.getItem(k), set: (k, v) => localStorage.setItem(k, v) },
+  Topbar: { Button: class { constructor(l, i, f) { const b = document.createElement('button'); b.textContent = l; b.onclick = f; document.body.append(b); } } },
+};
+const realFetch = window.fetch;
+window.fetch = async (u, o) => String(u).includes('lrclib.net/api/get')
+  ? new Response(JSON.stringify({ trackName: 'Paper Moon Kettle', artistName: 'Imaginary Band', duration: 60,
+      syncedLyrics: '[00:01.00]the kettle hums a paper moon\n[00:05.00]sleepy cactus counts the stars\n[00:09.00]lanterns whisper to the rain\n[00:13.00]' }), { status: 200 })
+  : realFetch(u, o);
+</script>
+<script src="../dist/spicy-translate.js"></script>
+</body>
