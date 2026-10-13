@@ -290,6 +290,7 @@ let lastAct = -2, actNodes: any[] = [], nodesVer = -1, wasPlaying = false;
 const LOOK = 0.3; // activate/scroll a line slightly before its first word, so CSS transitions finish on time
 function frame() {
   if (!S.open) return;
+  if (performance.now() - placedAt > 250) place();
   const t = now(), T = t + S.voff / 1000, R = ranges(), pl = playing();
   if (pl !== wasPlaying) { wasPlaying = pl; $('dock').classList.toggle('rec', pl); }
   let act = -1;
@@ -683,7 +684,15 @@ const KEYS = new Set(['KeyM', 'KeyU', 'KeyN', 'KeyL', 'KeyR', 'Comma', 'Period',
 function onKey(e: KeyboardEvent) {
   if (!S.open) return;
   const tg = e.target as HTMLElement, tag = tg && tg.tagName;
-  if (e.code === 'Escape') { $('help').hidden = true; root.querySelectorAll('details[open]').forEach(d => (d as HTMLDetailsElement).open = false); (document.activeElement as HTMLElement)?.blur?.(); e.stopImmediatePropagation(); return; }
+  if (e.code === 'Escape') { // peel one layer per press: help → menus → text field → the panel itself
+    e.stopImmediatePropagation();
+    const menus = root.querySelectorAll('details[open]'), act = document.activeElement as HTMLElement | null;
+    if (!$('help').hidden) $('help').hidden = true;
+    else if (menus.length) menus.forEach(d => (d as HTMLDetailsElement).open = false);
+    else if (act && root.contains(act) && /^(INPUT|TEXTAREA|SELECT)$/.test(act.tagName)) act.blur();
+    else toggle(false);
+    return;
+  }
   if (tag === 'TEXTAREA' || tag === 'SELECT' || (tag === 'INPUT' && !['range', 'checkbox', 'radio'].includes((tg as HTMLInputElement).type))) return;
   if (!$('help').hidden) return;
   const c = e.code;
@@ -841,9 +850,32 @@ function mount() {
   if (!store.get('helpSeen', '')) { $('help').hidden = false; store.set('helpSeen', '1'); }
 }
 
+/* the panel covers only Spotify's main view: top bar (window controls), sidebars and the player stay usable */
+const ANCHORS = ['.Root__main-view', '#main-view', '.main-view-container'];
+const BARS = ['.Root__now-playing-bar', '[data-testid="now-playing-bar"]', 'footer'];
+let placedAt = 0;
+function place() {
+  placedAt = performance.now();
+  if (!root || root.hidden) return;
+  const vis = (sels: string[]) => sels.map(s => document.querySelector(s) as HTMLElement | null).find(e => e && e.getBoundingClientRect().width > 300 && e.getBoundingClientRect().height > 0);
+  const a = vis(ANCHORS);
+  let top: number, left: number, width: number, height: number;
+  if (a) ({ top, left, width, height } = a.getBoundingClientRect());
+  else { // unknown layout: leave room for the window top bar and the player
+    const bar = vis(BARS), bottom = bar ? innerHeight - bar.getBoundingClientRect().top : 90;
+    top = 64; left = 0; width = innerWidth; height = innerHeight - top - bottom;
+  }
+  const st = root.style, px = (n: number) => Math.round(n) + 'px';
+  if (st.top !== px(top) || st.left !== px(left) || st.width !== px(width) || st.height !== px(height)) {
+    Object.assign(st, { top: px(top), left: px(left), width: px(width), height: px(height) });
+    drawWave();
+  }
+}
+
 export function toggle(open = !S.open) {
-  if (!root) mount();
+  if (!root) { mount(); addEventListener('resize', place); }
   S.open = open; root.hidden = !open;
+  if (open) place();
   if (open) { loadTrack(); lastAct = -2; requestAnimationFrame(frame); } else saveProject();
 }
 export function onSongChange() { if (S.open) loadTrack(); }

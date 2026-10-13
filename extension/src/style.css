@@ -1,5 +1,5 @@
 .st{--bg:#0c0916;--line:rgba(255,255,255,.09);--txt:#ece8f7;--mut:#9a92b5;--acc:#b69cff;--acc2:#ff7ac8;--ok:#6ee7b7;--warn:#fbbf24;
-  position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;gap:8px;padding:10px 16px 12px;
+  position:fixed;top:64px;left:0;width:100vw;height:calc(100vh - 160px);z-index:999;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;gap:8px;padding:10px 16px 12px;
   background:radial-gradient(900px 500px at 85% -10%,rgba(182,156,255,.16),transparent 60%),var(--bg);color:var(--txt);font:14px/1.45 var(--encore-body-font-stack,system-ui,sans-serif);box-sizing:border-box}
 .st[hidden]{display:none}
 .st *{box-sizing:border-box}
