@@ -22,11 +22,13 @@ Live-связь в `npm run dev` работает, только если на 87
 
 ## MCP (Claude Code / Claude Desktop)
 
-Сначала `npm run build` (сервер раздаёт `dist/index.html`), потом:
+Сначала `npm run build` (сервер раздаёт `dist/index.html`), потом из папки репозитория:
 
 ```bash
-claude mcp add spicy-translate -- node D:\Projects\spicy-translate\server\index.ts
+claude mcp add -s user spicy-translate -- node "$(pwd)/server/index.ts"
 ```
+
+В PowerShell вместо `$(pwd)` — `$PWD`. `-s user` делает сервер доступным во всех проектах.
 
 Сервер сам поднимает редактор на http://127.0.0.1:8787 (порт — `SPICY_PORT`). Открой его в браузере: плашка «MCP: связь ✓» значит, что правки агента появляются в редакторе за ~1.5 с, а твои видны агенту.
 Инструменты: `lyrics_search`, `load_lyrics`, `get_project`, `set_translations`, `set_word_timings`, `auto_spread`, `qa_check`, `export_ttml`.
