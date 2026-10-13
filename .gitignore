@@ -3,3 +3,5 @@ dist
 .vite
 spicy-project.json
 exports/
+test-results/
+playwright-report/
