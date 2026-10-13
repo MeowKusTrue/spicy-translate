@@ -28,7 +28,10 @@ export async function autoTranslate() {
   const worker = async () => {
     while (idx < S.lines.length) {
       const i = idx++, l = S.lines[i];
-      try { l.tr = await gt(plainW(l.text), tl); if (l.sync) delete l.sync.tr; }
+      try {
+        l.tr = await gt(plainW(l.text), tl); if (l.sync) delete l.sync.tr;
+        if (l.bg && l.bg.text.trim()) { l.bg.tr = await gt(plainW(l.bg.text), tl); if (l.sync) delete l.sync.bg; }
+      }
       catch { fail++; }
       status('st2', `Перевожу… ${++done}/${S.lines.length}`);
     }
@@ -46,10 +49,14 @@ export function copyPrompt() {
 export function parseLLM(txt: string) {
   const t = String(txt).replace(/```(?:json)?/g, ''), a = t.indexOf('['), b = t.lastIndexOf(']'); if (a < 0 || b < a) throw new Error('в ответе нет JSON-массива');
   const arr = JSON.parse(t.slice(a, b + 1)); if (!Array.isArray(arr)) throw new Error('ожидался массив');
-  return arr.map((x, k) => typeof x === 'string' ? { i: k, tr: x } : { i: x.i ?? k, tr: String(x.tr ?? x.text ?? '') });
+  return arr.map((x, k) => typeof x === 'string' ? { i: k, tr: x } : { i: x.i ?? k, tr: String(x.tr ?? x.text ?? ''), ...(x.bg ? { bg: String(x.bg) } : {}) });
 }
-function applyTr(rows: { i: number; tr: string }[]) {
-  let n = 0; rows.forEach(r => { const l = S.lines[r.i]; if (l && r.tr.trim()) { l.tr = r.tr.trim(); if (l.sync) delete l.sync.tr; n++; } });
+function applyTr(rows: { i: number; tr: string; bg?: string }[]) {
+  let n = 0; rows.forEach(r => {
+    const l = S.lines[r.i]; if (!l) return;
+    if (r.tr.trim()) { l.tr = r.tr.trim(); if (l.sync) delete l.sync.tr; n++; }
+    if (l.bg && r.bg && r.bg.trim()) { l.bg.tr = r.bg.trim(); if (l.sync) delete l.sync.bg; }
+  });
   if (n) S.layer = 'tr';
   refresh(); return n;
 }
@@ -59,8 +66,8 @@ export async function llmTranslate() {
   let url = S.llm.url.trim().replace(/\/+$/, ''); if (!url && prov === 'anthropic') url = 'https://api.anthropic.com';
   if (!model || !url) return status('st2', 'Укажи модель и Base URL.', 'err');
   ls.set('llm', JSON.stringify({ prov, model, key: key.trim(), url: S.llm.url.trim(), style }));
-  const sys = 'Ты литературный переводчик текстов песен. Переводи на язык: ' + langName() + '. Передавай смысл, настроение, сленг и рифму естественно, не дословно; число слов в строке держи близко к оригиналу (подсветка идёт по словам). Одинаковые строки (припев) переводи одинаково. Не склеивай и не разбивай строки. Ответ — ТОЛЬКО JSON-массив [{"i":число,"tr":"перевод"}], ровно по одному элементу на каждую входную строку, без комментариев и markdown.';
-  const user = 'Песня: ' + (S.meta.artist + ' — ' + S.meta.title) + '\n' + (style ? 'Заметки/глоссарий: ' + style + '\n' : '') + 'Строки:\n' + JSON.stringify(S.lines.map((l, i) => ({ i, text: plainW(l.text) })));
+  const sys = 'Ты литературный переводчик текстов песен. Переводи на язык: ' + langName() + '. Передавай смысл, настроение, сленг и рифму естественно, не дословно; число слов в строке держи близко к оригиналу (подсветка идёт по словам). Одинаковые строки (припев) переводи одинаково. Не склеивай и не разбивай строки. Если у строки есть поле bg (фоновый вокал, бэки), переведи и его в поле bg. Ответ — ТОЛЬКО JSON-массив [{"i":число,"tr":"перевод","bg":"перевод бэка, только если был bg"}], ровно по одному элементу на каждую входную строку, без комментариев и markdown.';
+  const user = 'Песня: ' + (S.meta.artist + ' — ' + S.meta.title) + '\n' + (style ? 'Заметки/глоссарий: ' + style + '\n' : '') + 'Строки:\n' + JSON.stringify(S.lines.map((l, i) => ({ i, text: plainW(l.text), ...(l.bg && l.bg.text.trim() ? { bg: plainW(l.bg.text) } : {}) })));
   S.busyLlm = true; status('st2', 'LLM переводит всю песню…');
   try {
     const k = key.trim();

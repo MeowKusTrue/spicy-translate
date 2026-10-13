@@ -58,7 +58,7 @@ const lastSearch: LrclibHit[] = [];
 const need = async () => { const s = await getState(); if (!s.project || !s.project.lines) throw new Error('проект пуст: сначала lyrics_search + load_lyrics (или открой проект в редакторе)'); return s.project; };
 const layerText = (l: C.Line, layer: Layer) => layer === 'tr' ? (l.tr || '') : l.text;
 const summary = (p: Project) => ({
-  meta: p.meta, lines: p.lines.map((l, i) => ({ i, t: +l.t.toFixed(2), end: +l.end.toFixed(2), text: l.text, tr: l.tr || '', agent: l.agent || 'v1',
+  meta: p.meta, lines: p.lines.map((l, i) => ({ i, t: +l.t.toFixed(2), end: +l.end.toFixed(2), text: l.text, tr: l.tr || '', agent: l.agent || 'v1', ...(l.bg ? { bg: l.bg } : {}),
     wordsSynced: !!(l.sync && (['tr', 'orig'] as const).some(k => l.sync![k] && l.sync![k]!.length && l.sync![k]!.every(x => x.a != null && x.b != null && !x.g))) }))
 });
 
@@ -87,6 +87,16 @@ const tools: Record<string, Tool> = {
       return { ok: true, lines: lines.length };
     }
   },
+  import_lyrics: {
+    description: 'Создать проект из содержимого файла с текстом: TTML (с исполнителями, бэками и пословной разметкой), SRT, LRC или просто текст (строки разложатся по длительности). Для новых треков, которых нет в LRCLIB. Заменяет текущий проект.',
+    schema: { type: 'object', properties: { text: { type: 'string', description: 'содержимое файла' }, file_name: { type: 'string', description: 'имя файла — помогает определить формат' }, duration: { type: 'number', description: 'длительность трека, с (для простого текста)' }, title: { type: 'string' }, artist: { type: 'string' }, lang: { type: 'string' } }, required: ['text'] },
+    async run({ text, file_name, duration, title, artist, lang }: { text: string; file_name?: string; duration?: number; title?: string; artist?: string; lang?: string }) {
+      const { lines, kind } = C.importLyrics(text, file_name || '', duration || 0);
+      if (!lines.length) throw new Error('в тексте не нашлось строк');
+      await putProject({ v: 1, meta: { title: title || '', artist: artist || '', lang: lang || 'ru', mode: 'translation' }, lines }, 'mcp');
+      return { ok: true, kind, lines: lines.length, singers: lines.some(l => l.agent), backgroundVocals: lines.filter(l => l.bg).length, wordTimings: lines.some(l => l.sync && l.sync.orig) };
+    }
+  },
   get_project: {
     description: 'Текущий проект: мета и строки (оригинал, перевод, таймкоды, синхронизированы ли слова). Читай перед переводом/правками.',
     schema: { type: 'object', properties: {} },
@@ -113,7 +123,7 @@ const tools: Record<string, Tool> = {
   },
   set_word_timings: {
     description: 'Задать пословные тайминги строки (секунды). words — по одному {a,b} на слово слоя (единицы = слова по пробелам и слоги через «|» в тексте; NBSP склеивает два слова в один блок). Тайминги, выставленные агентом, помечаются как авто (не подтверждены человеком).',
-    schema: { type: 'object', properties: { i: { type: 'number' }, layer: { type: 'string', enum: ['tr', 'orig'] }, words: { type: 'array', items: { type: 'object', properties: { a: { type: 'number' }, b: { type: 'number' } }, required: ['a', 'b'] } } }, required: ['i', 'layer', 'words'] },
+    schema: { type: 'object', properties: { i: { type: 'number' }, layer: { type: 'string', enum: ['tr', 'orig', 'bg', 'bgo'], description: 'tr/orig — основная строка, bg/bgo — бэк (перевод/оригинал)' }, words: { type: 'array', items: { type: 'object', properties: { a: { type: 'number' }, b: { type: 'number' } }, required: ['a', 'b'] } } }, required: ['i', 'layer', 'words'] },
     async run({ i, layer, words }: { i: number; layer: Layer; words: { a: number; b: number }[] }) {
       const p = await need(), l = p.lines[i]; if (!l) throw new Error('нет строки ' + i);
       const n = C.wordList(layerText(l, layer)).length; if (n !== words.length) throw new Error(`в слое ${layer} строки ${i} слов: ${n}, передано: ${words.length}`);
@@ -123,7 +133,7 @@ const tools: Record<string, Tool> = {
   },
   auto_spread: {
     description: 'Равномерно раскидать слова строк, где слои ещё не размечены (черновик, который человек доведёт на волне).',
-    schema: { type: 'object', properties: { layer: { type: 'string', enum: ['tr', 'orig'] } }, required: ['layer'] },
+    schema: { type: 'object', properties: { layer: { type: 'string', enum: ['tr', 'orig', 'bg', 'bgo'], description: 'tr/orig — основная строка, bg/bgo — бэк (перевод/оригинал)' } }, required: ['layer'] },
     async run({ layer }: { layer: Layer }) {
       const p = await need(); let n = 0;
       p.lines.forEach(l => { const t = layerText(l, layer); if (!t.trim() || (l.sync && l.sync[layer])) return; l.sync = l.sync || {}; l.sync[layer] = C.splitWords(t, l.t, l.end).map(w => ({ a: +w.a.toFixed(3), b: +w.b.toFixed(3), g: 1 as const })); n++; });

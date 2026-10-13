@@ -12,7 +12,7 @@ test('load, F/G/H, join/syllables, export TTML', async ({ page }) => {
   await page.locator('#mTitle').fill('Lanterns');
   await page.locator('#mArtist').fill('Nobody');
   // translation of line 1 with a pre-split syllable
-  await page.locator('#ln0 input').fill('бумажные фо|на|ри плывут');
+  await page.locator('#ln0 input.tr').fill('бумажные фо|на|ри плывут');
 
   await page.locator('#btnDock').click();
   await page.locator('#help #helpClose').click();
@@ -29,7 +29,7 @@ test('load, F/G/H, join/syllables, export TTML', async ({ page }) => {
   // join "фо|на" (syllables) and glue two words with M, then split one back with U
   await page.locator('#syncLines .chip', { hasText: /^фо$/ }).click();
   await page.keyboard.press('m');
-  await expect(page.locator('#ln0 input')).toHaveValue('бумажные фона|ри плывут');
+  await expect(page.locator('#ln0 input.tr')).toHaveValue('бумажные фона|ри плывут');
   await page.locator('#syncLines .chip', { hasText: 'бумажные' }).click();
   await page.keyboard.press('m');
   await expect(page.locator('#syncLines .chip.grp')).toHaveText('бумажные фона');

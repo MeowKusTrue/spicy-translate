@@ -63,7 +63,7 @@ export function SyncDock() {
     <div className="grip" ref={gr} title="Потяни, чтобы изменить высоту панели (двойной клик — как было)"></div>
     <div className="bar">
       <b className="ttl">Разметка слов</b>
-      <select id="layer" title="Что размечаем" value={S.layer} onChange={e => { S.layer = e.target.value as typeof S.layer; emit(); drawWave(); }}><option value="tr">перевод</option><option value="orig">оригинал</option></select>
+      <select id="layer" title="Что размечаем" value={S.layer} onChange={e => { S.layer = e.target.value as typeof S.layer; emit(); drawWave(); }}><option value="tr">перевод</option><option value="orig">оригинал</option><option value="bg">бэк: перевод</option><option value="bgo">бэк: оригинал</option></select>
       <span className="hint-line" id="guideTxt"><Guide /></span>
       <small id="dockMsg" className={S.toast.cls}>{S.toast.msg}</small><span className={'kbd' + (S.typing ? ' warn' : '')} id="kbd">{S.typing ? '⌨ клавиши выключены — кликни по волне' : ''}</span>
       <small className="stat" id="syncStat">{S.lines.length ? `синхронизировано строк: ${done}/${S.lines.length}` : ''}</small>

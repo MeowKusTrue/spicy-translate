@@ -7,12 +7,12 @@ import { scheduleSave } from './persist.ts';
 import { W, drawWave } from './waveform/wave.ts';
 
 /* ---------- undo ---------- */
-const stateJSON = () => JSON.stringify(S.lines.map(l => ({ s: l.sync || null, x: l.text, t: l.tr || '' })));
+const stateJSON = () => JSON.stringify(S.lines.map(l => ({ s: l.sync || null, x: l.text, t: l.tr || '', g: l.bg || null })));
 export function snap() { S.undo.push(stateJSON()); if (S.undo.length > 200) S.undo.shift(); S.redo = []; }
 function restore(json: string) {
   const arr = JSON.parse(json); let txt = false;
-  S.lines.forEach((l, i) => { const a = arr[i]; if (!a) return; if (a.s) l.sync = a.s; else delete l.sync; if (l.text !== a.x || (l.tr || '') !== a.t) txt = true; l.text = a.x; l.tr = a.t; });
-  if (txt) buildPreview(true);
+  S.lines.forEach((l, i) => { const a = arr[i]; if (!a) return; if (a.s) l.sync = a.s; else delete l.sync; if (l.text !== a.x || (l.tr || '') !== a.t || JSON.stringify(l.bg || null) !== JSON.stringify(a.g)) txt = true; l.text = a.x; l.tr = a.t; if (a.g) l.bg = a.g; else delete l.bg; });
+  if (txt) { buildPreview(true); emit(); }
   afterSyncChange(true);
 }
 export function doUndo() { if (!S.undo.length) return; S.redo.push(stateJSON()); restore(S.undo.pop()!); }

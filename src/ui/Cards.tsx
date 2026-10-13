@@ -10,6 +10,7 @@ import { LANGS, applyPaste, autoTranslate, clearTr, copyPrompt, llmTranslate } f
 import { copyTTML, download, gotoQa, runQa, saveLRC, saveProjectFile, saveSRT, toggleCode } from '../exporting.ts';
 import { drawWave } from '../waveform/wave.ts';
 import { agentOf, cycleAgent, pickLine } from '../agents.ts';
+import { addBg, delBg, editText } from '../lineEdit.ts';
 
 const set = (f: () => void) => { f(); emit(); };
 const St = ({ id, m }: { id: string; m: { msg: string; cls: string } }) => <div className={'status ' + m.cls} id={id}>{m.msg}</div>;
@@ -35,8 +36,8 @@ export function SearchCard() {
       <textarea id="manual" placeholder={'[00:12.30] первая строка\n[00:15.80] вторая строка'} value={S.manual} onChange={e => set(() => S.manual = e.target.value)} />
       <div className="row" style={{ marginTop: 8 }}>
         <button id="btnManual" onClick={() => loadManual(S.manual)}>Загрузить из поля</button>
-        <label className="btn">Файл .lrc / .txt<input type="file" id="fileLrc" accept=".lrc,.txt" hidden
-          onChange={async e => { const f = e.target.files?.[0]; if (f) { const t = await f.text(); S.manual = t; loadManual(t); } }} /></label>
+        <label className="btn" title="Свой текст для нового трека: .txt, .lrc, .srt, .ttml (наш, Apple, Spicy — с исполнителями, бэками и разметкой)">Файл .txt .lrc .srt .ttml<input type="file" id="fileLrc" accept=".lrc,.txt,.srt,.ttml,.xml" hidden
+          onChange={async e => { const f = e.target.files?.[0]; if (f) { const t = await f.text(); if (!/\.(ttml|xml)$/i.test(f.name)) S.manual = t; loadManual(t, f.name); } e.target.value = ''; }} /></label>
       </div>
     </details>
     <div className="grid2" style={{ marginTop: 12 }}>
@@ -55,13 +56,17 @@ function LineRow({ i }: { i: number }) {
       {lineState(i, mainLayerFor(i)) === 'done' && <i className="sd" title="слова синхронизированы" />}
       <button className="ag" data-agent={agentOf(i).id} title={agentOf(i).title + ' (клик или V — сменить)'} onClick={e => { e.stopPropagation(); cycleAgent(i); }}>{agentOf(i).label}</button>
     </div>
-    <div>
-      <div className="o">{l.text}</div>
-      <input type="text" placeholder="перевод…" value={l.tr || ''} onChange={e => {
-        l.tr = e.target.value;
-        if (l.sync && l.sync.tr && l.sync.tr.length !== wordList(l.tr).length) delete l.sync.tr; // text changed -> old word timings no longer fit
-        buildPreview(true); emit(); drawWave(); scheduleSave();
-      }} />
+    <div className="txt">
+      <input className="o" type="text" title="Оригинал — можно править" value={l.text} onChange={e => editText(i, 'orig', e.target.value)} />
+      <input className="tr" type="text" placeholder="перевод…" value={l.tr || ''} onChange={e => editText(i, 'tr', e.target.value)} />
+      {l.bg
+        ? <div className="bgrow">
+            <span className="bglab" title="Фоновый вокал: в Spicy мелкой строкой под основной">бэк</span>
+            <input type="text" placeholder="бэк: оригинал" value={l.bg.text} onChange={e => editText(i, 'bgo', e.target.value)} />
+            <input type="text" placeholder="бэк: перевод" value={l.bg.tr} onChange={e => editText(i, 'bg', e.target.value)} />
+            <button className="sm ic" title="Убрать бэк" onClick={e => { e.stopPropagation(); delBg(i); }}>✕</button>
+          </div>
+        : <button className="addbg" title="Добавить фоновый вокал (бэки, ад-либы) к этой строке" onClick={e => { e.stopPropagation(); addBg(i); }}>+ бэк</button>}
     </div>
   </div>;
 }

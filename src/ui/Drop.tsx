@@ -15,12 +15,12 @@ export function Drop() {
       e.preventDefault(); depth = 0; setOn(false);
       for (const f of e.dataTransfer!.files) {
         if (f.type.startsWith('audio/') || /\.(mp3|flac|wav|ogg|m4a|aac|opus)$/i.test(f.name)) await loadAudioFile(f);
-        else if (/\.(lrc|txt)$/i.test(f.name)) { const t = await f.text(); S.manual = t; loadManual(t); }
+        else if (/\.(lrc|txt|srt|ttml|xml)$/i.test(f.name)) { const t = await f.text(); if (!/\.(ttml|xml)$/i.test(f.name)) S.manual = t; loadManual(t, f.name); }
       }
     };
     window.addEventListener('dragenter', enter); window.addEventListener('dragleave', leave);
     window.addEventListener('dragover', over); window.addEventListener('drop', drop);
     return () => { window.removeEventListener('dragenter', enter); window.removeEventListener('dragleave', leave); window.removeEventListener('dragover', over); window.removeEventListener('drop', drop); };
   }, []);
-  return <div className={'drop' + (on ? ' on' : '')} id="drop"><div>Брось сюда аудио или .lrc<small>аудио → подберу текст по имени файла и построю волну</small></div></div>;
+  return <div className={'drop' + (on ? ' on' : '')} id="drop"><div>Брось сюда аудио или текст (.lrc .txt .srt .ttml)<small>аудио → подберу текст по имени файла и построю волну</small></div></div>;
 }

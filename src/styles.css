@@ -211,3 +211,14 @@ button.danger{color:#ff9a9a}
 .ln.picked{background:color-mix(in srgb,var(--acc) 14%,transparent);border-color:color-mix(in srgb,var(--acc) 45%,transparent)}
 .actions .voice small{color:var(--mut);font-size:11px;margin-right:2px}
 .actions .voice button[data-agent=v2]{color:var(--acc2)}.actions .voice button[data-agent=v1000]{color:var(--acc)}
+/* editable texts + background vocals rows */
+.ln .txt{display:flex;flex-direction:column;gap:4px;min-width:0}
+.ln input.o{margin:0;background:transparent;border-color:transparent;padding:3px 6px;font-size:13px;color:var(--mut)}
+.ln input.o:hover,.ln input.o:focus{border-color:var(--line);color:var(--txt)}
+.ln .bgrow{display:flex;gap:4px;align-items:center}
+.ln .bgrow input{margin:0;padding:4px 8px;font-size:12.5px}
+.ln .bglab{font:700 10px ui-monospace,monospace;color:var(--acc2);text-transform:uppercase;letter-spacing:.5px}
+.ln .addbg{align-self:flex-start;padding:0 8px;font-size:11px;color:var(--mut);opacity:0;transition:opacity .15s}
+.ln:hover .addbg{opacity:1}
+.pl .bg{font-size:.62em}
+.lyrics{cursor:ns-resize}

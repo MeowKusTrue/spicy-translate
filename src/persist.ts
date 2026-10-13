@@ -17,7 +17,7 @@ export function scheduleSave() {
 export function saveProject() {
   if (!S.lines.length) return; clearTimeout(saveT);
   const k = trackKey(); let ok = true;
-  if (k) ok = ls.set('proj:' + k, JSON.stringify({ lang: S.meta.lang, lines: S.lines.map(l => ({ text: l.text, tr: l.tr || '', sync: l.sync || null, agent: l.agent })) }));
+  if (k) ok = ls.set('proj:' + k, JSON.stringify({ lang: S.meta.lang, lines: S.lines.map(l => ({ text: l.text, tr: l.tr || '', sync: l.sync || null, agent: l.agent, bg: l.bg })) }));
   ok = ls.set('last', projectJSON()) && ok;
   S.save = ok ? { msg: '💾 сохранено ' + new Date().toLocaleTimeString().slice(0, 8), cls: 'ok' } : { msg: '💾 браузер не даёт сохранить — скачай проект', cls: 'warn' }; emit();
   pushLive();
@@ -38,7 +38,7 @@ export async function idbPut(k: string, blob: Blob | null) { if (!k || !blob || 
 export async function idbGet(k: string): Promise<Blob | null> { if (!k) return null; try { const db = await idb(); return await new Promise(res => { const r = db.transaction('audio').objectStore('audio').get(k); r.onsuccess = () => res(r.result || null); r.onerror = () => res(null); }); } catch { return null; } }
 
 export function projectJSON() {
-  const p: Project = { v: 1, meta: { ...S.meta }, lines: S.lines.map(l => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || null, agent: l.agent })) };
+  const p: Project = { v: 1, meta: { ...S.meta }, lines: S.lines.map(l => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || null, agent: l.agent, bg: l.bg })) };
   return JSON.stringify(p, null, 1);
 }
 export function loadProject(txt: string, keepSel?: boolean) {
@@ -46,7 +46,7 @@ export function loadProject(txt: string, keepSel?: boolean) {
   const m = p.meta || {}, sel = keepSel && S.sel ? { ...S.sel } : null;
   S.meta.title = m.title || ''; S.meta.artist = m.artist || ''; if (m.lang) S.meta.lang = m.lang;
   if (m.mode && m.mode !== S.meta.mode) setMode(m.mode as Mode);
-  setLines(p.lines.map((l: any) => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || undefined, agent: l.agent })), 0);
+  setLines(p.lines.map((l: any) => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || undefined, agent: l.agent, bg: l.bg })), 0);
   if (sel && sel.i < S.lines.length) S.sel = sel;
   buildPreview(); status('st1', `Проект загружен: строк ${S.lines.length}`, 'ok');
 }

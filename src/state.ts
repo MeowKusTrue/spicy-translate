@@ -51,7 +51,7 @@ export function toast(msg: string, cls?: string) {
 }
 
 /* ---------- words / layers ---------- */
-export function layerText(l: Line, layer: Layer) { return layer === 'tr' ? (l.tr || '') : l.text; }
+export function layerText(l: Line, layer: Layer) { return layer === 'tr' ? (l.tr || '') : layer === 'orig' ? l.text : layer === 'bg' ? (l.bg?.tr || '') : (l.bg?.text || ''); }
 export function wordsOf(i: number, layer: Layer) { return wordList(layerText(S.lines[i], layer)); }
 export function ensureSync(i: number, layer: Layer): WordSync[] {
   const l = S.lines[i], n = wordsOf(i, layer).length;

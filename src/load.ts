@@ -1,5 +1,5 @@
 // Getting lyrics and audio in: LRCLIB search, manual LRC, audio file (+ lyrics auto-pick by file name).
-import { entriesToLines, mmss, parseLRC, parsePlain, type Line, type Mode } from './core/index.ts';
+import { entriesToLines, mmss, parseLRC, parsePlain, type Line, type Mode, importLyrics } from './core/index.ts';
 import { S, emit, status, type LrclibHit } from './state.ts';
 import { audio, pause, seekTo } from './audio.ts';
 import { buildPreview } from './preview.ts';
@@ -32,10 +32,14 @@ export function loadTrack(d: LrclibHit) {
   if (!S.hasAudio) idbGet(trackKey()).then(b => { if (b) { loadAudioFile(b, true); } });
   else if (S.audioBlob) idbPut(trackKey(), S.audioBlob);
 }
-export function loadManual(text: string) {
-  const e = parseLRC(text), synced = e.length > 0;
-  setLines(entriesToLines(synced ? e : parsePlain(text), 0), 0);
-  status('st1', synced ? `Строк: ${S.lines.length}` : 'Меток времени нет — тайминги выдуманы (по 3.5 с на строку).', synced ? 'ok' : 'err');
+/** Text from the field or a file: .ttml (with singers, background vocals, word timings), .srt, .lrc or plain text. */
+export function loadManual(text: string, fileName = '') {
+  const dur = S.hasAudio ? audio.duration || 0 : 0;
+  const { lines, kind } = importLyrics(text, fileName, dur);
+  if (!lines.length) return status('st1', 'Не нашёл строк в тексте.', 'err');
+  setLines(lines, dur);
+  const extra = [lines.some(l => l.sync?.orig) && 'разметка слов', lines.some(l => l.agent) && 'исполнители', lines.some(l => l.bg) && 'бэки'].filter(Boolean).join(', ');
+  status('st1', `${kind.toUpperCase()}: строк ${S.lines.length}${extra ? ' · ' + extra : ''}${kind === 'text' ? (dur ? ' · без таймингов: строки разложены по треку, точную синхру задай F/G' : ' · без таймингов: по 3.5 с на строку; с аудио разложу по длине трека') : ''}`, kind === 'text' ? 'err' : 'ok');
 }
 export function setLines(lines: Line[], dur: number) {
   S.lines = lines; S.undo = []; S.redo = []; S.sel = null;
