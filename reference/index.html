@@ -1,0 +1,1627 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spicy Translate</title>
+<style>
+:root{
+  --bg:#0c0916; --bg2:#150f26; --card:rgba(255,255,255,.045); --line:rgba(255,255,255,.09);
+  --txt:#ece8f7; --mut:#9a92b5; --acc:#b69cff; --acc2:#ff7ac8; --ok:#6ee7b7; --warn:#fbbf24;
+  --r:16px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:
+    radial-gradient(900px 500px at 85% -10%, rgba(182,156,255,.18), transparent 60%),
+    radial-gradient(700px 500px at -10% 110%, rgba(255,122,200,.12), transparent 60%),
+    var(--bg);
+  color:var(--txt); font:15px/1.5 Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+header{display:flex;align-items:center;gap:14px;padding:18px 28px;border-bottom:1px solid var(--line);backdrop-filter:blur(10px);position:sticky;top:0;z-index:5;background:rgba(12,9,22,.7)}
+.logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--acc),var(--acc2));display:grid;place-items:center;font-weight:800;color:#190f33}
+header h1{font-size:18px;margin:0;font-weight:700;letter-spacing:.2px}
+header span{color:var(--mut);font-size:13px}
+main{display:grid;grid-template-columns:minmax(380px,520px) 1fr;gap:22px;padding:22px 28px;max-width:1500px;margin:0 auto}
+@media(max-width:980px){main{grid-template-columns:1fr;padding:16px}}
+.col{display:flex;flex-direction:column;gap:16px;min-width:0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px}
+.card h2{margin:0 0 12px;font-size:12px;text-transform:uppercase;letter-spacing:1.4px;color:var(--mut);font-weight:700;display:flex;align-items:center;gap:8px}
+.card h2 b{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:7px;background:linear-gradient(135deg,var(--acc),var(--acc2));color:#190f33;font-size:11px;letter-spacing:0}
+input[type=text],input[type=number],select,textarea{
+  width:100%;background:rgba(0,0,0,.28);border:1px solid var(--line);color:var(--txt);border-radius:11px;padding:10px 12px;font:inherit;outline:none;transition:.15s}
+input:focus,select:focus,textarea:focus{border-color:var(--acc);box-shadow:0 0 0 3px rgba(182,156,255,.15)}
+textarea{resize:vertical;min-height:90px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
+.row{display:flex;gap:8px;align-items:center}
+.row>*{min-width:0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+button,.btn{background:rgba(255,255,255,.07);border:1px solid var(--line);color:var(--txt);border-radius:11px;padding:9px 14px;font:inherit;font-weight:600;cursor:pointer;transition:.15s;white-space:nowrap}
+button:hover,.btn:hover{background:rgba(255,255,255,.12)}
+button.pri{background:linear-gradient(135deg,var(--acc),#8d6bff);color:#170d30;border:0}
+button.pri:hover{filter:brightness(1.08)}
+button:disabled{opacity:.5;cursor:not-allowed}
+.hint{color:var(--mut);font-size:12.5px;margin:8px 0 0}
+.res{max-height:230px;overflow:auto;margin-top:10px;display:flex;flex-direction:column;gap:6px}
+.item{padding:9px 11px;border:1px solid var(--line);border-radius:11px;cursor:pointer;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.item:hover{border-color:var(--acc);background:rgba(182,156,255,.08)}
+.item small{color:var(--mut);display:block}
+.tag{font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--mut);flex:none}
+.tag.ok{color:var(--ok);border-color:rgba(110,231,183,.4)}
+.lines{max-height:420px;overflow:auto;display:flex;flex-direction:column;gap:6px;padding-right:4px}
+.ln{display:grid;grid-template-columns:54px 1fr;gap:10px;align-items:start;padding:8px 10px;border-radius:11px;border:1px solid transparent}
+.ln:hover{background:rgba(255,255,255,.04)}
+.ln.on{border-color:var(--acc);background:rgba(182,156,255,.08)}
+.ln .t{color:var(--mut);font:12px ui-monospace,Menlo,monospace;padding-top:3px;cursor:pointer}
+.ln .o{font-size:13px;color:var(--mut)}
+.ln input{margin-top:4px;padding:7px 10px}
+.seg{display:flex;background:rgba(0,0,0,.28);border:1px solid var(--line);border-radius:11px;padding:3px;gap:3px}
+.seg label{flex:1;text-align:center;padding:7px 8px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;color:var(--mut)}
+.seg input{display:none}
+.seg input:checked+span{color:#170d30}
+.seg label:has(input:checked){background:linear-gradient(135deg,var(--acc),#8d6bff);color:#170d30}
+.chk{display:flex;gap:9px;align-items:flex-start;margin:10px 0;color:var(--txt);font-size:14px}
+.chk input{margin-top:4px;accent-color:var(--acc)}
+.chk small{display:block;color:var(--mut)}
+.status{font-size:13px;color:var(--mut);min-height:20px;margin-top:8px}
+.status.err{color:#ff8a8a}.status.ok{color:var(--ok)}
+/* preview */
+.stage{position:sticky;top:84px;height:calc(100vh - 110px);min-height:520px;border-radius:22px;overflow:hidden;border:1px solid var(--line);
+  background:linear-gradient(160deg,#241448,#120a26 60%,#1d0f33);display:flex;flex-direction:column}
+.stage .glow{position:absolute;inset:0;background:radial-gradient(500px 360px at 20% 20%,rgba(182,156,255,.35),transparent 70%),radial-gradient(420px 320px at 90% 90%,rgba(255,122,200,.25),transparent 70%);filter:blur(30px);animation:drift 14s ease-in-out infinite alternate;pointer-events:none}
+@keyframes drift{to{transform:translate(-30px,20px) scale(1.08)}}
+.stage-top{position:relative;padding:18px 24px 6px}
+.stage-top b{font-size:17px;display:block}.stage-top span{color:var(--mut);font-size:13px}
+.lyrics{position:relative;flex:1;overflow:hidden;padding:0 28px;-webkit-mask-image:linear-gradient(transparent,#000 14%,#000 80%,transparent);mask-image:linear-gradient(transparent,#000 14%,#000 80%,transparent)}
+.lyrics-inner{padding:38vh 0 40vh;transition:transform .55s cubic-bezier(.2,.8,.2,1)}
+.pl{font-size:30px;font-weight:800;line-height:1.2;margin:16px 0;opacity:.28;filter:blur(1.6px);transition:opacity .3s,filter .3s,transform .3s;transform-origin:left center;transform:scale(.94);cursor:pointer}
+.pl.act{opacity:1;filter:none;transform:scale(1)}
+.pl.near{opacity:.45;filter:blur(.8px)}
+.pl .w{background:linear-gradient(90deg,#fff calc(var(--p,0)*1%),rgba(255,255,255,.4) calc(var(--p,0)*1%));-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
+.pl.act .w{text-shadow:0 0 0 transparent}
+.pl .bg{display:block;font-size:19px;font-weight:700;opacity:.8;margin-top:4px}
+.empty{color:var(--mut);text-align:center;margin-top:30vh;font-size:15px;position:relative}
+.player{position:relative;padding:14px 22px 18px;display:flex;gap:12px;align-items:center;border-top:1px solid var(--line);background:rgba(10,6,22,.55);backdrop-filter:blur(10px)}
+.player input[type=range]{flex:1;accent-color:var(--acc)}
+.player .time{font:12px ui-monospace,monospace;color:var(--mut);min-width:84px;text-align:right}
+.round{flex:none;width:40px;height:40px;border-radius:50%;padding:0;display:grid;place-items:center;background:#fff;color:#170d30;border:0;font-size:15px}
+pre.out{max-height:240px;overflow:auto;background:rgba(0,0,0,.35);border:1px solid var(--line);border-radius:11px;padding:12px;font-size:11.5px;color:#cfc6ee;margin:10px 0 0;white-space:pre-wrap;word-break:break-all}
+
+/* dock */
+body.dock-open main{padding-bottom:420px}
+body.dock-open .stage{height:calc(100vh - 84px - 410px);min-height:300px}
+.dock{position:fixed;left:0;right:0;bottom:0;height:400px;z-index:20;background:rgba(14,9,28,.94);backdrop-filter:blur(14px);border-top:1px solid var(--line);display:flex;flex-direction:column;padding:10px 20px 12px;gap:8px}
+.dock[hidden]{display:none}
+.dock-old{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.dock-head b{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--mut);margin-right:6px}
+.dock-head select,.dock-head input[type=number]{width:auto;padding:6px 9px;font-size:13px}
+.dock-head input[type=number]{width:76px}
+.dock-head small{color:var(--mut)}
+#dockMsg.ok{color:var(--ok)}#dockMsg.err{color:#ff8a8a}
+.kbd{font-size:12px;padding:3px 9px;border-radius:99px;border:1px solid rgba(110,231,183,.4);color:var(--ok)}
+.kbd.warn{border-color:rgba(251,191,36,.6);color:var(--warn)}
+.dock .sp{flex:1}
+button.sm{padding:6px 10px;font-size:12.5px;border-radius:9px}
+#wave{width:100%;height:170px;flex:none;border-radius:12px;background:rgba(0,0,0,.35);border:1px solid var(--line);display:block;touch-action:none}
+.sync-lines{flex:1;overflow:auto;display:flex;flex-direction:column;gap:4px;min-height:0}
+.sl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:3px 0;opacity:.45}
+.sl.cur{opacity:1}
+.sl .lab{width:42px;font:11px ui-monospace,monospace;color:var(--mut);flex:none}
+.chip{padding:5px 11px;border-radius:9px;border:1px solid var(--line);background:rgba(255,255,255,.05);cursor:pointer;font-weight:600;font-size:15px;user-select:none}
+.sl.cur .chip{font-size:18px;padding:6px 13px}
+.chip.t{background:rgba(182,156,255,.22);border-color:rgba(182,156,255,.5)}
+.chip.half{border-style:dashed;border-color:var(--warn)}
+.chip.sel{outline:2px solid var(--acc2);outline-offset:1px}
+.keys{color:var(--mut);font-size:12px}
+.keys kbd{background:rgba(255,255,255,.1);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:0 6px;color:var(--txt);font:11.5px ui-monospace,monospace}
+.vol{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:12px}
+.vol input[type=range]{width:90px;accent-color:var(--acc)}
+.player select{width:auto;padding:6px 8px;font-size:12.5px}
+.drop{position:fixed;inset:0;z-index:50;background:rgba(12,9,22,.82);backdrop-filter:blur(6px);display:none;place-items:center;pointer-events:none}
+.drop.on{display:grid}
+.drop div{border:2px dashed var(--acc);border-radius:24px;padding:48px 64px;font-size:24px;font-weight:800;text-align:center}
+.drop small{display:block;font-size:14px;font-weight:500;color:var(--mut);margin-top:8px}
+.snap{display:flex;gap:5px;align-items:center;font-size:12.5px;color:var(--txt);cursor:pointer;padding:0 4px}.snap input{accent-color:var(--acc)}
+.sd{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ok);margin-left:6px;vertical-align:middle}
+a{color:var(--acc)}
+.steps{margin:0;padding-left:18px;color:var(--mut);font-size:13px}.steps li{margin:4px 0}.steps b{color:var(--txt)}
+/* word effects in preview (approximation of Spicy: soft gradient fill, lift, glow on long words) */
+.pl .w{display:inline-block;will-change:transform;
+  background:linear-gradient(90deg,#fff calc(var(--g,-12)*1% - 8%),rgba(255,255,255,.38) calc(var(--g,-12)*1% + 8%));-webkit-background-clip:text;background-clip:text}
+.pl.fx .w.on{transform:translateY(calc(var(--lift,0)*-3px)) scale(calc(1 + var(--lift,0)*.03))}
+.pl.fx .w.em.on{transform:translateY(calc(var(--lift,0)*-4px)) scale(calc(1 + var(--lift,0)*.1));filter:drop-shadow(0 0 calc(var(--lift,0)*12px) rgba(255,255,255,.75))}
+.pl .w.done{background:none;-webkit-text-fill-color:#fff;color:#fff}
+.pill{font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--line);color:var(--mut)}
+.pill.ok{color:var(--ok);border-color:rgba(110,231,183,.4)}.pill.warn{color:var(--warn);border-color:rgba(251,191,36,.5)}
+.chip.grp{border-color:var(--acc2)}
+.help{font-size:13px;color:var(--mut);background:rgba(0,0,0,.35);border:1px solid var(--line);border-radius:11px;padding:10px 14px;max-height:150px;overflow:auto}
+.help ol{margin:4px 0 0;padding-left:18px}.help li{margin:3px 0}.help b{color:var(--txt)}
+.stepper{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
+.stepper span{font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--line);color:var(--mut)}
+.stepper span.ok{color:var(--ok);border-color:rgba(110,231,183,.4)}
+.stepper span.cur{color:#170d30;background:linear-gradient(135deg,var(--acc),#8d6bff);border:0;font-weight:700}
+.qa{margin-top:10px;display:flex;flex-direction:column;gap:4px;max-height:220px;overflow:auto;font-size:12.5px}
+.qa div{padding:5px 9px;border-radius:8px;border:1px solid var(--line);cursor:pointer}
+.qa .err{border-color:rgba(255,138,138,.5);color:#ffb0b0}.qa .warn{border-color:rgba(251,191,36,.4);color:#fde7a6}
+details.llm{margin-top:10px}details.llm summary{cursor:pointer;color:var(--mut);font-size:13px}
+details.llm .grid2{margin-top:8px}
+/* minimal dock */
+.dock{gap:10px}
+.bar{display:flex;gap:8px;align-items:center;min-width:0}
+.bar .ttl{font-size:13px;white-space:nowrap}
+.bar select{width:auto;padding:5px 8px;font-size:13px}
+.hint-line{flex:1;min-width:0;color:var(--mut);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hint-line b{color:var(--txt);font-weight:600}
+.stat{color:var(--mut);white-space:nowrap}
+.kbd:not(.warn){display:none}
+.actions{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.actions .grp{display:flex;gap:4px;align-items:center}
+.actions .marks{gap:6px}
+button.ic{min-width:34px;padding:6px 8px}
+.mk{display:flex;align-items:center;gap:8px;padding:5px 14px 5px 5px;border-radius:11px;font-size:14px;--c:#6ee7b7}
+.mk kbd{display:grid;place-items:center;width:28px;height:28px;border-radius:8px;background:var(--c);color:#130b26;font:800 14px ui-monospace,monospace;box-shadow:0 2px 0 rgba(0,0,0,.4)}
+#wordInfo{margin-left:auto;color:var(--mut);font:12px ui-monospace,monospace;white-space:nowrap}
+details.menu{position:relative}
+details.menu>summary{list-style:none}details.menu>summary::-webkit-details-marker{display:none}
+details.menu[open]>summary{background:rgba(255,255,255,.14)}
+.pop{position:absolute;right:0;top:calc(100% + 8px);z-index:40;min-width:270px;display:flex;flex-direction:column;gap:6px;padding:10px;border-radius:14px;background:#1b1333;border:1px solid var(--line);box-shadow:0 18px 50px rgba(0,0,0,.55)}
+details.menu.up .pop{top:auto;bottom:calc(100% + 8px)}
+.pop>button{text-align:left}
+.pop .opt{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:13px}
+.pop .opt small{display:block;color:var(--mut);font-size:11px}
+.pop .opt input[type=number],.pop .opt select{width:86px;padding:6px 8px}
+.pop .opt input[type=range]{width:100px;accent-color:var(--acc)}
+.pop kbd,.help kbd{background:rgba(255,255,255,.1);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:0 6px;font:11.5px ui-monospace,monospace;color:var(--txt)}
+.help kbd.f{background:#6ee7b7;color:#130b26}.help kbd.g{background:#b69cff;color:#130b26}.help kbd.h{background:#ff7ac8;color:#130b26}
+button.danger{color:#ff9a9a}
+.modal{position:fixed;inset:0;z-index:60;display:grid;place-items:center;background:rgba(8,5,16,.6);backdrop-filter:blur(6px);padding:16px}
+.modal[hidden]{display:none}
+.modal .help{position:relative;width:min(620px,100%);max-height:85vh;overflow:auto;background:#170f2b;border:1px solid var(--line);border-radius:18px;padding:20px 22px;font-size:14px;color:var(--txt)}
+.modal .help h3{margin:0 0 12px;font-size:17px}
+.modal .help ol{padding-left:20px;margin:14px 0}.modal .help li{margin:7px 0}
+.modal .help summary{cursor:pointer;color:var(--mut)}.modal .help p{color:var(--mut);font-size:13px}
+.modal .close{position:absolute;right:14px;top:14px}
+.wordbar{display:flex;gap:8px;align-items:stretch;flex-wrap:wrap}
+.wordbar .grp{display:flex;gap:5px;align-items:center;padding:4px;border-radius:12px;background:rgba(255,255,255,.04);border:1px solid var(--line)}
+.wordbar .grp>small{color:var(--mut);padding:0 6px;font-size:11px;text-transform:uppercase;letter-spacing:1px}
+.mk{display:flex;align-items:center;gap:8px;padding:5px 12px 5px 5px;border-radius:10px;text-align:left;--c:#6ee7b7}
+.mk kbd{display:grid;place-items:center;width:30px;height:30px;border-radius:8px;background:var(--c);color:#130b26;font:800 15px ui-monospace,monospace;box-shadow:0 3px 0 rgba(0,0,0,.4)}
+.mk span{display:flex;flex-direction:column;line-height:1.15}.mk b{font-size:13px}.mk small{font-size:11px;color:var(--mut);font-weight:500}
+.mk.kf{--c:#6ee7b7}.mk.kg{--c:#b69cff}.mk.kh{--c:#ff7ac8}
+.mk:hover{border-color:var(--c)}
+.mk.hit,.chip.hit{animation:hit .4s ease-out}
+@keyframes hit{0%{box-shadow:0 0 0 0 var(--c,#fff);transform:scale(.95)}100%{box-shadow:0 0 0 14px transparent;transform:scale(1)}}
+.wordbar kbd.k{font:700 11px ui-monospace,monospace;background:rgba(255,255,255,.12);border-radius:5px;padding:1px 5px;margin-right:5px}
+#wordInfo{align-self:center;color:var(--mut);font:12px ui-monospace,monospace}
+.chip.now{background:rgba(255,255,255,.22);box-shadow:0 0 0 2px rgba(255,255,255,.7) inset}
+.chip.syl{border-top-right-radius:3px;border-bottom-right-radius:3px;border-right-style:dashed}
+.chip.cont{margin-left:-6px;border-top-left-radius:3px;border-bottom-left-radius:3px;border-left-style:dashed}
+.dock.rec{box-shadow:inset 0 2px 0 #ff7ac8}
+.legend{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;align-items:center;margin-top:6px}
+.legend kbd{display:inline-grid;place-items:center;min-width:24px;height:22px;border-radius:6px;font:800 12px ui-monospace,monospace;color:#130b26}
+.help{max-height:230px}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">S</div>
+  <div><h1>Spicy Translate</h1><span>синхронный перевод для Spicy Lyrics · TTML</span></div>
+  <div style="flex:1"></div>
+  <span class="pill" id="liveLink" title="Связь с локальным сервером / MCP" hidden>MCP: нет связи</span>
+  <span class="pill" id="saveInd" title="Проект сохраняется автоматически в браузере">💾 —</span>
+  <button class="pri" id="btnDock" title="Пословная синхронизация с волной и хоткеями">Синхра по словам</button>
+</header>
+<main>
+<div class="col">
+  <div class="stepper" id="stepper"></div>
+
+  <section class="card">
+    <h2><b>1</b> Найти трек и тайминги</h2>
+    <div class="row">
+      <input type="text" id="q" placeholder="Исполнитель — название (например: Eminem Lose Yourself)">
+      <button class="pri" id="btnSearch">Найти</button>
+    </div>
+    <div class="res" id="results"></div>
+    <p class="hint">Источник синхро-текста — <a href="https://lrclib.net" target="_blank" rel="noreferrer">LRCLIB</a> (открытая база, без ключей). Если нужного трека нет — вставь свой LRC ниже.</p>
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;color:var(--mut);font-size:13px">Вставить LRC / текст вручную</summary>
+      <textarea id="manual" placeholder="[00:12.30] первая строка&#10;[00:15.80] вторая строка"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button id="btnManual">Загрузить из поля</button>
+        <label class="btn">Файл .lrc / .txt<input type="file" id="fileLrc" accept=".lrc,.txt" hidden></label>
+      </div>
+    </details>
+    <div class="grid2" style="margin-top:12px">
+      <input type="text" id="mTitle" placeholder="Название">
+      <input type="text" id="mArtist" placeholder="Исполнитель">
+    </div>
+    <div class="status" id="st1"></div>
+  </section>
+
+  <section class="card">
+    <h2><b>2</b> Перевод</h2>
+    <div class="grid2">
+      <select id="lang">
+        <option value="ru">на русский</option><option value="en">на английский</option><option value="uk">на украинский</option>
+        <option value="kk">на казахский</option><option value="be">на белорусский</option><option value="es">на испанский</option>
+        <option value="de">на немецкий</option><option value="fr">на французский</option><option value="it">на итальянский</option>
+        <option value="pt">на португальский</option><option value="tr">на турецкий</option><option value="pl">на польский</option>
+        <option value="ja">на японский</option><option value="ko">на корейский</option><option value="zh-CN">на китайский</option>
+      </select>
+      <button class="pri" id="btnAuto">Автоперевод (Google)</button>
+    </div>
+    <div class="row" style="margin-top:8px;flex-wrap:wrap">
+      <button id="btnPrompt" title="Скопирует промпт со строками — вставь в Claude/ChatGPT для художественного перевода">Промпт для LLM</button>
+      <button id="btnPaste">Вставить перевод списком</button>
+      <button id="btnClear">Очистить</button>
+    </div>
+    <details class="llm" id="llmBox">
+      <summary>🤖 Перевод через LLM (с контекстом всей песни)</summary>
+      <div class="grid2">
+        <select id="llmProv"><option value="openai">OpenAI-совместимый (OpenRouter, Ollama, LM Studio…)</option><option value="anthropic">Anthropic (Claude)</option></select>
+        <input type="text" id="llmModel" placeholder="модель, напр. claude-sonnet-5-5">
+      </div>
+      <div class="grid2">
+        <input type="text" id="llmUrl" placeholder="Base URL (openai: https://openrouter.ai/api/v1)">
+        <input type="text" id="llmKey" placeholder="API-ключ (хранится только в этом браузере)">
+      </div>
+      <textarea id="llmStyle" style="min-height:60px;margin-top:8px" placeholder="Стиль и глоссарий: «разговорный, мат оставляй», «gaslighter = газлайтер», имена не переводить…"></textarea>
+      <div class="row" style="margin-top:8px"><button class="pri" id="btnLlm">Перевести через LLM</button><small class="hint" style="margin:0">Ключ уходит напрямую провайдеру. Нет ключа — используй «Промпт для LLM».</small></div>
+    </details>
+    <div id="pasteBox" hidden style="margin-top:10px">
+      <textarea id="pasteTa" placeholder="Вставь сюда готовый перевод — по одной строке на строку оригинала (нумерация «1.» тоже ок)"></textarea>
+      <div class="row" style="margin-top:8px"><button class="pri" id="btnPasteApply">Применить</button><button id="btnPasteCancel">Отмена</button></div>
+    </div>
+    <div class="status" id="st2"></div>
+    <div class="lines" id="lines" style="margin-top:10px"></div>
+  </section>
+
+  <section class="card">
+    <h2><b>3</b> Экспорт TTML</h2>
+    <div class="seg">
+      <label><input type="radio" name="mode" value="translation" checked><span>Только перевод</span></label>
+      <label><input type="radio" name="mode" value="bilingual"><span>Оригинал + перевод</span></label>
+    </div>
+    <p class="hint" id="modeHint">Переведённый текст становится основной лирикой — самый безопасный вариант для Spicy Lyrics.</p>
+    <label class="chk"><input type="checkbox" id="spread" checked><span>Пословная подсветка (караоке)<small>Слова равномерно размазываются по длительности строки. Тайминг приблизительный, но выглядит живо.</small></span></label>
+    <div class="grid2">
+      <div><small style="color:var(--mut)">Сдвиг, мс</small><input type="number" id="offset" value="0" step="50"></div>
+      <div><small style="color:var(--mut)">Авторы текста (через запятую)</small><input type="text" id="writers" placeholder="необязательно"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="pri" id="btnDl">Скачать .ttml</button>
+      <button id="btnCopy">Копировать</button>
+      <button id="btnShow">Показать код</button>
+    </div>
+    <div class="row" style="margin-top:8px;flex-wrap:wrap"><button class="sm" id="btnLrc">LRC</button><button class="sm" id="btnSrt">SRT (субтитры)</button><button class="sm" id="btnProjSave">Сохранить проект</button><label class="btn sm" style="padding:6px 10px;font-size:12.5px">Открыть проект<input type="file" id="fileProj" accept=".json" hidden></label></div>
+    <div class="row" style="margin-top:8px"><button class="sm" id="btnQa" title="Проверка перед экспортом: пустые, перекрытия, слишком короткие слова…">✔ Проверка (QA)</button><small class="hint" id="qaSum" style="margin:0"></small></div>
+    <div class="qa" id="qaOut"></div>
+    <pre class="out" id="out" hidden></pre>
+    <ol class="steps" style="margin-top:14px">
+      <li>Открой песню в Spotify со Spicy Lyrics, нажми <b>Lyrics Manager</b>.</li>
+      <li><b>Upload TTML</b> → выбери файл → <b>Persistent Upload</b> (останется в локальной библиотеке).</li>
+      <li>Если не обновилось — очисти кэш Spicy Lyrics и открой трек заново.</li>
+    </ol>
+  </section>
+</div>
+
+<div class="col">
+  <div class="stage">
+    <div class="glow"></div>
+    <div class="stage-top"><b id="pTitle">Превью</b><span id="pArtist">Загрузи трек слева</span></div>
+    <div class="lyrics" id="lyr"><div class="lyrics-inner" id="lyrIn"><div class="empty">Тут появится живое превью лирики</div></div></div>
+    <div class="player">
+      <button class="round" id="btnPlay" title="Играть / пауза (Space)">▶</button>
+      <input type="range" id="seek" min="0" max="100" step="0.05" value="0">
+      <div class="time" id="clock">0:00 / 0:00</div>
+      <label class="btn sm" title="Свой аудиофайл (можно просто перетащить на страницу)">♪ аудио<input type="file" id="fileAudio" accept="audio/*" hidden></label>
+      <details class="menu up">
+        <summary class="btn sm" title="Громкость, скорость, эффекты">⚙</summary>
+        <div class="pop">
+          <label class="opt"><span>Громкость</span><span class="row"><button class="sm" id="btnMute">🔊</button><input type="range" id="vol" min="0" max="1" step="0.01" value="0.3"></span></label>
+          <label class="opt"><span>Скорость</span><select id="rate"><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option></select></label>
+          <label class="opt"><span>Эффекты слов<small>подъём, свечение долгих</small></span><input type="checkbox" id="fxChk" checked></label>
+          <label class="opt"><span>Сдвиг анимации, мс<small>отстаёт → плюс, спешит → минус</small></span><input type="number" id="voff" value="0" step="10"></label>
+        </div>
+      </details>
+    </div>
+  </div>
+</div>
+</main>
+<div class="dock" id="dock" hidden>
+  <div class="bar">
+    <b class="ttl">Разметка слов</b>
+    <select id="layer" title="Что размечаем"><option value="tr">перевод</option><option value="orig">оригинал</option></select>
+    <span class="hint-line" id="guideTxt"></span>
+    <small id="dockMsg"></small><span class="kbd" id="kbd"></span>
+    <small class="stat" id="syncStat"></small>
+    <details class="menu">
+      <summary class="btn sm" title="Настройки разметки">⚙</summary>
+      <div class="pop">
+        <label class="opt"><span>Реакция, мс<small>вычитается из момента нажатия</small></span><input type="number" id="lat" value="100" step="10" min="0" max="500"></label>
+        <label class="opt"><span>Магнит <kbd>N</kbd><small>края прилипают при перетаскивании</small></span><input type="checkbox" id="snapChk" checked></label>
+        <button class="sm" id="btnLoop" title="L">🔁 Крутить строку по кругу <kbd>L</kbd></button>
+        <span class="row"><button class="sm" id="btnZoomOut" title="Ctrl+колесо">− зум</button><button class="sm" id="btnZoomIn">+ зум</button><button class="sm" id="btnFit">⤢ вписать строку</button></span>
+      </div>
+    </details>
+    <button class="sm" id="btnHelp" title="Как размечать">?</button>
+    <button class="sm" id="btnDockClose" title="Закрыть">✕</button>
+  </div>
+  <canvas id="wave"></canvas>
+  <div class="sync-lines" id="syncLines"></div>
+  <div class="actions" id="wordBar">
+    <span class="grp"><button class="sm ic" id="wbPrev" title="Предыдущее слово (A)">‹</button><button class="sm ic" id="wbNext" title="Следующее слово (D)">›</button></span>
+    <span class="grp marks">
+      <button class="mk kf" id="wbF" title="Жми, когда певец НАЧАЛ слово"><kbd>F</kbd>Начало</button>
+      <button class="mk kg" id="wbG" title="Жми, когда началось СЛЕДУЮЩЕЕ слово: текущее закроется, следующее откроется. Основная клавиша."><kbd>G</kbd>Следующее</button>
+      <button class="mk kh" id="wbH" title="Жми в конце слова, только если дальше пауза / вдох / конец строки"><kbd>H</kbd>Конец</button>
+    </span>
+    <span class="grp">
+      <button class="sm ic" id="wbBack" title="Сдвинуть слово −10 мс (,)">−10</button><button class="sm ic" id="wbFwd" title="Сдвинуть слово +10 мс (.)">+10</button>
+      <button class="sm ic" id="wbPlay" title="Проиграть слово (ПКМ по слову)">▶</button>
+      <button class="sm ic" id="wbReset" title="Сбросить слово (Del)">⌫</button>
+    </span>
+    <span class="grp">
+      <button class="sm" id="btnJoin" title="Склеить со следующим (M): два слова → один блок, два слога → один">⛓ Склеить</button>
+      <button class="sm" id="btnSplit" title="Разделить (U): обычное слово → слоги, склеенный блок → слова">✂ Слоги</button>
+      <details class="menu up">
+        <summary class="btn sm">Строка ⋯</summary>
+        <div class="pop">
+          <button class="sm" id="btnSylLine">✂ Разбить строку на слоги</button>
+          <button class="sm" id="btnLineSpread">↔ Раскидать слова строки ровно</button>
+          <button class="sm" id="btnAllSpread">↔ Раскидать все неразмеченные строки</button>
+          <button class="sm" id="btnLineReset">⌫ Сбросить строку</button>
+          <button class="sm danger" id="btnLayerClear">🗑 Очистить весь слой</button>
+        </div>
+      </details>
+    </span>
+    <span class="grp"><button class="sm ic" id="wbUndo" title="Отменить (Ctrl+Z)">↶</button><button class="sm ic" id="wbRedo" title="Вернуть (Ctrl+Shift+Z)">↷</button></span>
+    <span id="wordInfo"></span>
+  </div>
+</div>
+<div class="modal" id="help" hidden>
+  <div class="help">
+    <button class="sm ic close" id="helpClose" title="Закрыть (Esc)">✕</button>
+    <h3>Как размечать слова</h3>
+    <svg viewBox="0 0 560 96" style="width:100%;display:block" aria-label="Схема: F начало, G следующее, H конец">
+      <line x1="10" y1="74" x2="550" y2="74" stroke="rgba(255,255,255,.2)"/>
+      <rect x="50" y="34" width="120" height="30" rx="6" fill="rgba(182,156,255,.3)" stroke="#b69cff"/><text x="110" y="54" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">ты</text>
+      <rect x="170" y="34" width="150" height="30" rx="6" fill="rgba(182,156,255,.3)" stroke="#b69cff"/><text x="245" y="54" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">моя</text>
+      <text x="355" y="54" fill="rgba(255,255,255,.45)" font-size="12" text-anchor="middle">пауза</text>
+      <rect x="390" y="34" width="130" height="30" rx="6" fill="rgba(182,156,255,.3)" stroke="#b69cff"/><text x="455" y="54" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">звезда</text>
+      <g font-size="12" font-weight="800" font-family="ui-monospace,monospace">
+        <line x1="50" y1="14" x2="50" y2="74" stroke="#6ee7b7" stroke-width="2"/><text x="44" y="12" fill="#6ee7b7">F</text>
+        <line x1="170" y1="14" x2="170" y2="74" stroke="#b69cff" stroke-width="2"/><text x="164" y="12" fill="#b69cff">G</text>
+        <line x1="320" y1="14" x2="320" y2="74" stroke="#ff7ac8" stroke-width="2"/><text x="314" y="12" fill="#ff7ac8">H</text>
+        <line x1="390" y1="14" x2="390" y2="74" stroke="#6ee7b7" stroke-width="2"/><text x="384" y="12" fill="#6ee7b7">F</text>
+        <line x1="520" y1="14" x2="520" y2="74" stroke="#ff7ac8" stroke-width="2"/><text x="514" y="12" fill="#ff7ac8">H</text>
+      </g>
+    </svg>
+    <ol>
+      <li>Кликни первое слово строки и нажми <kbd>Space</kbd>.</li>
+      <li><kbd class="f">F</kbd> <b>Начало</b> — певец начал слово.</li>
+      <li><kbd class="g">G</kbd> <b>Следующее</b> — началось следующее слово. Этим проходишь всю строку.</li>
+      <li><kbd class="h">H</kbd> <b>Конец</b> — только перед паузой или в конце строки. После паузы снова <kbd class="f">F</kbd>.</li>
+      <li>Промахнулся — <kbd>Ctrl+Z</kbd> или поправь блок мышью на волне: тащи блок или его край.</li>
+    </ol>
+    <details><summary>Все клавиши и мышь</summary>
+      <p><kbd>A</kbd>/<kbd>D</kbd> слово назад/вперёд · <kbd>←</kbd>/<kbd>→</kbd> ±5 с (Shift ±1) · <kbd>[</kbd> <kbd>]</kbd> <kbd>'</kbd> скорость · <kbd>L</kbd> крутить строку · <kbd>R</kbd> к началу строки · <kbd>,</kbd> <kbd>.</kbd> сдвиг слова ±10 мс (Shift ±50) · <kbd>Del</kbd> сбросить слово · <kbd>M</kbd> склеить · <kbd>U</kbd> слоги / разделить · <kbd>N</kbd> магнит · <kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Shift+Z</kbd></p>
+      <p>Волна: тащи блок или край · белая перемычка = края склеены и двигаются вместе (<kbd>Alt</kbd> — отцепить, <kbd>Ctrl</kbd> — без магнита) · верхняя полоса: зажми и проведи = «нарисовать» слово · внизу тащи = листать · <kbd>Ctrl</kbd>+колесо = зум · ПКМ по слову = проиграть. Пунктир = расставлено автоматически, ещё не проверено тобой; ✦ = долгое слово (в превью светится).</p>
+      <p>Слоги: <kbd>U</kbd> делит слово, или впиши <b>|</b> в тексте перевода (кра|си|вый). Каждый слог размечается как слово.</p>
+    </details>
+  </div>
+</div>
+<div class="drop" id="drop"><div>Брось сюда аудио или .lrc<small>аудио → подберу текст по имени файла и построю волну</small></div></div>
+<audio id="audio" preload="auto"></audio>
+
+<script>
+/* ---------- core: LRC parsing + TTML builder (pure functions) ---------- */
+const p2 = n => String(n).padStart(2, '0');
+const p3 = n => String(n).padStart(3, '0');
+
+function fmtTime(t) {
+  const ms = Math.max(0, Math.round(t * 1000));
+  const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+  const s = Math.floor((ms % 60000) / 1000), r = ms % 1000;
+  return h ? `${h}:${p2(m)}:${p2(s)}.${p3(r)}` : `${m}:${p2(s)}.${p3(r)}`;
+}
+
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function parseLRC(text) {
+  const out = [];
+  for (const raw of String(text).split(/\r?\n/)) {
+    const re = /\[(\d+):(\d+(?:[.:]\d+)?)\]/g;
+    const stamps = [];
+    let m, last = 0;
+    while ((m = re.exec(raw)) !== null) {
+      stamps.push(parseInt(m[1], 10) * 60 + parseFloat(m[2].replace(':', '.')));
+      last = re.lastIndex;
+    }
+    if (!stamps.length) continue;
+    // drop enhanced-LRC word tags like <00:12.34>
+    const body = raw.slice(last).replace(/<\d+:\d+(?:[.:]\d+)?>/g, '').replace(/\s+/g, ' ').trim();
+    for (const t of stamps) out.push({ t, text: body });
+  }
+  return out.sort((a, b) => a.t - b.t);
+}
+
+// plain text (no timestamps) -> fake even timing so the editor still works
+function parsePlain(text, perLine = 3.5) {
+  return String(text).split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+    .map((s, i) => ({ t: i * perLine, text: s }));
+}
+
+function entriesToLines(entries, duration) {
+  const lines = [];
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    if (!e.text) continue;
+    const nxt = entries[i + 1];
+    let end = nxt ? nxt.t : (duration && duration > e.t ? duration : e.t + 5);
+    end = Math.min(end, e.t + 10);
+    if (end - e.t < 0.3) end = e.t + 0.3;
+    lines.push({ t: e.t, end, text: e.text, tr: '' });
+  }
+  return lines;
+}
+
+// spread words across [t0,t1] proportionally to their length
+function splitWords(text, t0, t1) {
+  const us = units(text);
+  if (!us.length) return [];
+  const w = us.map(u => Math.max(1, u.w.length) + (u.sp ? 0.5 : 0));
+  const total = w.reduce((a, b) => a + b, 0);
+  let acc = 0;
+  return us.map((u, i) => {
+    const a = t0 + (t1 - t0) * (acc / total);
+    acc += w[i];
+    const b = t0 + (t1 - t0) * (acc / total);
+    return { word: u.w, sp: u.sp, a, b };
+  });
+}
+
+// NBSP glues words into one timed block (two words = one span); everything else splits on whitespace
+function units(text) {
+  const out = [];
+  String(text || '').split(/[^\S ]+/).filter(Boolean).forEach(tok => {
+    const parts = tok.split('|').filter(Boolean);
+    parts.forEach((w, j) => out.push({ w, sp: j === parts.length - 1 }));
+  });
+  return out;
+}
+function wordList(text) { return units(text).map(u => u.w); }
+// units back to text: space between words, '|' between syllables of one word
+const unitsText = us => us.map((u, k) => u.w + (k < us.length - 1 ? (u.sp ? ' ' : '|') : '')).join('');
+// rough syllable splitter (ru/en): V|CV, VC|CV, й/ь/ъ stay with the left part, latin vowel pairs stay together
+const VOW = /[aeiouyаеёиоуыэюяіїєáéíóúàèìòùäöü]/i, LAT = /[a-z]/i;
+function syllabify(word) {
+  const ch = [...word], vi = ch.map((c, i) => VOW.test(c) ? i : -1).filter(i => i >= 0);
+  if (LAT.test(word) && /[^aeiouy]e$/i.test(word) && vi.length > 1) vi.pop(); // silent final e
+  const cuts = [];
+  for (let q = 0; q + 1 < vi.length; q++) {
+    const i = vi[q], j = vi[q + 1], mid = ch.slice(i + 1, j), real = mid.filter(c => !/[ьъ]/i.test(c)).length;
+    if (!mid.length && LAT.test(ch[i])) continue;
+    let c = real <= 1 ? i + 1 : i + 2;
+    while (c < j && /[йьъ]/i.test(ch[c])) c++;
+    if (real === 1 && /[ьъ]/i.test(ch[i + 1] || '')) c = i + 1;
+    cuts.push(c);
+  }
+  const out = []; let st = 0; cuts.forEach(c => { if (c > st) { out.push(ch.slice(st, c).join('')); st = c; } }); out.push(ch.slice(st).join(''));
+  return out.filter(Boolean);
+}
+const plainW = w => String(w).replace(/ /g, ' ').replace(/\|/g, '');
+function syncComplete(sync, n) {
+  return Array.isArray(sync) && sync.length === n && n > 0 && sync.every(x => x && x.a != null && x.b != null);
+}
+// real (hand-synced) word timings if the layer is fully synced, otherwise an even spread
+function getWords(text, sync, t0, t1) {
+  const us = units(text);
+  if (syncComplete(sync, us.length)) return us.map((u, i) => ({ word: u.w, sp: u.sp, a: sync[i].a, b: sync[i].b, real: true }));
+  return splitWords(text, t0, t1);
+}
+
+function buildTTML(o) {
+  const { lines, mode = 'translation', wordSpread = true, lang = 'ru', offset = 0, songwriters = [] } = o;
+  const shift = (offset || 0) / 1000;
+  const bilingual = mode === 'bilingual';
+  const wordTiming = bilingual || wordSpread;
+  const sh = ws => ws.map(w => ({ word: w.word, sp: w.sp, a: Math.max(0, w.a + shift), b: Math.max(0, w.b + shift) }));
+  const items = [];
+  for (const l of lines) {
+    const hasTr = l.tr && l.tr.trim();
+    const mainLayer = bilingual ? 'orig' : (hasTr ? 'tr' : 'orig');
+    const mainText = mainLayer === 'tr' ? l.tr.trim() : l.text;
+    if (!mainText || !mainText.trim()) continue;
+    const sync = l.sync || {};
+    const it = { a: Math.max(0, l.t + shift), b: Math.max(0, l.end + shift), mainText, main: null, bg: null };
+    if (wordTiming) {
+      it.main = sh(getWords(mainText, sync[mainLayer], l.t, l.end));
+      if (bilingual && hasTr) it.bg = sh(getWords(l.tr.trim().replace(/[()]/g, ''), sync.tr, l.t, l.end));
+      const all = it.main.concat(it.bg || []);
+      it.a = Math.min(...all.map(w => w.a)); it.b = Math.max(...all.map(w => w.b));
+    }
+    items.push(it);
+  }
+  const dur = items.length ? Math.max(...items.map(i => i.b)) : 0;
+  const spans = ws => ws.map((w, k) => `<span begin="${fmtTime(w.a)}" end="${fmtTime(w.b)}">${esc(plainW(w.word))}</span>` + (k < ws.length - 1 && w.sp !== false ? ' ' : '')).join(''); // syllables: no space between spans
+  let body = '';
+  items.forEach((l, i) => {
+    let inner;
+    if (wordTiming) {
+      inner = spans(l.main);
+      if (l.bg) inner += `<span ttm:role="x-bg">${spans(l.bg)}</span>`;
+    } else inner = esc(plainW(l.mainText));
+    body += `      <p begin="${fmtTime(l.a)}" end="${fmtTime(l.b)}" ttm:agent="v1" itunes:key="L${i + 1}">${inner}</p>\n`;
+  });
+  const sw = songwriters.filter(Boolean).map(s => `<songwriter>${esc(s)}</songwriter>`).join('');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" itunes:timing="${wordTiming ? 'Word' : 'Line'}" xml:lang="${esc(lang)}">
+  <head>
+    <metadata>
+      <ttm:agent type="person" xml:id="v1"/>
+      <iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal"><songwriters>${sw}</songwriters></iTunesMetadata>
+    </metadata>
+  </head>
+  <body dur="${fmtTime(dur)}">
+    <div begin="${fmtTime(items.length ? Math.min(...items.map(i => i.a)) : 0)}" end="${fmtTime(dur)}">
+${body}    </div>
+  </body>
+</tt>
+`;
+}
+
+
+function lineSpans(o) {
+  const { lines, mode = 'translation', offset = 0 } = o, shift = (offset || 0) / 1000, bil = mode === 'bilingual', out = [];
+  for (const l of lines) {
+    const hasTr = l.tr && l.tr.trim();
+    const layer = bil ? 'orig' : (hasTr ? 'tr' : 'orig');
+    const text = layer === 'tr' ? l.tr.trim() : l.text;
+    if (!text || !text.trim()) continue;
+    const ws = getWords(text, (l.sync || {})[layer], l.t, l.end);
+    out.push({ a: Math.max(0, Math.min(...ws.map(w => w.a)) + shift), b: Math.max(0, Math.max(...ws.map(w => w.b)) + shift), text: plainW(bil && hasTr ? text + '\n' + l.tr.trim() : text) });
+  }
+  return out;
+}
+function fmtLRC(t) { const cs = Math.round(Math.max(0, t) * 100), m = Math.floor(cs / 6000), s = (cs % 6000) / 100; return `${p2(m)}:${s.toFixed(2).padStart(5, '0')}`; }
+function fmtSRT(t) { const ms = Math.round(Math.max(0, t) * 1000); return `${p2(Math.floor(ms / 3600000))}:${p2(Math.floor((ms % 3600000) / 60000))}:${p2(Math.floor((ms % 60000) / 1000))},${p3(ms % 1000)}`; }
+function buildLRC(o) { return lineSpans(o).map(x => `[${fmtLRC(x.a)}]${x.text.replace(/\n/g, ' / ')}`).join('\n') + '\n'; }
+function buildSRT(o) { return lineSpans(o).map((x, i) => `${i + 1}\n${fmtSRT(x.a)} --> ${fmtSRT(x.b)}\n${x.text}\n`).join('\n'); }
+
+// pre-export checks (shared with the MCP server)
+function qaCheck(lines, mode = 'translation') {
+  const out = [], bil = mode === 'bilingual'; let prevEnd = null, prevI = -1;
+  lines.forEach((l, i) => {
+    const hasTr = l.tr && l.tr.trim(), layer = bil ? 'orig' : (hasTr ? 'tr' : 'orig');
+    const text = layer === 'tr' ? l.tr.trim() : l.text;
+    if (!text || !text.trim()) { out.push({ i, sev: 'err', msg: 'пустая строка — Spicy не загрузит файл' }); return; }
+    if (!hasTr) out.push({ i, sev: 'warn', msg: 'нет перевода — пойдёт оригинал' });
+    const ww = wordList(text), sy = l.sync && l.sync[layer];
+    if (!syncComplete(sy, ww.length)) out.push({ i, sev: 'warn', msg: 'слова не размечены — будет равномерный спред' });
+    else {
+      if (sy.some(x => x.g)) out.push({ i, sev: 'warn', msg: 'слова только раскиданы, не проверены вручную' });
+      sy.forEach((x, k) => {
+        const d = x.b - x.a, w = plainW(ww[k]);
+        if (d <= 0) out.push({ i, sev: 'err', msg: `«${w}»: конец раньше начала` });
+        else if (d < 0.04) out.push({ i, sev: 'warn', msg: `«${w}»: слишком короткое (${Math.round(d * 1000)} мс)` });
+        else if (d > 8) out.push({ i, sev: 'warn', msg: `«${w}»: очень долгое (${d.toFixed(1)} с) — не тянется ли на инструментал?` });
+        if (k && x.a < sy[k - 1].b - 0.002) out.push({ i, sev: 'err', msg: `«${w}»: перекрывает предыдущее слово` });
+      });
+    }
+    const ws = getWords(text, sy, l.t, l.end), a = ws[0].a, b = ws[ws.length - 1].b;
+    if (prevEnd != null && a < prevEnd - 0.05) out.push({ i, sev: 'warn', msg: `начинается раньше конца строки ${prevI + 1} на ${(prevEnd - a).toFixed(2)} с` });
+    prevEnd = b; prevI = i;
+  });
+  return out;
+}
+
+if (typeof module !== 'undefined') module.exports = { fmtTime, parseLRC, parsePlain, entriesToLines, splitWords, wordList, buildLRC, buildSRT, lineSpans, syncComplete, getWords, buildTTML, esc, qaCheck, plainW, units, unitsText, syllabify };
+
+
+/* ---------------- app ---------------- */
+const $ = id => document.getElementById(id);
+const S = { fx: true, snap: true, loop: false, lines: [], duration: 0, hasAudio: false, playing: false, vt: 0, vStart: 0, rate: 1, dock: false,
+  layer: 'tr', sel: null, undo: [], redo: [] };
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, v); return true; } catch { return false; } }
+};
+function status(id, msg, cls) { const e = $(id); e.textContent = msg || ''; e.className = 'status ' + (cls || ''); }
+function mode() { return document.querySelector('input[name=mode]:checked').value; }
+function mmss(t) { t = Math.max(0, t); return Math.floor(t / 60) + ':' + p2(Math.floor(t % 60)); }
+const r3 = x => Math.round(x * 1000) / 1000;
+
+/* ---------- words / layers ---------- */
+function layerText(l, layer) { return layer === 'tr' ? (l.tr || '') : l.text; }
+function wordsOf(i, layer) { return wordList(layerText(S.lines[i], layer)); }
+function ensureSync(i, layer) {
+  const l = S.lines[i], n = wordsOf(i, layer).length;
+  l.sync = l.sync || {};
+  let s = l.sync[layer];
+  if (!s || s.length !== n) s = l.sync[layer] = Array.from({ length: n }, () => ({ a: null, b: null }));
+  return s;
+}
+// what to show/draw for a line+layer: real timings where set, ghost spread otherwise
+function viewWords(i, layer) {
+  const l = S.lines[i], us = units(layerText(l, layer)), sy = l.sync && l.sync[layer];
+  if (sy && sy.length === us.length) {
+    return us.map((u, k) => (sy[k].a != null && sy[k].b != null) ? { word: u.w, sp: u.sp, a: sy[k].a, b: sy[k].b, real: true, g: !!sy[k].g } : { word: u.w, sp: u.sp, a: null, b: null, pending: true });
+  }
+  return splitWords(layerText(l, layer), l.t, l.end).map(w => ({ ...w, ghost: true }));
+}
+// g:1 on a word = auto-placed (spread), not yet confirmed by hand; any real edit clears it
+const conf = (...xs) => xs.forEach(x => { if (x) delete x.g; });
+function lineState(i, layer) {
+  const n = wordsOf(i, layer).length, sy = S.lines[i].sync && S.lines[i].sync[layer];
+  if (!n) return 'none';
+  if (syncComplete(sy, n) && !sy.some(x => x.g)) return 'done';
+  if (sy && sy.length === n && sy.some(x => !x.g && (x.a != null || x.b != null))) return 'part';
+  return 'none';
+}
+// make every word of the line a real, draggable block right away (gaps are filled by an even spread, flagged g)
+function fillLine(i, layer) {
+  const l = S.lines[i], n = wordsOf(i, layer).length; if (!n || lineState(i, layer) === 'done') return false;
+  const sy = ensureSync(i, layer), full = sy.every(x => x.a == null && x.b == null);
+  if (full) { spreadLine(i, layer); return true; }
+  sy.forEach((x, k) => {
+    const nx = sy.slice(k + 1).find(y => y.a != null);
+    if (x.a != null && x.b == null) x.b = r3(Math.min(x.a + 0.3, nx ? nx.a : l.end));
+    else if (x.b != null && x.a == null) x.a = r3(Math.max(k && sy[k - 1].b != null ? sy[k - 1].b : l.t, x.b - 0.3));
+  });
+  const ws = wordsOf(i, layer);
+  for (let k = 0; k < n;) {
+    if (sy[k].a != null) { k++; continue; }
+    let e = k; while (e < n && sy[e].a == null) e++;
+    const t0 = k && sy[k - 1].b != null ? sy[k - 1].b : l.t, t1 = e < n ? sy[e].a : Math.max(l.end, t0 + 0.3 * (e - k));
+    splitWords(ws.slice(k, e).join(' '), t0, t1).forEach((w, j) => { sy[k + j].a = r3(w.a); sy[k + j].b = r3(w.b); sy[k + j].g = 1; });
+    k = e;
+  }
+  return true;
+}
+function mainLayerFor(i) { return mode() === 'bilingual' ? 'orig' : (S.lines[i].tr && S.lines[i].tr.trim() ? 'tr' : 'orig'); }
+
+/* ---------- search / load ---------- */
+async function fetchSearch(q) {
+  const r = await fetch('https://lrclib.net/api/search?q=' + encodeURIComponent(q));
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+function renderResults(data) {
+  const box = $('results'); box.innerHTML = '';
+  data.slice(0, 25).forEach(d => {
+    const el = document.createElement('div'); el.className = 'item';
+    const synced = !!d.syncedLyrics;
+    el.innerHTML = `<div><b></b><small></small></div><span class="tag ${synced ? 'ok' : ''}">${synced ? 'synced' : 'plain'}</span>`;
+    el.querySelector('b').textContent = d.trackName;
+    el.querySelector('small').textContent = `${d.artistName} · ${d.albumName || '—'} · ${mmss(d.duration || 0)}`;
+    el.onclick = () => loadTrack(d);
+    box.appendChild(el);
+  });
+}
+async function search() {
+  const q = $('q').value.trim(); if (!q) return;
+  status('st1', 'Ищу…');
+  try {
+    const data = await fetchSearch(q);
+    if (!data.length) { status('st1', 'Ничего не найдено. Попробуй вставить LRC вручную.', 'err'); $('results').innerHTML = ''; return; }
+    renderResults(data);
+    status('st1', `Найдено: ${data.length}. Выбери версию с меткой synced.`, 'ok');
+  } catch (e) { status('st1', 'Не вышло достучаться до LRCLIB: ' + e.message, 'err'); }
+}
+function loadTrack(d) {
+  $('mTitle').value = d.trackName; $('mArtist').value = d.artistName;
+  const synced = !!d.syncedLyrics;
+  const entries = synced ? parseLRC(d.syncedLyrics) : parsePlain(d.plainLyrics || '');
+  setLines(entriesToLines(entries, d.duration), d.duration);
+  const restored = restoreProject();
+  status('st1', (synced ? `Загружено строк: ${S.lines.length}` : 'Только plain-текст: тайминги выдуманы, лучше выбери synced-версию.') + (restored ? ' · восстановил твою прошлую работу над треком' : ''), synced ? 'ok' : 'err');
+  if (!S.hasAudio) idbGet(trackKey()).then(b => { if (b) { loadAudioFile(b, true); } });
+  else if (S.audioBlob) idbPut(trackKey(), S.audioBlob);
+}
+function loadManual(text) {
+  const e = parseLRC(text), synced = e.length > 0;
+  setLines(entriesToLines(synced ? e : parsePlain(text), 0), 0);
+  status('st1', synced ? `Строк: ${S.lines.length}` : 'Меток времени нет — тайминги выдуманы (по 3.5 с на строку).', synced ? 'ok' : 'err');
+}
+function setLines(lines, dur) {
+  S.lines = lines; S.undo = []; S.redo = []; S.sel = null;
+  S.layer = lines.some(l => l.tr && l.tr.trim()) ? 'tr' : 'orig'; $('layer').value = S.layer;
+  S.duration = Math.max(dur || 0, lines.length ? lines[lines.length - 1].end + 2 : 0, S.hasAudio ? $('audio').duration || 0 : 0);
+  renderEditor(); buildPreview(); $('seek').max = S.duration; seekTo(0);
+  if (lines.length) selectWord(0, 0); renderSync();
+}
+
+/* ---------- editor ---------- */
+function renderEditor() {
+  const box = $('lines'); box.innerHTML = '';
+  S.lines.forEach((l, i) => {
+    const row = document.createElement('div'); row.className = 'ln'; row.id = 'ln' + i;
+    row.innerHTML = `<div class="t"></div><div><div class="o"></div><input type="text" placeholder="перевод…"></div>`;
+    row.querySelector('.t').textContent = mmss(l.t) + '.' + String(Math.floor((l.t % 1) * 10));
+    row.querySelector('.t').onclick = () => { seekTo(l.t); selectWord(i, 0); };
+    row.querySelector('.o').textContent = l.text;
+    const inp = row.querySelector('input'); inp.value = l.tr || '';
+    inp.oninput = () => {
+      l.tr = inp.value;
+      if (l.sync && l.sync.tr && l.sync.tr.length !== wordList(l.tr).length) delete l.sync.tr; // text changed -> old word timings no longer fit
+      refreshRowMark(i); buildPreview(true); renderSync(); drawWave(); scheduleSave();
+    };
+    box.appendChild(row); refreshRowMark(i);
+  });
+}
+function refreshRowMark(i) {
+  const row = document.getElementById('ln' + i); if (!row) return;
+  const t = row.querySelector('.t'); let d = t.querySelector('.sd');
+  const st = lineState(i, mainLayerFor(i));
+  if (st === 'done' && !d) { d = document.createElement('i'); d.className = 'sd'; d.title = 'слова синхронизированы'; t.appendChild(d); }
+  if (st !== 'done' && d) d.remove();
+}
+
+/* ---------- translate ---------- */
+async function gt(text, tl) {
+  const u = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=' + encodeURIComponent(tl) + '&dt=t&q=' + encodeURIComponent(text);
+  const r = await fetch(u); if (!r.ok) throw new Error('HTTP ' + r.status);
+  const j = await r.json(); return j[0].map(x => x[0]).join('');
+}
+async function autoTranslate() {
+  if (!S.lines.length) return status('st2', 'Сначала загрузи текст.', 'err');
+  const tl = $('lang').value; $('btnAuto').disabled = true;
+  let done = 0, fail = 0, idx = 0;
+  const worker = async () => {
+    while (idx < S.lines.length) {
+      const i = idx++, l = S.lines[i];
+      try { l.tr = await gt(plainW(l.text), tl); if (l.sync) delete l.sync.tr; const el = document.querySelector('#ln' + i + ' input'); if (el) el.value = l.tr; }
+      catch { fail++; }
+      status('st2', `Перевожу… ${++done}/${S.lines.length}`);
+    }
+  };
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  $('btnAuto').disabled = false; buildPreview(true); renderSync(); drawWave(); scheduleSave();
+  status('st2', fail ? `Готово, но ${fail} строк не перевелись — допиши руками.` : 'Готово. Проверь и поправь строки, машинный перевод песен бывает смешной.', fail ? 'err' : 'ok');
+}
+function copyPrompt() {
+  if (!S.lines.length) return status('st2', 'Сначала загрузи текст.', 'err');
+  const name = $('lang').selectedOptions[0].textContent.replace('на ', '');
+  const p = `Переведи текст песни на язык: ${name}. Передавай смысл и настроение естественно, не дословно, сохраняй рифму там, где получается. ВАЖНО: ровно ${S.lines.length} строк в ответе, по одной на каждую строку оригинала, в том же порядке, только список без комментариев.\n\n` +
+    S.lines.map((l, i) => `${i + 1}. ${plainW(l.text)}`).join('\n');
+  copyText(p).then(ok => status('st2', ok ? 'Промпт скопирован. Вставь в LLM, потом ответ — через «Вставить перевод списком».' : 'Буфер заблокирован — промпт показан ниже, скопируй вручную.', ok ? 'ok' : 'err'));
+}
+function parseLLM(txt) {
+  const t = String(txt).replace(/```(?:json)?/g, ''), a = t.indexOf('['), b = t.lastIndexOf(']'); if (a < 0 || b < a) throw new Error('в ответе нет JSON-массива');
+  const arr = JSON.parse(t.slice(a, b + 1)); if (!Array.isArray(arr)) throw new Error('ожидался массив');
+  return arr.map((x, k) => typeof x === 'string' ? { i: k, tr: x } : { i: x.i ?? k, tr: String(x.tr ?? x.text ?? '') });
+}
+function applyTr(rows) {
+  let n = 0; rows.forEach(r => { const l = S.lines[r.i]; if (l && r.tr.trim()) { l.tr = r.tr.trim(); if (l.sync) delete l.sync.tr; n++; } });
+  if (n) { S.layer = 'tr'; $('layer').value = 'tr'; }
+  renderEditor(); buildPreview(true); renderSync(); drawWave(); scheduleSave(); return n;
+}
+async function llmTranslate() {
+  if (!S.lines.length) return status('st2', 'Сначала загрузи текст.', 'err');
+  const prov = $('llmProv').value, model = $('llmModel').value.trim(), key = $('llmKey').value.trim(), style = $('llmStyle').value.trim();
+  let url = $('llmUrl').value.trim().replace(/\/+$/, ''); if (!url && prov === 'anthropic') url = 'https://api.anthropic.com';
+  if (!model || !url) return status('st2', 'Укажи модель и Base URL.', 'err');
+  store.set('llm', JSON.stringify({ prov, model, key, url: $('llmUrl').value.trim(), style }));
+  const lang = $('lang').selectedOptions[0].textContent.replace('на ', '');
+  const sys = 'Ты литературный переводчик текстов песен. Переводи на язык: ' + lang + '. Передавай смысл, настроение, сленг и рифму естественно, не дословно; число слов в строке держи близко к оригиналу (подсветка идёт по словам). Одинаковые строки (припев) переводи одинаково. Не склеивай и не разбивай строки. Ответ — ТОЛЬКО JSON-массив [{"i":число,"tr":"перевод"}], ровно по одному элементу на каждую входную строку, без комментариев и markdown.';
+  const user = 'Песня: ' + ($('mArtist').value + ' — ' + $('mTitle').value) + '\n' + (style ? 'Заметки/глоссарий: ' + style + '\n' : '') + 'Строки:\n' + JSON.stringify(S.lines.map((l, i) => ({ i, text: plainW(l.text) })));
+  $('btnLlm').disabled = true; status('st2', 'LLM переводит всю песню…');
+  try {
+    const r = prov === 'anthropic'
+      ? await fetch(url + '/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' }, body: JSON.stringify({ model, max_tokens: 8192, system: sys, messages: [{ role: 'user', content: user }] }) })
+      : await fetch(url + '/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', ...(key ? { authorization: 'Bearer ' + key } : {}) }, body: JSON.stringify({ model, temperature: 0.4, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }] }) });
+    if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + (await r.text()).slice(0, 160));
+    const j = await r.json(), txt = prov === 'anthropic' ? j.content.map(c => c.text || '').join('') : j.choices[0].message.content;
+    const n = applyTr(parseLLM(txt));
+    status('st2', n === S.lines.length ? 'Готово: переведена вся песня. Проверь и поправь.' : `Переведено ${n} из ${S.lines.length} строк — допиши недостающие.`, n === S.lines.length ? 'ok' : 'err');
+  } catch (e) { status('st2', 'LLM: ' + e.message, 'err'); }
+  $('btnLlm').disabled = false;
+}
+function applyPaste() {
+  const raw = $('pasteTa').value.trim();
+  if (/^[\[{`]/.test(raw)) { try { const n = applyTr(parseLLM(raw)); $('pasteBox').hidden = true; return status('st2', `Применено строк: ${n} из ${S.lines.length}.`, n === S.lines.length ? 'ok' : 'err'); } catch (e) { return status('st2', 'JSON не разобрался: ' + e.message, 'err'); } }
+  const rows = $('pasteTa').value.split(/\r?\n/).map(s => s.replace(/^\s*\d+[.)]\s*/, '').trim()).filter(Boolean);
+  rows.forEach((t, i) => { if (S.lines[i]) { S.lines[i].tr = t; if (S.lines[i].sync) delete S.lines[i].sync.tr; } });
+  renderEditor(); buildPreview(true); renderSync(); drawWave(); $('pasteBox').hidden = true; scheduleSave();
+  status('st2', rows.length === S.lines.length ? 'Перевод применён.' : `Внимание: строк в переводе ${rows.length}, в оригинале ${S.lines.length}.`, rows.length === S.lines.length ? 'ok' : 'err');
+}
+
+/* ---------- clock / audio ---------- */
+const CLK = { raw: -1, base: 0, pt: 0 };
+function now() {
+  if (!S.hasAudio) return S.vt + (S.playing ? (performance.now() - S.vStart) / 1000 * S.rate : 0);
+  const a = $('audio'), ct = a.currentTime, p = performance.now();
+  if (a.paused || a.seeking || !S.playing) { CLK.raw = ct; CLK.base = ct; CLK.pt = p; return ct; }
+  const pred = CLK.base + (p - CLK.pt) / 1000 * a.playbackRate;
+  if (ct === CLK.raw) return pred;
+  CLK.raw = ct; const e = ct - pred;
+  CLK.base = Math.abs(e) > 0.1 ? ct : pred + e * 0.25; CLK.pt = p; // big jump = seek/stall -> snap; small = ease in
+  return CLK.base;
+}
+function play() { if (S.hasAudio) $('audio').play(); else S.vStart = performance.now(); S.playing = true; $('btnPlay').textContent = '❚❚'; $('dock').classList.add('rec'); }
+function pause() { if (S.hasAudio) $('audio').pause(); else if (S.playing) S.vt = now(); S.playing = false; $('btnPlay').textContent = '▶'; $('dock').classList.remove('rec'); }
+function seekTo(t) {
+  t = Math.max(0, t);
+  if (S.hasAudio) $('audio').currentTime = t; else { S.vt = t; S.vStart = performance.now(); }
+  lastAct = -2;
+}
+function setRate(r) {
+  r = Math.min(2, Math.max(0.25, r));
+  if (!S.hasAudio && S.playing) { S.vt = now(); S.vStart = performance.now(); }
+  S.rate = r; $('audio').playbackRate = r; $('rate').value = String(r);
+  if (![...$('rate').options].some(o => +o.value === r)) { const o = new Option(r + '×', String(r)); $('rate').add(o); $('rate').value = String(r); }
+}
+function setVolume(v) { $('audio').volume = v; $('vol').value = v; $('btnMute').textContent = v === 0 ? '🔇' : '🔊'; store.set('vol', v); }
+let playStop = null;
+function playWord(w) {
+  clearTimeout(playStop); seekTo(w.a); play();
+  playStop = setTimeout(pause, ((w.b - w.a) / S.rate) * 1000 + 60);
+}
+
+/* ---------- persistence (autosave + cached audio) ---------- */
+const norm = x => String(x || '').toLowerCase().replace(/\s+/g, ' ').trim();
+function trackKey() { const k = norm($('mArtist').value + ' - ' + $('mTitle').value); return k === '-' ? '' : k; }
+let saveT = null;
+function scheduleSave() {
+  if (LIVE.applying || !S.lines.length) return;
+  const e = $('saveInd'); e.textContent = '💾 сохраняю…'; e.className = 'pill warn';
+  clearTimeout(saveT); saveT = setTimeout(() => (window.requestIdleCallback || (f => f()))(saveProject, { timeout: 1500 }), 600);
+}
+function saveProject() {
+  if (!S.lines.length) return; clearTimeout(saveT);
+  const k = trackKey(); let ok = true;
+  if (k) ok = store.set('proj:' + k, JSON.stringify({ lang: $('lang').value, lines: S.lines.map(l => ({ text: l.text, tr: l.tr || '', sync: l.sync || null })) }));
+  ok = store.set('last', projectJSON()) && ok;
+  const e = $('saveInd'); e.textContent = ok ? '💾 сохранено ' + new Date().toLocaleTimeString().slice(0, 8) : '💾 браузер не даёт сохранить — скачай проект'; e.className = 'pill ' + (ok ? 'ok' : 'warn');
+  pushLive();
+}
+function restoreProject() {
+  const k = trackKey(); if (!k) return false;
+  let p; try { p = JSON.parse(store.get('proj:' + k, 'null')); } catch { return false; }
+  const sp = plainW;
+  if (!p || !p.lines || p.lines.length !== S.lines.length || !p.lines.every((x, i) => sp(x.text) === sp(S.lines[i].text))) return false;
+  p.lines.forEach((x, i) => { S.lines[i].text = x.text; S.lines[i].tr = x.tr || ''; if (x.sync) S.lines[i].sync = x.sync; });
+  if (p.lang) $('lang').value = p.lang;
+  renderEditor(); buildPreview(); renderSync(); return p.lines.some(x => x.tr || x.sync);
+}
+function idb() {
+  return new Promise((res, rej) => { const r = indexedDB.open('spicy-translate', 1); r.onupgradeneeded = () => r.result.createObjectStore('audio'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+}
+async function idbPut(k, blob) { if (!k || !blob || blob.size > 120e6) return; try { const db = await idb(); db.transaction('audio', 'readwrite').objectStore('audio').put(blob, k); } catch {} }
+async function idbGet(k) { if (!k) return null; try { const db = await idb(); return await new Promise(res => { const r = db.transaction('audio').objectStore('audio').get(k); r.onsuccess = () => res(r.result || null); r.onerror = () => res(null); }); } catch { return null; } }
+
+function guessNames(fname) {
+  let b = fname.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').replace(/^\s*\d{1,3}\s*[-.)]\s*/, '');
+  b = b.replace(/\(.*?\)|\[.*?\]/g, ' ').replace(/\s+/g, ' ').trim();
+  const m = b.match(/^(.+?)\s+[-–—]\s+(.+)$/);
+  return m ? { artist: m[1].trim(), title: m[2].trim() } : { artist: '', title: b };
+}
+async function loadAudioFile(file, fromCache) {
+  pause();
+  const a = $('audio'); if (S.audioUrl) URL.revokeObjectURL(S.audioUrl);
+  S.audioUrl = URL.createObjectURL(file); a.src = S.audioUrl; S.hasAudio = true; S.audioBlob = file; a.playbackRate = S.rate; a.volume = parseFloat($('vol').value);
+  const meta = new Promise(r => { a.onloadedmetadata = () => { S.duration = Math.max(S.duration, a.duration); $('seek').max = S.duration; r(a.duration); }; setTimeout(() => r(0), 4000); });
+  a.onended = pause;
+  status('st1', fromCache ? 'Подтянул сохранённое аудио этого трека. Строю волну…' : 'Аудио подключено. Строю волну…', 'ok');
+  const dur = await meta;
+  await buildPeaks(file); drawWave();
+  if (!S.lines.length && file.name) await autoFromAudio(file.name, dur);
+  else if (trackKey()) idbPut(trackKey(), file);
+  if (S.lines.length) status('st1', W.peaks ? 'Аудио и волна готовы.' : 'Аудио подключено (без волны).', 'ok');
+}
+async function autoFromAudio(fname, dur) {
+  const { artist, title } = guessNames(fname); if (!title) return;
+  status('st1', `Ищу текст по имени файла: «${(artist + ' ' + title).trim()}»…`);
+  try {
+    let q = (artist + ' ' + title).trim(), data = await fetchSearch(q);
+    if (!data.length && artist) { q = title; data = await fetchSearch(q); }
+    $('q').value = q;
+    if (!data.length) { status('st1', 'Аудио есть, но текст по имени файла не нашёл — введи поиск вручную.', 'err'); return; }
+    renderResults(data);
+    const sy = data.filter(d => d.syncedLyrics);
+    if (!sy.length) { status('st1', 'Нашёл только текст без таймингов — выбери вариант вручную.', 'err'); return; }
+    sy.sort((x, y) => Math.abs((x.duration || 0) - dur) - Math.abs((y.duration || 0) - dur));
+    const best = sy[0], close = !dur || Math.abs((best.duration || 0) - dur) <= 3;
+    loadTrack(best);
+    if (S.audioBlob) idbPut(trackKey(), S.audioBlob);
+    status('st1', close ? `Подобрал автоматически: ${best.artistName} — ${best.trackName} (длительность совпала). Если не тот трек — выбери другой в списке.` : `Подобрал ближайший вариант, но длительность отличается (${mmss(best.duration)} против ${mmss(dur)}) — проверь тайминги или выбери другую версию.`, close ? 'ok' : 'err');
+  } catch (e) { status('st1', 'Не вышло найти текст: ' + e.message, 'err'); }
+}
+
+/* ---------- preview ---------- */
+function mkWords(arr) { return arr.map(w => `<span class="w${w.b - w.a >= 1 ? ' em' : ''}" data-a="${w.a ?? ''}" data-b="${w.b ?? ''}"></span>${w.sp === false ? '' : ' '}`).join(''); }
+function buildPreview(keepPos) {
+  S.ver = (S.ver || 0) + 1;
+  const inner = $('lyrIn'); inner.innerHTML = '';
+  $('pTitle').textContent = $('mTitle').value || 'Превью'; $('pArtist').textContent = $('mArtist').value || '';
+  if (!S.lines.length) { inner.innerHTML = '<div class="empty">Тут появится живое превью лирики</div>'; return; }
+  const bi = mode() === 'bilingual';
+  S.lines.forEach((l, i) => {
+    const mainLayer = mainLayerFor(i);
+    const wm = getWords(layerText(l, mainLayer), l.sync && l.sync[mainLayer], l.t, l.end);
+    const wb = bi && l.tr && l.tr.trim() ? getWords(l.tr.trim(), l.sync && l.sync.tr, l.t, l.end) : null;
+    const el = document.createElement('div'); el.className = 'pl'; el.id = 'pl' + i;
+    el.innerHTML = mkWords(wm) + (wb ? `<span class="bg">${mkWords(wb)}</span>` : '');
+    el.querySelectorAll(':scope > .w').forEach((n, k) => n.textContent = plainW(wm[k].word));
+    if (wb) el.querySelectorAll('.bg .w').forEach((n, k) => n.textContent = plainW(wb[k].word));
+    el.onclick = () => seekTo(l.t);
+    inner.appendChild(el);
+  });
+  if (!keepPos) lastAct = -2;
+}
+function refreshPreviewLine(i) {
+  S.ver = (S.ver || 0) + 1;
+  const el = document.getElementById('pl' + i); if (!el) return;
+  const l = S.lines[i], bi = mode() === 'bilingual', ml = mainLayerFor(i);
+  const wm = getWords(layerText(l, ml), l.sync && l.sync[ml], l.t, l.end);
+  const nodes = el.querySelectorAll(':scope > .w');
+  if (nodes.length !== wm.length) return buildPreview(true);
+  nodes.forEach((n, k) => { n.dataset.a = wm[k].a; n.dataset.b = wm[k].b; n.classList.toggle('em', wm[k].b - wm[k].a >= 1); });
+  if (bi && l.tr && l.tr.trim()) {
+    const wb = getWords(l.tr.trim(), l.sync && l.sync.tr, l.t, l.end), bn = el.querySelectorAll('.bg .w');
+    bn.forEach((n, k) => { if (wb[k]) { n.dataset.a = wb[k].a; n.dataset.b = wb[k].b; } });
+  }
+}
+const RNG = { ver: -1, r: [] };
+function ranges() { // per-line [start,end] for the main layer, recomputed only when lyrics/timings change
+  if (RNG.ver === S.ver && RNG.r.length === S.lines.length) return RNG.r;
+  RNG.ver = S.ver; RNG.r = S.lines.map((l, i) => {
+    const ml = mainLayerFor(i), ws = getWords(layerText(l, ml), l.sync && l.sync[ml], l.t, l.end);
+    return ws.length ? { a: Math.min(l.t, ws[0].a), b: Math.max(l.end, ws[ws.length - 1].b) } : { a: l.t, b: l.end };
+  });
+  return RNG.r;
+}
+function paintWords(nodes, T) {
+  for (const n of nodes) {
+    const a = +n.dataset.a, b = +n.dataset.b, p = Math.max(0, Math.min(1, (T - a) / Math.max(0.001, b - a)));
+    const on = T >= a - 0.05 && T < b + 0.25, lift = on ? (T < b ? Math.min(1, (T - a + 0.05) / 0.12) : 1 - (T - b) / 0.25) : 0;
+    const g = (p * 116 - 6).toFixed(1), lf = Math.max(0, lift).toFixed(2);
+    if (n._g !== g) { n._g = g; n.style.setProperty('--g', g); }
+    if (n._l !== lf) { n._l = lf; n.style.setProperty('--lift', lf); }
+    if (n._on !== on) { n._on = on; n.classList.toggle('on', on); }
+    const d = T >= b; if (n._d !== d) { n._d = d; n.classList.toggle('done', d); }
+  }
+}
+let lastAct = -2, actNodes = [], nodesVer = -1, clockTxt = '';
+const LOOK = 0.3; // activate/scroll a line slightly before its first word, so CSS transitions finish on time
+function frame() {
+  let t = now();
+  if (!S.hasAudio && t > S.duration && S.playing) { pause(); S.vt = 0; t = 0; }
+  $('seek').value = t; const ct = mmss(t) + ' / ' + mmss(S.duration); if (ct !== clockTxt) { clockTxt = ct; $('clock').textContent = ct; }
+  const T = t + (S.voff || 0) / 1000, R = ranges();
+  let act = -1;
+  for (let i = 0; i < R.length; i++) { if (T + LOOK >= R[i].a) act = i; else break; }
+  const idx = act >= 0 && T <= R[act].b + 0.4 ? act : -1;
+  if (idx !== lastAct) {
+    paintWords(actNodes, T); lastAct = idx;
+    document.querySelectorAll('.pl').forEach((e, i) => e.className = 'pl' + (S.fx ? ' fx' : '') + (i === idx ? ' act' : (Math.abs(i - idx) === 1 ? ' near' : '')));
+    document.querySelectorAll('.ln').forEach((e, i) => e.classList.toggle('on', i === idx));
+    const target = document.getElementById('pl' + (idx >= 0 ? idx : Math.max(0, act)));
+    if (target) $('lyrIn').style.transform = `translateY(${-(target.offsetTop - 20)}px)`;
+    if (idx >= 0 && S.playing) { const r = document.getElementById('ln' + idx); if (r) r.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+    nodesVer = -1;
+  }
+  if (nodesVer !== S.ver) { nodesVer = S.ver; actNodes = idx >= 0 ? [...document.querySelectorAll('#pl' + idx + ' .w')] : []; }
+  paintWords(actNodes, T);
+  if (S.dock && S.chips) for (const c of S.chips) { const on = c.dataset.a != null && T >= +c.dataset.a && T < +c.dataset.b; if (c._now !== on) { c._now = on; c.classList.toggle('now', on); } }
+  if (S.loop && S.sel && S.playing) {
+    const vw = viewWords(S.sel.i, S.layer).filter(x => x.a != null);
+    if (vw.length) { const a = vw[0].a - 0.4, b = vw[vw.length - 1].b + 0.4; if (t > b || t < a - 1) seekTo(Math.max(0, a)); }
+  }
+  if (S.dock) drawWave();
+  requestAnimationFrame(frame);
+}
+
+/* ---------- undo ---------- */
+const stateJSON = () => JSON.stringify(S.lines.map(l => ({ s: l.sync || null, x: l.text, t: l.tr || '' })));
+function snap() { S.undo.push(stateJSON()); if (S.undo.length > 200) S.undo.shift(); S.redo = []; }
+function restore(json) {
+  const arr = JSON.parse(json); let txt = false;
+  S.lines.forEach((l, i) => { const a = arr[i]; if (!a) return; if (a.s) l.sync = a.s; else delete l.sync; if (l.text !== a.x || (l.tr || '') !== a.t) txt = true; l.text = a.x; l.tr = a.t; });
+  if (txt) { renderEditor(); buildPreview(true); }
+  afterSyncChange(true);
+}
+function doUndo() { if (!S.undo.length) return; S.redo.push(stateJSON()); restore(S.undo.pop()); }
+function doRedo() { if (!S.redo.length) return; S.undo.push(stateJSON()); restore(S.redo.pop()); }
+function afterSyncChange(all, i) {
+  if (all) { S.lines.forEach((_, k) => { refreshPreviewLine(k); refreshRowMark(k); }); } else { refreshPreviewLine(i); refreshRowMark(i); }
+  renderSync(); drawWave(); scheduleSave();
+}
+
+/* ---------- word selection + marking ---------- */
+function selectWord(i, k) {
+  if (i < 0 || i >= S.lines.length) return;
+  S.sel = { i, k };
+  let ch = false; for (let j = Math.max(0, i - 1); j <= Math.min(S.lines.length - 1, i + 2); j++) ch = fillLine(j, S.layer) || ch;
+  if (ch) afterSyncChange(true); else renderSync();
+}
+function posList() { const out = []; S.lines.forEach((_, i) => wordsOf(i, S.layer).forEach((_, k) => out.push({ i, k }))); return out; }
+function stepSel(d) {
+  const L = posList(); if (!L.length) return null;
+  let cur = S.sel ? L.findIndex(p => p.i === S.sel.i && p.k === S.sel.k) : -1;
+  if (cur < 0) cur = 0; return L[Math.max(0, Math.min(L.length - 1, cur + d))];
+}
+function mark(kind) {
+  if (!S.sel) return;
+  const ws = wordsOf(S.sel.i, S.layer);
+  if (!ws.length) { const n = stepSel(1); if (n) selectWord(n.i, n.k); return; }
+  if (S.sel.k >= ws.length) S.sel.k = 0;
+  snap();
+  const sy = ensureSync(S.sel.i, S.layer), w = sy[S.sel.k];
+  const t = r3(Math.max(0, now() - (+$('lat').value || 0) / 1000 * S.rate));
+  const last = S.sel.k === ws.length - 1, li = S.sel.i;
+  W.flash = { t, kind, at: performance.now() }; flashBtn('wb' + kind);
+  if (kind === 'F') { w.a = t; if (w.b != null && w.b < t) w.b = null; }
+  else {
+    if (w.a == null) w.a = (S.sel.k > 0 && sy[S.sel.k - 1].b != null) ? sy[S.sel.k - 1].b : r3(Math.max(0, t - 0.15));
+    w.b = Math.max(t, w.a); conf(w);
+    if (kind === 'G' && !last) { const n = sy[S.sel.k + 1]; n.a = w.b; if (n.b != null && n.b < n.a) n.b = null; }
+    const nx = stepSel(1); if (nx) S.sel = { i: nx.i, k: nx.k };
+  }
+  afterSyncChange(false, li);
+}
+/* word actions (hotkeys AND toolbar buttons use these) */
+function nudgeWord(d) {
+  if (!S.sel) return toast('Сначала выбери слово.', 'err');
+  const sy = S.lines[S.sel.i].sync && S.lines[S.sel.i].sync[S.layer], x = sy && sy[S.sel.k];
+  if (!x || x.a == null || x.b == null || x.a + d < 0) return;
+  snap(); x.a = r3(x.a + d); x.b = r3(x.b + d); conf(x); afterSyncChange(false, S.sel.i);
+}
+function resetWord() {
+  if (!S.sel) return toast('Сначала выбери слово.', 'err');
+  snap(); const x = ensureSync(S.sel.i, S.layer)[S.sel.k]; if (x) { x.a = null; x.b = null; delete x.g; }
+  fillLine(S.sel.i, S.layer); afterSyncChange(false, S.sel.i);
+}
+function playSel() { if (!S.sel) return; const w = viewWords(S.sel.i, S.layer)[S.sel.k]; if (w && w.a != null) playWord(w); }
+function setLayerText(i, layer, text) {
+  if (layer === 'tr') { S.lines[i].tr = text; const el = document.querySelector('#ln' + i + ' input'); if (el) el.value = text; } else S.lines[i].text = text;
+}
+function joinWords() {
+  if (!S.sel) return toast('Выбери первое из двух слов.', 'err');
+  const { i, k } = S.sel, layer = S.layer, us = units(layerText(S.lines[i], layer));
+  if (k >= us.length - 1) return toast('После этого слова нет следующего в строке.', 'err');
+  snap(); const sy = ensureSync(i, layer), a = sy[k], b = sy[k + 1], syl = !us[k].sp;
+  const m = { a: a.a, b: b.b != null ? b.b : a.b }; if (a.g || b.g) m.g = 1;
+  us.splice(k, 2, { w: us[k].w + (syl ? '' : ' ') + us[k + 1].w, sp: us[k + 1].sp }); sy.splice(k, 2, m);
+  setLayerText(i, layer, unitsText(us)); S.lines[i].sync[layer] = sy;
+  buildPreview(true); afterSyncChange(false, i); flashChip();
+  toast(syl ? 'Слоги склеены.' : 'Склеено: два слова — один блок тайминга. U — разделить.', 'ok');
+}
+function splitWord() {
+  if (!S.sel) return toast('Выбери слово.', 'err');
+  const { i, k } = S.sel, layer = S.layer, us = units(layerText(S.lines[i], layer)), u = us[k]; if (!u) return;
+  const glued = u.w.includes(' '), parts = glued ? u.w.split(' ') : syllabify(u.w);
+  if (parts.length < 2) return toast('Один слог — делить нечего. Можно вписать «|» в текст строки вручную (газ|лай|тер).', 'err');
+  snap(); const sy = ensureSync(i, layer), x = sy[k];
+  const a = x.a != null ? x.a : S.lines[i].t, b = x.b != null ? x.b : S.lines[i].end;
+  const nu = parts.map((w, j) => ({ w, sp: j === parts.length - 1 ? u.sp : glued }));
+  const nw = splitWords(unitsText(nu), a, b).map(w => ({ a: r3(w.a), b: r3(w.b), ...(x.g ? { g: 1 } : {}) }));
+  us.splice(k, 1, ...nu); sy.splice(k, 1, ...nw);
+  setLayerText(i, layer, unitsText(us)); S.lines[i].sync[layer] = sy;
+  buildPreview(true); afterSyncChange(false, i); flashChip();
+  toast(glued ? 'Разделено на отдельные слова.' : 'Слоги: ' + parts.join(' · ') + ' — размечай каждый как слово (F / G / H).', 'ok');
+}
+function syllabifyLine() {
+  if (!S.sel) return toast('Выбери строку (клик по слову).', 'err');
+  const i = S.sel.i, layer = S.layer, us = units(layerText(S.lines[i], layer)); if (!us.length) return;
+  snap(); const sy = ensureSync(i, layer), nu = [], ns = []; let n = 0;
+  us.forEach((u, k) => {
+    const whole = u.sp && (k === 0 || us[k - 1].sp) && !u.w.includes(' '), parts = whole ? syllabify(u.w) : [u.w], x = sy[k];
+    if (parts.length < 2) { nu.push(u); ns.push(x); return; }
+    n++; const a = x.a != null ? x.a : S.lines[i].t, b = x.b != null ? x.b : S.lines[i].end;
+    const pu = parts.map((w, j) => ({ w, sp: j === parts.length - 1 }));
+    nu.push(...pu); ns.push(...splitWords(unitsText(pu), a, b).map(w => ({ a: r3(w.a), b: r3(w.b), ...(x.g ? { g: 1 } : {}) })));
+  });
+  if (!n) { S.undo.pop(); return toast('В строке нет многосложных слов.', 'err'); }
+  setLayerText(i, layer, unitsText(nu)); S.lines[i].sync[layer] = ns;
+  buildPreview(true); afterSyncChange(false, i); toast(`Разбито на слоги слов: ${n}. M — склеить слог обратно, Ctrl+Z — отмена.`, 'ok');
+}
+function flashBtn(id) { const b = $(id); if (!b) return; b.classList.remove('hit'); void b.offsetWidth; b.classList.add('hit'); }
+function flashChip() { requestAnimationFrame(() => { const c = document.querySelector('#syncLines .chip.sel'); if (c) { c.classList.remove('hit'); void c.offsetWidth; c.classList.add('hit'); } }); }
+
+function spreadLine(i, layer) {
+  const l = S.lines[i], ws = wordsOf(i, layer); if (!ws.length) return;
+  l.sync = l.sync || {};
+  l.sync[layer] = splitWords(layerText(l, layer), l.t, l.end).map(w => ({ a: r3(w.a), b: r3(w.b), g: 1 }));
+}
+
+/* ---------- QA, stepper, guide ---------- */
+function runQa() {
+  const r = qaCheck(S.lines, mode()), box = $('qaOut'); box.innerHTML = '';
+  const e = r.filter(x => x.sev === 'err').length;
+  $('qaSum').textContent = S.lines.length ? (r.length ? `ошибок: ${e}, замечаний: ${r.length - e}` : 'всё чисто ✓') : '';
+  r.slice(0, 80).forEach(x => {
+    const d = document.createElement('div'); d.className = x.sev; d.textContent = `строка ${x.i + 1}: ${x.msg}`;
+    d.onclick = () => { S.layer = mainLayerFor(x.i); $('layer').value = S.layer; seekTo(S.lines[x.i].t); if (!S.dock) toggleDock(true); selectWord(x.i, 0); centerOnSel(); };
+    box.appendChild(d);
+  });
+}
+function stepInfo() {
+  const n = S.lines.length, tr = S.lines.filter(l => l.tr && l.tr.trim()).length;
+  let done = 0; S.lines.forEach((_, i) => { if (lineState(i, mainLayerFor(i)) === 'done') done++; });
+  const st = [['1 Текст', n > 0], ['2 Аудио', S.hasAudio], ['3 Перевод', n > 0 && tr === n], ['4 Синхра ' + (n ? done + '/' + n : ''), n > 0 && done === n], ['5 QA и экспорт', false]];
+  const f = st.findIndex(x => !x[1]); return { st, cur: f < 0 ? 4 : f, n, tr, done };
+}
+function renderStepper() {
+  const box = $('stepper'); if (!box) return; const { st, cur } = stepInfo(); box.innerHTML = '';
+  st.forEach((x, k) => { const s = document.createElement('span'); s.textContent = (x[1] ? '✓ ' : '') + x[0]; s.className = x[1] ? 'ok' : k === cur ? 'cur' : ''; box.appendChild(s); });
+}
+function updateGuide() {
+  const g = $('guideTxt'), wi = $('wordInfo'); if (!g) return;
+  const { cur, n } = stepInfo(); let m;
+  if (!n) m = 'Сначала найди трек слева или перетащи .lrc / аудио.';
+  else if (!S.hasAudio) m = 'Перетащи аудиофайл на страницу — без звука размечать нечего.';
+  else if (cur === 2 && S.layer === 'tr') m = 'Перевода ещё нет — переведи слева или размечай оригинал.';
+  else if (S.sel) { const w = wordsOf(S.sel.i, S.layer)[S.sel.k]; m = '<b>«' + (w ? plainW(w) : '—') + '»</b> · строка ' + (S.sel.i + 1) + ' — Space и жми F, потом G на каждом слове'; }
+  else m = 'Кликни слово, с которого начнёшь.';
+  g.innerHTML = m;
+  const x = S.sel && S.lines[S.sel.i].sync && S.lines[S.sel.i].sync[S.layer], q = x && x[S.sel.k];
+  wi.textContent = q && q.a != null ? `${fmtTime(q.a)} → ${fmtTime(q.b)} (${Math.round((q.b - q.a) * 1000)} мс)${q.g ? ' · авто' : ''}${q.b - q.a >= 1 ? ' · ✦ долгое' : ''}` : '';
+}
+
+/* ---------- live link to local server / MCP ---------- */
+const LIVE = { on: false, rev: -1, applying: false };
+function livePill(ok, txt) { const e = $('liveLink'); e.hidden = false; e.textContent = txt; e.className = 'pill ' + (ok ? 'ok' : 'warn'); }
+function pushLive() {
+  if (!LIVE.on || LIVE.applying) return;
+  fetch('/api/project', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: projectJSON() }).then(r => r.json()).then(j => { LIVE.rev = j.rev; livePill(true, 'MCP: связь ✓'); }).catch(() => livePill(false, 'MCP: нет связи'));
+}
+function applyLive(j) {
+  LIVE.applying = true;
+  try { loadProject(JSON.stringify(j.project), true); idbGet(trackKey()).then(b => { if (b && !S.hasAudio) loadAudioFile(b, true); }); } finally { setTimeout(() => { LIVE.applying = false; }, 300); }
+}
+async function livePoll() {
+  if (W.drag || W.pend) return;
+  try {
+    const j = await (await fetch('/api/project')).json(); LIVE.on = true;
+    if (j.rev !== LIVE.rev) { const fromAgent = j.by === 'mcp' && LIVE.rev >= 0; LIVE.rev = j.rev; if (fromAgent || (!S.lines.length && j.project && j.project.lines)) { applyLive(j); toast('Агент (MCP) обновил проект.', 'ok'); } }
+    livePill(true, 'MCP: связь ✓');
+  } catch { if (LIVE.on) livePill(false, 'MCP: нет связи'); }
+}
+async function liveInit() {
+  if (!/^https?:$/.test(location.protocol)) return;
+  try {
+    const r = await fetch('/api/project'); if (!r.ok) return; const j = await r.json(); LIVE.on = true; LIVE.rev = j.rev;
+    if (j.project && j.project.lines && j.project.lines.length) applyLive(j); else if (S.lines.length) pushLive();
+    livePill(true, 'MCP: связь ✓'); setInterval(livePoll, 1500);
+  } catch {}
+}
+
+/* ---------- sync panel (chips) ---------- */
+function renderSync() {
+  const box = $('syncLines'); if (!box) return;
+  box.innerHTML = '';
+  if (!S.lines.length) { box.innerHTML = '<div class="keys">Загрузи трек и аудио (♪), затем жми F / G / H в такт слову.</div>'; $('syncStat').textContent = ''; renderStepper(); updateGuide(); return; }
+  const ci = S.sel ? S.sel.i : 0;
+  for (let i = Math.max(0, ci - 1); i <= Math.min(S.lines.length - 1, ci + 2); i++) {
+    const row = document.createElement('div'); row.className = 'sl' + (i === ci ? ' cur' : '');
+    const lab = document.createElement('span'); lab.className = 'lab'; lab.textContent = mmss(S.lines[i].t); row.appendChild(lab);
+    const ws = wordsOf(i, S.layer), us = units(layerText(S.lines[i], S.layer)), vw = viewWords(i, S.layer), sy = S.lines[i].sync && S.lines[i].sync[S.layer];
+    if (!ws.length) { const e = document.createElement('span'); e.className = 'keys'; e.textContent = S.layer === 'tr' ? '(нет перевода)' : '(пусто)'; row.appendChild(e); }
+    ws.forEach((w, k) => {
+      const c = document.createElement('span'); c.className = 'chip' + (w.includes(' ') ? ' grp' : ''); c.textContent = plainW(w);
+      const x = sy && sy.length === ws.length ? sy[k] : null;
+      if (x && x.a != null && x.b != null && !x.g) c.classList.add('t'); else if (x && x.a != null && x.b != null) c.classList.add('half');
+      if (S.sel && S.sel.i === i && S.sel.k === k) c.classList.add('sel');
+      if (!us[k].sp && k < ws.length - 1) c.classList.add('syl'); if (k && !us[k - 1].sp) c.classList.add('cont');
+      if (vw[k] && vw[k].a != null) { c.dataset.a = vw[k].a; c.dataset.b = vw[k].b; }
+      c.onclick = () => selectWord(i, k);
+      c.oncontextmenu = e => { e.preventDefault(); const vw = viewWords(i, S.layer)[k]; if (vw && vw.a != null) playWord(vw); };
+      row.appendChild(c);
+    });
+    box.appendChild(row);
+  }
+  S.chips = [...box.querySelectorAll('.chip')];
+  let done = 0; S.lines.forEach((_, i) => { if (lineState(i, S.layer) === 'done') done++; });
+  $('syncStat').textContent = `синхронизировано строк: ${done}/${S.lines.length}`;
+  renderStepper(); updateGuide();
+}
+
+/* ---------- waveform ---------- */
+const W = { peaks: null, pps: 200, px: 140, start: 0, drag: null, pend: null, hover: null, boxes: [], LANE: 46 };
+const PEAK_SRC = `onmessage = e => { const { ch, per } = e.data, n = Math.ceil(ch.length / per), pk = new Float32Array(n); let mx = 0;
+  for (let i = 0; i < n; i++) { let m = 0; const end = Math.min(ch.length, (i + 1) * per); for (let j = i * per; j < end; j += 2) { const v = ch[j] < 0 ? -ch[j] : ch[j]; if (v > m) m = v; } pk[i] = m; if (m > mx) mx = m; }
+  if (mx > 0) for (let i = 0; i < n; i++) pk[i] /= mx; postMessage(pk, [pk.buffer]); };`;
+function peaksInWorker(ch, per) {
+  return new Promise((res, rej) => {
+    let wk; try { wk = new Worker(URL.createObjectURL(new Blob([PEAK_SRC], { type: 'text/javascript' }))); } catch (e) { return rej(e); }
+    wk.onmessage = e => { res(e.data); wk.terminate(); }; wk.onerror = e => { rej(e); wk.terminate(); };
+    wk.postMessage({ ch, per }, [ch.buffer]);
+  });
+}
+async function buildPeaks(file) {
+  W.peaks = null;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    const ctx = new AC(); const buf = await ctx.decodeAudioData(await file.arrayBuffer());
+    const per = Math.max(1, Math.floor(buf.sampleRate / W.pps)), ch = buf.getChannelData(0).slice();
+    try { W.peaks = await peaksInWorker(ch, per); }
+    catch { // no workers (file:// in some browsers) -> same scan on the main thread
+      const n = Math.ceil(ch.length / per), pk = new Float32Array(n); let mx = 0;
+      for (let i = 0; i < n; i++) { let m = 0; const e = Math.min(ch.length, (i + 1) * per); for (let j = i * per; j < e; j += 2) { const v = Math.abs(ch[j]); if (v > m) m = v; } pk[i] = m; if (m > mx) mx = m; }
+      if (mx > 0) for (let i = 0; i < n; i++) pk[i] /= mx; W.peaks = pk;
+    }
+    ctx.close && ctx.close();
+  } catch (e) { status('st1', 'Волну построить не удалось (' + e.message + '), но аудио играет.', 'err'); }
+}
+function drawWave() {
+  const cv = $('wave'); if (!cv || !S.dock) return;
+  const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (!w || !h) return;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  const t = now();
+  if (S.playing && !W.drag) { if (t < W.start || t > W.start + w / W.px * 0.8) W.start = Math.max(0, t - w / W.px * 0.25); }
+  const t0 = W.start, t1 = t0 + w / W.px, X = tt => (tt - t0) * W.px;
+  const LANE = W.LANE, mid = LANE + (h - LANE) / 2, amp = (h - LANE) / 2 - 4;
+  // ruler
+  g.fillStyle = 'rgba(255,255,255,.35)'; g.font = '10px ui-monospace,monospace'; g.textBaseline = 'top';
+  const step = W.px > 400 ? 0.5 : W.px > 150 ? 1 : W.px > 60 ? 2 : 5;
+  for (let s = Math.ceil(t0 / step) * step; s < t1; s += step) { const x = X(s); g.fillRect(x, h - 6, 1, 6); g.fillText(mmss(s) + (step < 1 ? '.' + Math.round((s % 1) * 10) : ''), x + 3, h - 15); }
+  // waveform
+  if (W.peaks) {
+    g.fillStyle = 'rgba(182,156,255,.55)';
+    for (let x = 0; x < w; x++) {
+      const a = Math.floor((t0 + x / W.px) * W.pps), b = Math.max(a + 1, Math.floor((t0 + (x + 1) / W.px) * W.pps));
+      let m = 0; for (let i = Math.max(0, a); i < b && i < W.peaks.length; i++) if (W.peaks[i] > m) m = W.peaks[i];
+      const hh = Math.max(1, m * amp); g.fillRect(x, mid - hh, 1, hh * 2);
+    }
+  } else { g.fillStyle = 'rgba(255,255,255,.25)'; g.font = '12px system-ui'; g.textBaseline = 'middle'; g.fillText('Загрузи аудио (♪ аудио) — тут появится волна', 14, mid); }
+  // word boxes
+  W.boxes = [];
+  g.font = '600 15px system-ui'; g.textBaseline = 'middle';
+  for (let i = 0; i < S.lines.length; i++) {
+    const l = S.lines[i]; if (l.end + 8 < t0 || l.t - 8 > t1) continue;
+    const vw = viewWords(i, S.layer);
+    vw.forEach((wd, k) => {
+      if (wd.a == null) return;
+      const x1 = X(wd.a), x2 = X(wd.b); if (x2 < -2 || x1 > w + 2) return;
+      const sel = S.sel && S.sel.i === i && S.sel.k === k;
+      if (wd.real) {
+        g.fillStyle = sel ? 'rgba(255,122,200,.45)' : wd.g ? 'rgba(182,156,255,.16)' : 'rgba(182,156,255,.35)'; g.fillRect(x1, 3, Math.max(2, x2 - x1), LANE - 6);
+        g.fillStyle = 'rgba(255,255,255,.28)'; g.fillRect(x1, LANE, 1, h - LANE); g.fillRect(x2, LANE, 1, h - LANE);
+        g.strokeStyle = sel ? '#ff7ac8' : 'rgba(182,156,255,.9)'; g.lineWidth = 1; g.fillStyle = sel ? '#ff7ac8' : 'rgba(182,156,255,.95)'; g.fillRect(x1, 3, 3, LANE - 6); g.fillRect(x2 - 3, 3, 3, LANE - 6); if (wd.g) g.setLineDash([3, 3]); g.strokeRect(x1 + .5, 3.5, Math.max(2, x2 - x1) - 1, LANE - 7); g.setLineDash([]);
+      } else { g.setLineDash([3, 3]); g.strokeStyle = sel ? '#ff7ac8' : 'rgba(255,255,255,.25)'; g.strokeRect(x1 + .5, 3.5, Math.max(2, x2 - x1) - 1, LANE - 7); g.setLineDash([]); }
+      g.save(); g.beginPath(); g.rect(x1 + 2, 3, Math.max(0, x2 - x1 - 4), LANE - 6); g.clip();
+      g.fillStyle = wd.real ? '#fff' : 'rgba(255,255,255,.45)'; g.fillText((wd.b - wd.a >= 1 ? '✦ ' : '') + plainW(wd.word) + (wd.sp === false ? '-' : ''), x1 + 5, LANE / 2 + 1); g.restore();
+      W.boxes.push({ i, k, a: wd.a, b: wd.b, real: !!wd.real, g: !!wd.g });
+    });
+  }
+  // joined edges (touching words) get a bright joint so you can see what moves together
+  const rb = W.boxes.filter(b => b.real).sort((p, q) => p.a - q.a);
+  for (let q = 0; q + 1 < rb.length; q++) if (Math.abs(rb[q].b - rb[q + 1].a) <= JOIN) { const jx = X(rb[q].b); g.fillStyle = '#fff'; g.fillRect(jx - 1, 3, 2, LANE - 6); }
+  // playhead
+  const px = X(t); g.fillStyle = '#fff'; g.fillRect(px, 0, 1.5, h);
+  if (W.flash) {
+    const age = (performance.now() - W.flash.at) / 800;
+    if (age < 1) { const fx = X(W.flash.t), col = { F: '110,231,183', G: '182,156,255', H: '255,122,200' }[W.flash.kind]; g.fillStyle = `rgba(${col},${(1 - age).toFixed(2)})`; g.fillRect(fx - 1.5, 0, 3, h); g.font = '800 13px ui-monospace,monospace'; g.textBaseline = 'top'; g.fillText(W.flash.kind, fx + 5, LANE + 4); }
+    else W.flash = null;
+  }
+  if (W.snapAt != null && W.drag) { const sx = X(W.snapAt); g.fillStyle = '#ffd166'; g.fillRect(sx - 0.75, 0, 1.5, h); g.font = '11px ui-monospace,monospace'; g.fillText('🧲 ' + W.snapAt.toFixed(3), sx + 5, h - 24); }
+}
+function waveHit(mx, my) {
+  const t = W.start + mx / W.px, tol = 9 / W.px, lane = my < W.LANE;
+  let best = null;
+  for (const b of W.boxes) {
+    if (!b.real) continue;
+    for (const edge of ['a', 'b']) { const d = Math.abs(b[edge] - t); if (d <= tol && (!best || d < best.d)) best = { d, b, edge }; }
+  }
+  if (best) return { type: 'edge', t, ...best };
+  if (lane) for (const b of W.boxes) if (t >= b.a && t <= b.b) return { type: 'word', t, b };
+  return { type: lane ? 'lane' : 'bg', t };
+}
+/* DaVinci-style editing: magnet snapping, roll (joined edges move together), Alt = detach, no overlaps */
+const JOIN = 0.0015;
+function seqWords() {
+  const out = [];
+  S.lines.forEach((l, i) => {
+    const sy = l.sync && l.sync[S.layer]; if (!sy || sy.length !== wordsOf(i, S.layer).length) return;
+    sy.forEach((x, k) => { if (x.a != null && x.b != null) out.push({ i, k, x }); });
+  });
+  return out;
+}
+function buildCands(excl) {
+  const out = []; seqWords().forEach(e => { if (!excl.has(e.x)) out.push(e.x.a, e.x.b); });
+  S.lines.forEach(l => out.push(l.t)); return out;
+}
+function nearestCand(t, cands) {
+  if (!S.snap || W.ctrl) return null;
+  const tol = 10 / W.px; let best = null;
+  for (const c of cands.concat([now()])) { const d = Math.abs(c - t); if (d <= tol && (!best || d < best.d)) best = { d, c }; }
+  return best;
+}
+function snapOne(t, cands) { const n = nearestCand(t, cands); W.snapAt = n ? n.c : null; return n ? n.c : t; }
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+function setupWave() {
+  const cv = $('wave');
+  const tAt = mx => Math.max(0, r3(W.start + mx / W.px));
+  cv.onmousedown = e => {
+    const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top, h = waveHit(mx, my);
+    W.ctrl = e.ctrlKey || e.metaKey;
+    if (e.button === 2) { if (h.b) playWord({ a: h.b.a, b: h.b.b }); return; }
+    if (h.type === 'edge') {
+      const sq = seqWords(), idx = sq.findIndex(q => q.i === h.b.i && q.k === h.b.k); if (idx < 0) return;
+      const me = sq[idx], x = me.x; let partner = null;
+      if (h.edge === 'b') { const n = sq[idx + 1]; if (n && Math.abs(n.x.a - x.b) <= JOIN) partner = n; }
+      else { const p = sq[idx - 1]; if (p && Math.abs(p.x.b - x.a) <= JOIN) partner = p; }
+      let target = { e: me, edge: h.edge };
+      if (partner && e.altKey) { // detach: trim only the side the cursor is on
+        const bt = h.edge === 'b' ? x.b : x.a, leftWord = h.edge === 'b' ? me : partner, rightWord = h.edge === 'b' ? partner : me;
+        target = h.t < bt ? { e: leftWord, edge: 'b' } : { e: rightWord, edge: 'a' };
+      }
+      snap(); selectWord(h.b.i, h.b.k);
+      const excl = new Set([x]); if (partner) excl.add(partner.x);
+      W.drag = { type: 'edge', roll: !!partner && !e.altKey, me, partner, target, sq, edge: h.edge, cands: buildCands(excl), i: h.b.i };
+    }
+    else if (h.type === 'word') { selectWord(h.b.i, h.b.k); W.pend = { type: 'move', i: h.b.i, k: h.b.k, x0: mx, off: h.t - h.b.a, ghost: !h.b.real }; }
+    else if (h.type === 'lane' && S.sel) W.pend = { type: 'paint', x0: mx, t0: h.t };
+    else W.pend = { type: 'pan', x0: mx, start0: W.start, t0: h.t };
+  };
+  window.addEventListener('mousemove', e => {
+    const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+    W.ctrl = e.ctrlKey || e.metaKey;
+    if (W.pend && !W.drag && Math.abs(mx - W.pend.x0) > 3) {
+      const p = W.pend;
+      if (p.type === 'move') {
+        snap(); if (p.ghost) spreadLine(p.i, S.layer);
+        const sq = seqWords(), idx = sq.findIndex(q => q.i === p.i && q.k === p.k);
+        if (idx >= 0) {
+          const me = sq[idx], pv = sq[idx - 1], nx = sq[idx + 1];
+          const jp = !!(pv && Math.abs(pv.x.b - me.x.a) <= JOIN), jn = !!(nx && Math.abs(nx.x.a - me.x.b) <= JOIN);
+          const excl = new Set([me.x]); if (jp) excl.add(pv.x); if (jn) excl.add(nx.x);
+          W.drag = { type: 'move', i: p.i, me, pv, nx, jp, jn, off: p.off, len: me.x.b - me.x.a, cands: buildCands(excl) };
+        }
+      }
+      else if (p.type === 'paint') { snap(); const sx = ensureSync(S.sel.i, S.layer)[S.sel.k]; W.drag = { type: 'paint', i: S.sel.i, k: S.sel.k, t0: p.t0, cands: buildCands(new Set([sx])) }; }
+      else W.drag = { type: 'pan', x0: p.x0, start0: p.start0 };
+      W.pend = null;
+    }
+    const d = W.drag;
+    if (d) {
+      if (d.type === 'pan') { W.start = Math.max(0, d.start0 - (mx - d.x0) / W.px); cv.style.cursor = 'grabbing'; return; }
+      const traw = tAt(mx);
+      if (d.type === 'paint') {
+        const t = snapOne(traw, d.cands), w = S.lines[d.i].sync[S.layer][d.k]; w.a = Math.min(d.t0, t); w.b = Math.max(d.t0, t, w.a + 0.02); conf(w);
+      } else if (d.type === 'edge') {
+        const t0 = snapOne(traw, d.cands), sq = d.sq;
+        if (d.roll) {
+          const L = d.edge === 'b' ? d.me : d.partner, R = d.edge === 'b' ? d.partner : d.me;
+          const T = clamp(t0, L.x.a + 0.02, R.x.b - 0.02); if (T !== t0) W.snapAt = null;
+          L.x.b = T; R.x.a = T; conf(L.x, R.x);
+        } else {
+          const te = d.target.e, ti = sq.indexOf(te), pv = sq[ti - 1], nx = sq[ti + 1];
+          if (d.target.edge === 'a') { const T = clamp(t0, pv ? pv.x.b : 0, te.x.b - 0.02); if (T !== t0) W.snapAt = null; te.x.a = T; conf(te.x); }
+          else { const T = clamp(t0, te.x.a + 0.02, nx ? nx.x.a : 1e9); if (T !== t0) W.snapAt = null; te.x.b = T; conf(te.x); }
+        }
+      } else if (d.type === 'move') {
+        const w = d.me.x, len = d.len, follow = !e.altKey;
+        let a = Math.max(0, traw - d.off);
+        const na = nearestCand(a, d.cands), nb = nearestCand(a + len, d.cands);
+        if (na && (!nb || na.d <= nb.d)) { a = na.c; W.snapAt = na.c; } else if (nb) { a = nb.c - len; W.snapAt = nb.c; } else W.snapAt = null;
+        const pv = d.pv, nx = d.nx;
+        const lo = follow && d.jp ? pv.x.a + 0.02 : (pv ? pv.x.b : 0);
+        const hi = follow && d.jn ? nx.x.b - 0.02 - len : (nx ? nx.x.a - len : 1e9);
+        const a2 = clamp(a, lo, hi); if (a2 !== a) W.snapAt = null;
+        w.a = r3(a2); w.b = r3(a2 + len); conf(w, follow && d.jp ? pv.x : null, follow && d.jn ? nx.x : null);
+        if (follow && d.jp) pv.x.b = w.a; if (follow && d.jn) nx.x.a = w.b;
+      }
+      refreshPreviewLine(d.i); return;
+    }
+    if (mx >= 0 && mx <= r.width && my >= 0 && my <= r.height) { const h = waveHit(mx, my); cv.style.cursor = h.type === 'edge' ? 'ew-resize' : h.type === 'word' ? 'grab' : h.type === 'lane' && S.sel ? 'crosshair' : 'default'; }
+  });
+  window.addEventListener('mouseup', () => {
+    if (W.pend) { if (W.pend.type === 'pan' || W.pend.type === 'paint') seekTo(W.pend.t0); W.pend = null; return; }
+    if (W.drag) {
+      const d = W.drag; W.drag = null; W.snapAt = null;
+      if (d.type === 'paint') { const n = stepSel(1); if (n) S.sel = { i: n.i, k: n.k }; }
+      if (d.type !== 'pan') { S.lines.forEach((_, i) => { refreshPreviewLine(i); refreshRowMark(i); }); renderSync(); drawWave(); scheduleSave(); }
+    }
+  });
+  cv.oncontextmenu = e => e.preventDefault();
+  cv.onwheel = e => {
+    e.preventDefault(); const r = cv.getBoundingClientRect(), mx = e.clientX - r.left;
+    if (e.ctrlKey || e.metaKey) zoomAt(mx, e.deltaY < 0 ? 1.18 : 1 / 1.18);
+    else W.start = Math.max(0, W.start + (e.deltaX || e.deltaY) / W.px * 1.2);
+  };
+}
+function zoomAt(mx, f) { const ta = W.start + mx / W.px; W.px = Math.min(1500, Math.max(20, W.px * f)); W.start = Math.max(0, ta - mx / W.px); }
+function centerOnSel() {
+  if (!S.sel) return; const vw = viewWords(S.sel.i, S.layer), ws = vw.filter(x => x.a != null); if (!ws.length) return;
+  const a = ws[0].a, b = ws[ws.length - 1].b, width = $('wave').clientWidth || 800;
+  W.px = clamp(width * 0.8 / Math.max(0.5, b - a), 40, 600); W.start = Math.max(0, a - (width * 0.1) / W.px);
+}
+
+/* ---------- feedback helpers ---------- */
+let toastT = null;
+function toast(msg, cls) {
+  const e = $('dockMsg'); if (e) { e.textContent = msg; e.className = cls || ''; clearTimeout(toastT); toastT = setTimeout(() => { e.textContent = ''; }, 4000); }
+  status('st2', msg, cls);
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch {}
+  try { const ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); return ok; } catch { return false; }
+}
+window.addEventListener('error', e => toast('Ошибка: ' + e.message, 'err'));
+window.addEventListener('unhandledrejection', e => toast('Ошибка: ' + (e.reason && e.reason.message || e.reason), 'err'));
+function updateKbd() {
+  const el = $('kbd'); if (!el) return;
+  const a = document.activeElement, typing = a && (a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || (a.tagName === 'INPUT' && ['text', 'number', 'search'].includes(a.type)));
+  el.textContent = typing ? '⌨ клавиши выключены — кликни по волне' : '';
+  el.className = typing ? 'kbd warn' : 'kbd';
+}
+
+
+function setSnap(on) { S.snap = on; $('snapChk').checked = on; store.set('snap', on ? '1' : '0'); toast(on ? '🧲 Магнит включён (N). Ctrl при перетаскивании — отключает на лету.' : 'Магнит выключен (N).', 'ok'); }
+function setLoop(on) { S.loop = on; $('btnLoop').classList.toggle('pri', on); $('btnLoop').textContent = (on ? '🔁 Кручу строку' : '🔁 Крутить строку по кругу') + ' (L)'; toast(on ? '🔁 Цикл выбранной строки включён (L). Жми Space.' : 'Цикл выключен.', 'ok'); }
+function saveText(name, text, mime) {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: mime || 'text/plain' })); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  status('st2', window.self !== window.top ? 'Если файл не появился — страница во встроенном просмотре: открой в обычном браузере.' : 'Файл скачан.', window.self !== window.top ? 'err' : 'ok');
+}
+function baseName() { return (($('mArtist').value + ' - ' + $('mTitle').value).replace(/[\\/:*?"<>|]/g, '').trim() || 'lyrics') + ` (${$('lang').value})`; }
+function projectJSON() {
+  return JSON.stringify({ v: 1, meta: { title: $('mTitle').value, artist: $('mArtist').value, lang: $('lang').value, mode: mode() },
+    lines: S.lines.map(l => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || null })) }, null, 1);
+}
+function loadProject(txt, keepSel) {
+  const p = JSON.parse(txt); if (!p.lines) throw new Error('это не проект Spicy Translate');
+  const m = p.meta || {}, sel = keepSel && S.sel ? { ...S.sel } : null;
+  $('mTitle').value = m.title || ''; $('mArtist').value = m.artist || ''; if (m.lang) $('lang').value = m.lang;
+  if (m.mode) { const r = document.querySelector('input[name=mode][value=' + m.mode + ']'); if (r && !r.checked) { r.checked = true; r.onchange(); } }
+  setLines(p.lines.map(l => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || undefined })), 0);
+  if (sel && sel.i < S.lines.length) S.sel = sel;
+  renderEditor(); buildPreview(); renderSync(); status('st1', `Проект загружен: строк ${S.lines.length}`, 'ok');
+}
+/* ---------- export ---------- */
+function opts() {
+  return { lines: S.lines, mode: mode(), wordSpread: $('spread').checked, lang: $('lang').value,
+    offset: parseInt($('offset').value, 10) || 0, songwriters: $('writers').value.split(',').map(s => s.trim()) };
+}
+function checkExport() {
+  if (!S.lines.length) { status('st2', 'Нечего экспортировать — загрузи текст.', 'err'); return null; }
+  const missing = S.lines.filter(l => !l.tr || !l.tr.trim()).length;
+  if (missing) status('st2', `У ${missing} строк нет перевода — в файл попадёт оригинал.`, 'err');
+  const x = buildTTML(opts());
+  return x;
+}
+function download() {
+  const x = checkExport(); if (!x) return;
+  const name = ($('mArtist').value + ' - ' + $('mTitle').value).replace(/[\\/:*?"<>|]/g, '').trim() || 'lyrics';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([x], { type: 'application/xml' }));
+  a.download = `${name} (${$('lang').value}).ttml`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  status('st2', window.self !== window.top ? 'Если файл не появился — страница открыта во встроенном просмотре: открой index.html в обычном браузере или жми «Копировать».' : 'Файл скачан.', window.self !== window.top ? 'err' : 'ok');
+}
+
+/* ---------- dock + hotkeys ---------- */
+function toggleDock(on) {
+  S.dock = on === undefined ? !S.dock : on; if (S.dock && document.activeElement && document.activeElement.blur) document.activeElement.blur(); updateKbd(); $('dock').hidden = !S.dock; document.body.classList.toggle('dock-open', S.dock);
+  if (S.dock) { renderSync(); setTimeout(drawWave, 30); if (!store.get('helpSeen', '')) { $('help').hidden = false; store.set('helpSeen', '1'); } }
+  lastAct = -2;
+}
+document.addEventListener('keydown', e => {
+  if (!S.dock || !$('help').hidden) return;
+  const tg = e.target, tag = tg.tagName;
+  if (tag === 'TEXTAREA' || tag === 'SELECT' || (tag === 'INPUT' && tg.type !== 'range' && tg.type !== 'checkbox' && tg.type !== 'radio' && tg.type !== 'file')) return;
+  const c = e.code;
+  if ((e.ctrlKey || e.metaKey) && c === 'KeyZ') { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = { KeyM: 1, KeyU: 1, KeyN: 1, KeyL: 1, KeyR: 1, Comma: 1, Period: 1, Space: 1, KeyF: 1, KeyG: 1, KeyH: 1, KeyA: 1, KeyD: 1, ArrowLeft: 1, ArrowRight: 1, BracketLeft: 1, BracketRight: 1, Quote: 1, Delete: 1, Backspace: 1 };
+  if (!k[c]) return;
+  e.preventDefault();
+  if (c === 'Space') { if (!e.repeat) S.playing ? pause() : play(); return; }
+  if (c === 'ArrowLeft') return seekTo(now() - (e.shiftKey ? 1 : 5));
+  if (c === 'ArrowRight') return seekTo(now() + (e.shiftKey ? 1 : 5));
+  if (c === 'BracketLeft') return setRate(S.rate - 0.25);
+  if (c === 'BracketRight') return setRate(S.rate + 0.25);
+  if (c === 'Quote') return setRate(1);
+  if (c === 'Comma' || c === 'Period') {
+    return nudgeWord((c === 'Comma' ? -1 : 1) * (e.shiftKey ? 0.05 : 0.01));
+  }
+  if (c === 'KeyM') return joinWords();
+  if (c === 'KeyU') return splitWord();
+  if (e.repeat) return;
+  if (c === 'KeyN') { setSnap(!S.snap); return; }
+  if (c === 'KeyL') { setLoop(!S.loop); return; }
+  if (c === 'KeyR') { if (S.sel) { const vw = viewWords(S.sel.i, S.layer).filter(x => x.a != null); seekTo(Math.max(0, (vw.length ? vw[0].a : S.lines[S.sel.i].t) - 0.4)); } return; }
+  if (c === 'KeyA') { const n = stepSel(-1); if (n) selectWord(n.i, n.k); return; }
+  if (c === 'KeyD') { const n = stepSel(1); if (n) selectWord(n.i, n.k); return; }
+  if (c === 'Delete' || c === 'Backspace') return resetWord();
+  mark(c === 'KeyF' ? 'F' : c === 'KeyG' ? 'G' : 'H');
+});
+// buttons/sliders shouldn't swallow Space/arrows after a click
+document.addEventListener('mouseup', e => { const t = e.target.closest && e.target.closest('button,input[type=range]'); if (t) setTimeout(() => t.blur(), 0); });
+
+/* ---------- wiring ---------- */
+$('btnSearch').onclick = search; $('q').onkeydown = e => { if (e.key === 'Enter') search(); };
+$('btnManual').onclick = () => loadManual($('manual').value);
+$('fileLrc').onchange = async e => { const f = e.target.files[0]; if (f) { const t = await f.text(); $('manual').value = t; loadManual(t); } };
+$('btnAuto').onclick = autoTranslate; $('btnPrompt').onclick = copyPrompt;
+$('btnPaste').onclick = () => { $('pasteBox').hidden = false; $('pasteTa').focus(); };
+$('btnPasteCancel').onclick = () => $('pasteBox').hidden = true; $('btnPasteApply').onclick = applyPaste;
+$('btnClear').onclick = () => { S.lines.forEach(l => { l.tr = ''; if (l.sync) delete l.sync.tr; }); renderEditor(); buildPreview(true); renderSync(); drawWave(); status('st2', 'Перевод очищен.'); };
+document.querySelectorAll('input[name=mode]').forEach(r => r.onchange = () => {
+  const bi = mode() === 'bilingual';
+  $('modeHint').textContent = bi
+    ? 'Экспериментально: оригинал — основная строка, перевод — мелким фоновым вокалом под ней. Пословный режим включается сам; слои синхронизируются отдельно (переключатель в панели синхры).'
+    : 'Переведённый текст становится основной лирикой — самый безопасный вариант для Spicy Lyrics.';
+  $('spread').checked = true; $('spread').disabled = bi;
+  S.lines.forEach((_, i) => refreshRowMark(i)); buildPreview(true); renderSync(); drawWave();
+});
+$('layer').onchange = () => { S.layer = $('layer').value; renderSync(); drawWave(); };
+$('mTitle').oninput = $('mArtist').oninput = () => { $('pTitle').textContent = $('mTitle').value || 'Превью'; $('pArtist').textContent = $('mArtist').value; };
+$('btnDl').onclick = download;
+$('btnCopy').onclick = async () => { const x = checkExport(); if (!x) return; (await copyText(x)) ? status('st2', 'TTML скопирован в буфер.', 'ok') : status('st2', 'Буфер заблокирован — нажми «Показать код» и скопируй вручную.', 'err'); };
+$('btnShow').onclick = () => { const o = $('out'); if (o.hidden) { const x = checkExport(); if (!x) return; o.textContent = x; } o.hidden = !o.hidden; $('btnShow').textContent = o.hidden ? 'Показать код' : 'Скрыть код'; };
+$('btnPlay').onclick = () => S.playing ? pause() : play();
+$('seek').oninput = e => seekTo(parseFloat(e.target.value));
+$('vol').oninput = e => setVolume(parseFloat(e.target.value));
+let preMute = 0.3;
+$('btnMute').onclick = () => { const v = parseFloat($('vol').value); if (v > 0) { preMute = v; setVolume(0); } else setVolume(preMute || 0.3); };
+$('rate').onchange = () => setRate(parseFloat($('rate').value));
+$('btnDock').onclick = () => toggleDock(); $('btnDockClose').onclick = () => toggleDock(false);
+$('lat').value = store.get('lat', '100'); $('lat').onchange = () => store.set('lat', $('lat').value);
+$('btnLineSpread').onclick = () => { if (!S.sel) return toast('Сначала выбери слово (клик по чипу или плашке).', 'err'); snap(); spreadLine(S.sel.i, S.layer); afterSyncChange(false, S.sel.i); toast('Слова строки раскиданы — теперь их можно двигать и растягивать.', 'ok'); };
+$('btnAllSpread').onclick = () => { if (!S.lines.length) return toast('Нет строк.', 'err'); snap(); let n = 0; S.lines.forEach((_, i) => { if (lineState(i, S.layer) !== 'done') { spreadLine(i, S.layer); n++; } }); afterSyncChange(true); toast(`Раскидано строк: ${n} (готовые не тронул). Ctrl+Z — отмена.`, 'ok'); };
+$('btnLineReset').onclick = () => { if (!S.sel) return toast('Сначала выбери слово.', 'err'); snap(); const l = S.lines[S.sel.i]; if (l.sync) delete l.sync[S.layer]; afterSyncChange(false, S.sel.i); toast('Синхра строки сброшена. Ctrl+Z — отмена.', 'ok'); };
+$('btnLayerClear').onclick = () => { if (!S.lines.length) return; snap(); S.lines.forEach(l => { if (l.sync) delete l.sync[S.layer]; }); afterSyncChange(true); toast('Синхра слоя очищена. Ctrl+Z вернёт.', 'ok'); };
+$('snapChk').onchange = () => setSnap($('snapChk').checked);
+$('btnLoop').onclick = () => setLoop(!S.loop);
+$('btnZoomIn').onclick = () => zoomAt(($('wave').clientWidth || 800) / 2, 1.4);
+$('btnZoomOut').onclick = () => zoomAt(($('wave').clientWidth || 800) / 2, 1 / 1.4);
+$('btnFit').onclick = () => { centerOnSel(); };
+$('btnLrc').onclick = () => { if (!S.lines.length) return; saveText(baseName() + '.lrc', buildLRC(opts())); };
+$('btnSrt').onclick = () => { if (!S.lines.length) return; saveText(baseName() + '.srt', buildSRT(opts())); };
+$('btnProjSave').onclick = () => { if (!S.lines.length) return; saveText(baseName() + '.spicy.json', projectJSON(), 'application/json'); };
+$('fileProj').onchange = async e => { const f = e.target.files[0]; if (!f) return; try { loadProject(await f.text()); } catch (err) { status('st1', 'Не открылось: ' + err.message, 'err'); } };
+S.snap = store.get('snap', '1') !== '0'; $('snapChk').checked = S.snap;
+$('fileAudio').onchange = e => { const f = e.target.files[0]; if (f) loadAudioFile(f); };
+// drag & drop anywhere: audio -> player, .lrc/.txt -> lyrics
+let dragDepth = 0;
+const showDrop = on => $('drop').classList.toggle('on', on);
+window.addEventListener('dragenter', e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { dragDepth++; showDrop(true); } });
+window.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) showDrop(false); });
+window.addEventListener('dragover', e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
+window.addEventListener('drop', async e => {
+  e.preventDefault(); dragDepth = 0; showDrop(false);
+  for (const f of e.dataTransfer.files) {
+    if (f.type.startsWith('audio/') || /\.(mp3|flac|wav|ogg|m4a|aac|opus)$/i.test(f.name)) await loadAudioFile(f);
+    else if (/\.(lrc|txt)$/i.test(f.name)) { const t = await f.text(); $('manual').value = t; loadManual(t); }
+  }
+});
+window.addEventListener('resize', () => drawWave());
+document.addEventListener('focusin', updateKbd); document.addEventListener('focusout', () => setTimeout(updateKbd, 0));
+// clicking the dock / waveform / chips takes focus out of any text field so F/G/H work
+$('dock').addEventListener('mousedown', e => { if (!e.target.closest('input,select,textarea')) { const a = document.activeElement; if (a && a !== document.body && a.blur) a.blur(); updateKbd(); } });
+document.addEventListener('keydown', e => { if (e.code === 'Escape') { $('help').hidden = true; document.querySelectorAll('details.menu[open]').forEach(d => d.open = false); const a = document.activeElement; if (a && a.blur) a.blur(); updateKbd(); } });
+$('btnLlm').onclick = llmTranslate; $('btnQa').onclick = runQa;
+try { const c = JSON.parse(store.get('llm', 'null')); if (c) { $('llmProv').value = c.prov; $('llmModel').value = c.model; $('llmKey').value = c.key || ''; $('llmUrl').value = c.url || ''; $('llmStyle').value = c.style || ''; } } catch {}
+$('btnHelp').onclick = () => { $('help').hidden = !$('help').hidden; };
+$('fxChk').onchange = () => { S.fx = $('fxChk').checked; store.set('fx', S.fx ? '1' : '0'); lastAct = -2; };
+S.fx = store.get('fx', '1') !== '0'; $('fxChk').checked = S.fx;
+$('btnJoin').onclick = joinWords; $('btnSplit').onclick = splitWord; $('btnSylLine').onclick = syllabifyLine;
+$('voff').value = store.get('voff', '0'); S.voff = +$('voff').value || 0;
+$('voff').onchange = () => { S.voff = +$('voff').value || 0; store.set('voff', String(S.voff)); };
+$('help').onclick = e => { if (e.target.id === 'help' || e.target.closest('#helpClose')) $('help').hidden = true; };
+document.addEventListener('click', e => document.querySelectorAll('details.menu[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; }));
+$('wbPrev').onclick = () => { const n = stepSel(-1); if (n) selectWord(n.i, n.k); };
+$('wbNext').onclick = () => { const n = stepSel(1); if (n) selectWord(n.i, n.k); };
+$('wbF').onclick = () => mark('F'); $('wbG').onclick = () => mark('G'); $('wbH').onclick = () => mark('H');
+$('wbBack').onclick = () => nudgeWord(-0.01); $('wbFwd').onclick = () => nudgeWord(0.01);
+$('wbPlay').onclick = playSel; $('wbReset').onclick = resetWord; $('wbUndo').onclick = doUndo; $('wbRedo').onclick = doRedo;
+window.addEventListener('beforeunload', saveProject);
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveProject(); });
+setupWave();
+setVolume(Math.min(1, Math.max(0, parseFloat(store.get('vol', '0.3')) || 0.3)));
+requestAnimationFrame(frame);
+renderStepper(); updateGuide();
+// restore the last session (text, translation, word timings, cached audio) automatically
+try { const last = store.get('last', null); if (last) { LIVE.applying = true; loadProject(last); LIVE.applying = false; idbGet(trackKey()).then(b => { if (b) loadAudioFile(b, true); }); $('saveInd').textContent = '💾 восстановлено'; $('saveInd').className = 'pill ok'; } } catch (e) { LIVE.applying = false; }
+liveInit();
+</script>
+</body>
+</html>
