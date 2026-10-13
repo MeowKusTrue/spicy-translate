@@ -1,0 +1,52 @@
+# Spicy Translate для Spicetify
+
+Расширение Spicetify: редактор синхронного перевода прямо в Spotify, без своего mp3. Часы берутся из плеера Spotify, текст подтягивается из LRCLIB, разметка по словам (F/G/H) как в веб-версии, готовый TTML пишется прямо в локальную базу Spicy Lyrics.
+
+## Установка
+
+Нужны Node 20+ и установленный Spicetify.
+
+```bash
+cd extension && npm install && npm run build
+```
+
+Сборка кладёт файл в `extension/dist/spicy-translate.js`. Скопируй его в папку расширений Spicetify (Windows: `%APPDATA%\spicetify\Extensions\`, Linux/macOS: `~/.config/spicetify/Extensions/`):
+
+```bash
+cp dist/spicy-translate.js "$APPDATA/spicetify/Extensions/"
+```
+
+Включи расширение и примени (Spotify перезапустится):
+
+```bash
+spicetify config extensions spicy-translate.js && spicetify apply
+```
+
+Удалить: `spicetify config extensions spicy-translate.js-` и снова `spicetify apply`. После пересборки достаточно скопировать файл и выполнить `spicetify apply`.
+
+## Как пользоваться
+
+1. Включи трек и нажми кнопку «Spicy Translate» в топбаре (или рядом с громкостью). Откроется панель поверх Spotify; текст подтянется из LRCLIB по названию, исполнителю, альбому и длительности. Не нашлось — «Текст» → вставь LRC или просто текст.
+2. «Перевод»: вставь готовый перевод списком или JSON, скопируй промпт для LLM или переведи через свой ключ (OpenAI-совместимый провайдер или Anthropic).
+3. Разметка: кликни слово, `Space` — играть/пауза (это плеер Spotify), `F` начало, `G` следующее, `H` конец; `A/D`, `←/→`, `,`/`.`, `M` склеить (NBSP), `U` слоги, `Del`, `L`, `R`, `N`, `Ctrl+Z`. Блоки на таймлайне можно тащить мышью. Полный список — кнопка `?`.
+4. «Экспорт» → **«Залить в Spicy Lyrics»**: TTML записывается в локальную базу Spicy Lyrics для текущего трека. Spicy держит в памяти лирику, которая уже показана, поэтому переключи трек на другой и обратно. Запасной путь: «Скачать .ttml» / «Копировать TTML» → в Spicy Lyrics Lyrics Manager → Upload TTML.
+
+Проект (текст, перевод, разметка) автоматически сохраняется в `Spicetify.LocalStorage` на Spotify URI трека и восстанавливается, когда трек снова играет.
+
+## Ограничения
+
+- Волны нет: поток Spotify под DRM. Вместо неё таймлайн с блоками слов и строк.
+- Скорость воспроизведения для музыки Spotify не меняет, поэтому хоткеи `[` `]` `'` из веб-версии здесь не работают.
+- «Залить в Spicy Lyrics» опирается на внутреннюю IndexedDB Spicy Lyrics (`spicylyrics/lyricsStore`), а не на публичный API. Подробности в [NOTES.md](NOTES.md).
+- `src/core.ts` — временная копия ядра из `reference/index.html`. После мержа Vite+TS-версии в master её заменит общий core.
+
+## Разработка
+
+```bash
+npm run build      # dist/spicy-translate.js
+npm run watch      # пересборка на лету
+npm run typecheck
+npm test           # тесты core на выдуманных строках
+```
+
+`dev/harness.html` — стенд без Spotify: фейковый `Spicetify.Player` и фейковый LRCLIB с выдуманным текстом. Собери проект, отдай папку `extension/` любым статическим сервером (например, `python -m http.server`) и открой `/dev/harness.html`.

@@ -1,0 +1,15 @@
+{
+  "name": "spicy-translate-spicetify",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --format=iife --target=chrome120 --loader:.css=text --outfile=dist/spicy-translate.js",
+    "watch": "npm run build -- --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0"
+  }
+}
