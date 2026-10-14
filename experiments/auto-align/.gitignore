@@ -1,0 +1,4 @@
+.venv/
+sample/*.stems/
+sample/*.wav
+__pycache__/

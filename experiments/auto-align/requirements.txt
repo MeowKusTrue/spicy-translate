@@ -1,0 +1,8 @@
+# torch/torchaudio first, from the PyTorch index matching your CUDA (see README), then:
+#   pip install -r requirements.txt
+numpy
+transformers>=4.40
+demucs==4.0.1
+# optional: lead/backing split (UVR karaoke model). GPU build: audio-separator[gpu]
+audio-separator[cpu]
+audioread  # audio-separator imports it but does not declare it
