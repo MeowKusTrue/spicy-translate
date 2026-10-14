@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignRows, buildTTML, findAll, insertLine, lineRow, parensToBg, parseRow, parseTTML, qaCheck, remapSync, repeatTiming, replaceUnit, type Line } from '../src/core/index.ts';
+import { alignRows, buildTTML, findAll, insertLine, insertWord, shiftLine, lineRow, parensToBg, parseRow, parseTTML, qaCheck, remapSync, repeatTiming, replaceUnit, type Line } from '../src/core/index.ts';
 
 describe('whole-text rows', () => {
   it('alignRows keeps unchanged and edited rows on their lines, marks new ones', () => {
@@ -87,5 +87,23 @@ describe('background-only lines', () => {
     const back = parseTTML(x);
     expect([back.length, back[0].text, back[0].bg!.text]).toEqual([1, '', 'ого ага']);
     expect(qaCheck(ls).filter(q => q.sev === 'err')).toEqual([]);
+  });
+});
+
+describe('copies', () => {
+  it('insertWord drops a word between neighbours, they give way', () => {
+    const l: Line = { t: 0, end: 4, text: 'раз два', tr: '', sync: { orig: [{ a: 0, b: 2 }, { a: 2, b: 4 }] } };
+    expect(insertWord(l, 'orig', 'эх', 1.5, 2.5)).toBe(1);
+    expect(l.text).toBe('раз эх два');
+    expect(l.sync!.orig).toEqual([{ a: 0, b: 1.5 }, { a: 1.5, b: 2.5 }, { a: 2.5, b: 4 }]);
+    const b: Line = { t: 0, end: 4, text: '', tr: '' };
+    insertWord(b, 'bgo', 'ого', 1, 2);
+    expect(b.bg!.text).toBe('ого');
+  });
+  it('shiftLine moves every track', () => {
+    const o: Line = { t: 1, end: 2, text: 'a', tr: 'б', sync: { orig: [{ a: 1, b: 2 }], bgo: [{ a: 1.5, b: 1.8 }] }, bg: { text: 'x', tr: '' } };
+    const l: Line = JSON.parse(JSON.stringify(o));
+    shiftLine(l, o, 2);
+    expect([l.t, l.end, l.sync!.orig![0].a, l.sync!.bgo![0].b]).toEqual([3, 4, 3, 3.8]);
   });
 });

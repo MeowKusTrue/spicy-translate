@@ -3,7 +3,7 @@ import { S, emit, isBg, isTr, ls, mkLayer, toast, viewWords, wordsOf } from './s
 import { now, pause, play, seekTo, setRate } from './audio.ts';
 import { PV } from './preview.ts';
 import { doRedo, doUndo, joinWords, mark, nudgeWord, resetWord, setLayer, splitWord, stepWord } from './sync.ts';
-import { openEdit, repeatChorus } from './lineEdit.ts';
+import { copyLines, openEdit, pasteLines, repeatChorus } from './lineEdit.ts';
 import { drawWave } from './waveform/wave.ts';
 import { cycleAgent, setAgent } from './agents.ts';
 
@@ -25,11 +25,12 @@ const blurActive = () => { const a = document.activeElement; if (a instanceof HT
 
 const KEYS = new Set(['KeyC', 'KeyB', 'KeyT', 'KeyE', 'Digit1', 'Digit2', 'Digit3', 'KeyV', 'KeyM', 'KeyU', 'KeyN', 'KeyL', 'KeyR', 'Comma', 'Period', 'Space', 'KeyF', 'KeyG', 'KeyH', 'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'BracketLeft', 'BracketRight', 'Quote', 'Delete', 'Backspace']);
 function onKey(e: KeyboardEvent) {
-  if (!S.dock || S.help || S.full) return;
+  if (!S.dock || S.help) return;
   const tg = e.target as HTMLInputElement, tag = tg.tagName;
   if (tag === 'TEXTAREA' || tag === 'SELECT' || (tag === 'INPUT' && tg.type !== 'range' && tg.type !== 'checkbox' && tg.type !== 'radio' && tg.type !== 'file')) return;
   const c = e.code;
   if ((e.ctrlKey || e.metaKey) && c === 'KeyZ') { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); return; }
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (c === 'KeyC' || c === 'KeyV')) { e.preventDefault(); return c === 'KeyC' ? copyLines() : pasteLines(); }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (!KEYS.has(c)) return;
   e.preventDefault();

@@ -39,8 +39,13 @@ export function remapSync(oldText: string, newText: string, sync: WordSync[] | n
 /** For each new row: index of the old row it continues (unchanged, or edited in place), or -1 = a new row. Old rows left out were removed. */
 export function alignRows(oldRows: string[], newRows: string[]): number[] {
   const out = newRows.map(() => -1);
-  const words = (s: string) => new Set(s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean));
-  const sim = (a: string, b: string) => { const A = words(a), B = words(b); let c = 0; A.forEach(w => { if (B.has(w)) c++; }); return c / Math.max(1, A.size, B.size); };
+  // similarity = Dice over letter pairs of the lead text (background in brackets ignored), so "water" -> "waters" still matches
+  const pairs = (s: string) => { const t = s.replace(/\([^)]*\)?/g, ' ').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim(), m = new Map<string, number>(); for (let k = 0; k + 1 < t.length; k++) { const p = t.slice(k, k + 2); m.set(p, (m.get(p) || 0) + 1); } return m; };
+  const sim = (a: string, b: string) => {
+    const A = pairs(a), B = pairs(b); let c = 0, na = 0, nb = 0;
+    A.forEach((v, p) => { na += v; c += Math.min(v, B.get(p) || 0); }); B.forEach(v => { nb += v; });
+    return na + nb ? 2 * c / (na + nb) : 0;
+  };
   lcsWalk(oldRows, newRows, (i, j) => { out[j] = i; }, (i0, i1, j0, j1) => {
     if (i1 - i0 === j1 - j0) { for (let q = 0; q < j1 - j0; q++) out[j0 + q] = i0 + q; return; } // edited in place
     let from = j0; // rows added/removed around edits: an old row goes to the most similar new row (in order)
@@ -165,4 +170,47 @@ export function repeatTiming(lines: Line[], i: number, layers: Layer[] = ['orig'
     if (did) n++;
   }
   return n;
+}
+
+/* ---------- copies: moving / duplicating lines, dropping a word copy ---------- */
+/** shift a whole line (its span and every timed word on every track) by d seconds, measured from snapshot o */
+export function shiftLine(l: Line, o: Line, d: number) {
+  d = Math.max(d, -o.t);
+  l.t = r3(o.t + d); l.end = r3(o.end + d);
+  if (o.sync) for (const k of Object.keys(o.sync) as Layer[]) l.sync?.[k]?.forEach((x, j) => { const y = o.sync![k]![j]; if (y && y.a != null) x.a = r3(y.a + d); if (y && y.b != null) x.b = r3(y.b + d); });
+}
+const setTxt = (l: Line, layer: Layer, v: string) => {
+  if (layer === 'tr') l.tr = v; else if (layer === 'orig') l.text = v;
+  else { l.bg = l.bg || { text: '', tr: '' }; if (layer === 'bg') l.bg.tr = v; else l.bg.text = v; }
+};
+/**
+ * Insert word(s) `w` into a line's layer at [a, b] (a dropped copy): goes between the words around that time,
+ * never inside a word split into syllables; touching neighbours give way so nothing overlaps. Returns the unit index.
+ * The layer should be fully timed (fillLine first); otherwise its timings are dropped.
+ */
+export function insertWord(l: Line, layer: Layer, w: string, a: number, b: number) {
+  const us = units(txt(l, layer)), nu = units(w); if (!nu.length) return -1;
+  if (!us.length) { l.sync = l.sync || {}; l.sync[layer] = []; } // empty track: the copy is its first word
+  const sy = l.sync?.[layer], ok = !!sy && sy.length === us.length && sy.every(timed);
+  let k = ok ? sy!.filter(x => x.a! + (x.b! - x.a!) / 2 < a + (b - a) / 2).length : us.length;
+  while (k > 0 && k < us.length && !us[k - 1].sp) k++; // keep syllables of one word together
+  nu[nu.length - 1].sp = true;
+  us.splice(k, 0, ...nu); setTxt(l, layer, unitsText(us));
+  if (!ok) { if (l.sync) delete l.sync[layer]; return k; }
+  const p = sy![k - 1], n = sy![k];
+  if (p && p.b! > a) { p.b = r3(Math.max(p.a! + 0.02, a)); a = Math.max(a, p.b!); }
+  if (n && n.a! < b) { n.a = r3(Math.min(n.b! - 0.02, b)); b = Math.min(b, n.a!); }
+  if (b < a + 0.02) b = a + 0.02;
+  sy!.splice(k, 0, ...spread(nu, a, b));
+  return k;
+}
+
+/** a background-only line spans exactly its timed background words (so it neither hides nor swallows its neighbours) */
+export function fitBgOnly(l: Line) {
+  if (l.text.trim()) return false;
+  const xs = [...(l.sync?.bgo || []), ...(l.sync?.bg || [])].filter(timed);
+  if (!xs.length) return false;
+  const a = r3(Math.min(...xs.map(x => x.a!))), b = r3(Math.max(a + 0.3, ...xs.map(x => x.b!)));
+  if (a === l.t && b === l.end) return false;
+  l.t = a; l.end = b; return true;
 }

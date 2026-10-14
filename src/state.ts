@@ -33,7 +33,7 @@ export const S = {
   save: { msg: '💾 —', cls: '' } as Msg, live: null as Msg | null,
   qa: null as QaItem[] | null, paste: null as string | null, out: null as string | null,
   help: false, typing: false, busyAuto: false, busyLlm: false,
-  full: null as null | { tr: boolean; text: string }, // whole-song text editor
+  tab: 'lines' as 'lines' | 'text', full: null as null | { o: string; t: string; dirty: boolean }, // «Текст» tab draft
   find: null as null | { q: string; r: string; where: 'tr' | 'orig' | 'all'; cs: boolean; word: boolean },
 };
 

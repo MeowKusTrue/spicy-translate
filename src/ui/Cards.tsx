@@ -10,7 +10,8 @@ import { LANGS, applyPaste, autoTranslate, clearTr, copyPrompt, llmTranslate } f
 import { copyTTML, download, gotoQa, runQa, saveLRC, saveProjectFile, saveSRT, toggleCode } from '../exporting.ts';
 import { drawWave } from '../waveform/wave.ts';
 import { agentOf, cycleAgent, pickLine } from '../agents.ts';
-import { addBg, addBgHere, addLineAfter, addLineHere, applyFull, bracketsToBg, delBg, delLine, editText, findOpts, focusLine, openFull, replaceEverywhere } from '../lineEdit.ts';
+import { useRef } from 'react';
+import { addBg, addBgHere, addLineAfter, addLineHere, applyFull, bracketsToBg, delBg, delLine, editText, findOpts, focusLine, fullRows, replaceEverywhere, resetFull, setTab } from '../lineEdit.ts';
 import { findAll } from '../core/index.ts';
 
 const set = (f: () => void) => { f(); emit(); };
@@ -90,7 +91,6 @@ export function TranslateCard() {
       <button id="btnPrompt" title="Скопирует промпт со строками — вставь в Claude/ChatGPT для художественного перевода" onClick={copyPrompt}>Промпт для LLM</button>
       <button id="btnPaste" onClick={() => { set(() => S.paste = S.paste ?? ''); setTimeout(() => document.getElementById('pasteTa')?.focus()); }}>Вставить перевод списком</button>
       <button id="btnClear" onClick={clearTr}>Очистить</button>
-      <button id="btnFull" title="Весь текст песни одним полем: правь, добавляй и удаляй строки, (бэк) в скобках" disabled={!S.lines.length} onClick={() => openFull()}>✎ Весь текст</button>
       <button id="btnFind" title="Найти и заменить по всей песне" disabled={!S.lines.length} onClick={() => set(() => S.find = S.find ? null : { q: '', r: '', where: 'all', cs: false, word: true })}>🔎 Заменить</button>
     </div>
     <details className="llm" id="llmBox">
@@ -112,12 +112,18 @@ export function TranslateCard() {
     </div>
     {S.find && <FindBox />}
     <St id="st2" m={S.st2} />
+    {S.lines.length > 0 && <div className="tabs" role="tablist">
+      <button role="tab" id="tabLines" className={S.tab === 'lines' ? 'on' : ''} onClick={() => setTab('lines')}>Строки</button>
+      <button role="tab" id="tabText" className={S.tab === 'text' ? 'on' : ''} onClick={() => setTab('text')}>Текст{S.full?.dirty ? ' •' : ''}</button>
+    </div>}
+    {S.tab === 'text' && S.lines.length > 0 ? <TextTab /> : <>
     {S.lines.length > 0 && <div className="row ltools" style={{ marginTop: 10, flexWrap: 'wrap' }}>
       <button className="sm" id="btnAddLine" title="Пустая строка в точке воспроизведения — для своих слов или бэка, которого нет в найденном тексте" onClick={addLineHere}>+ строка у курсора</button>
       <button className="sm" id="btnAddBg" title="Отдельный бэк (без основной строки) в точке воспроизведения" onClick={addBgHere}>+ бэк у курсора</button>
       <button className="sm" id="btnParens" title="«текст (бэк)» → «(бэк)» уходит в фоновый вокал строки, тайминги слов переезжают вместе со словами" onClick={bracketsToBg}>( ) → бэки</button>
     </div>}
     <div className="lines" id="lines" style={{ marginTop: 10 }}>{S.lines.map((_, i) => <LineRow key={i} i={i} />)}</div>
+    </>}
   </section>;
 }
 
@@ -180,25 +186,30 @@ function FindBox() {
   </div>;
 }
 
-/** whole-song text in one field: one row per line, "(…)" = background vocals */
-export function FullTextModal() {
+/** «Текст» tab: the whole song, original and translation side by side, row = line, (…) = background vocals */
+function TextTab() {
+  const refs = { g: useRef<HTMLDivElement>(null), o: useRef<HTMLTextAreaElement>(null), t: useRef<HTMLTextAreaElement>(null) };
   const f = S.full; if (!f) return null;
-  const rows = f.text.split(/\r?\n/).filter(x => x.trim()).length;
-  const close = () => set(() => S.full = null);
-  return <div className="modal" id="fullModal" onClick={e => { if ((e.target as Element).id === 'fullModal') close(); }}>
-    <div className="help full">
-      <button className="sm ic close" title="Закрыть без изменений" onClick={close}>✕</button>
-      <h3>Весь текст</h3>
-      <div className="row" style={{ marginBottom: 8, flexWrap: 'wrap' }}>
-        <span className="tseg">
-          <button className={f.tr ? '' : 'on'} id="fullOrig" onClick={() => openFull(false)}>Оригинал</button>
-          <button className={f.tr ? 'on' : ''} id="fullTr" onClick={() => openFull(true)}>Перевод</button>
-        </span>
-        <small className="hint" style={{ margin: 0, flex: 1 }}>{f.tr ? `строк ${rows} из ${S.lines.length} — перевод идёт строка в строку` : `строк: ${rows} (было ${S.lines.length})`}</small>
-        <button className="pri" id="btnFullApply" onClick={applyFull}>Применить</button>
-      </div>
-      <textarea id="fullTa" spellCheck={false} value={f.text} onChange={e => set(() => S.full!.text = e.target.value)} />
-      <p>Строка = строка песни. <b>(в скобках)</b> — бэк этой строки, строка только из <b>(…)</b> — отдельный бэк. {f.tr ? 'Перевод правится построчно.' : 'Можно добавлять, удалять и менять строки — новые встанут между соседями по времени.'} Тайминги неизменённых слов сохраняются. <b>|</b> — граница слога.</p>
+  const { o, t, map } = fullRows(), n = Math.max(o.length, t.length, 1), hasT = t.some(Boolean), bad = hasT && t.length !== o.length;
+  const added = map.filter(m => m < 0).length, removed = S.lines.length - map.filter(m => m >= 0).length;
+  const scroll = (src: HTMLElement) => { for (const r of [refs.g, refs.o, refs.t]) if (r.current && r.current !== src) r.current.scrollTop = src.scrollTop; };
+  const edit = (k: 'o' | 't', v: string) => set(() => { S.full![k] = v; S.full!.dirty = true; });
+  const key = (e: React.KeyboardEvent) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); applyFull(); } };
+  return <div className="textab-wrap">
+    <div className="row" style={{ marginBottom: 8, flexWrap: 'wrap' }}>
+      <button className="pri sm" id="btnFullApply" disabled={!f.dirty} title="Ctrl+Enter" onClick={applyFull}>Применить</button>
+      <button className="sm" id="btnFullReset" disabled={!f.dirty} onClick={resetFull}>Сбросить</button>
+      <small className={'hint' + (bad ? ' err' : '')} id="fullStat" style={{ margin: 0 }}>{bad ? `оригинал ${o.length} строк, перевод ${t.length} — выровняй столбцы`
+        : f.dirty ? `не применено${added ? ` · новых строк ${added}` : ''}${removed ? ` · удалится ${removed}` : ''}` : 'строка = строка песни · (в скобках) = бэк · | = граница слога'}</small>
+    </div>
+    <div className="textab">
+      <div className="th">#</div><div className="th">Оригинал</div><div className="th">Перевод</div>
+      <div className="gut" ref={refs.g}>{Array.from({ length: n }, (_, j) => {
+        const m = j < o.length ? map[j] : -2, l = m >= 0 ? S.lines[m] : null;
+        return <div key={j} className={m === -1 ? 'new' : ''} title={l ? 'перейти к строке' : m === -1 ? 'новая строка' : ''} onClick={() => { if (l) seekTo(l.t); }}>{l ? mmss(l.t) : m === -1 ? '+ new' : ''}</div>;
+      })}</div>
+      <textarea id="fullO" ref={refs.o} wrap="off" spellCheck={false} value={f.o} onScroll={e => scroll(e.currentTarget)} onKeyDown={key} onChange={e => edit('o', e.target.value)} />
+      <textarea id="fullT" ref={refs.t} wrap="off" spellCheck={false} value={f.t} placeholder="перевод — напротив своей строки" onScroll={e => scroll(e.currentTarget)} onKeyDown={key} onChange={e => edit('t', e.target.value)} />
     </div>
   </div>;
 }

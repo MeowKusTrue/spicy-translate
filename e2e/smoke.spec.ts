@@ -98,9 +98,11 @@ test('whole text, find & replace, chorus timing', async ({ page }) => {
   await page.locator('#btnManual').click();
 
   // whole text: insert a line, add a background part, fix a word
-  await page.locator('#btnFull').click();
-  await page.locator('#fullTa').fill('hello moon\nnew line here\nquiet waters (oh)\nhello moon');
+  await page.locator('#tabText').click();
+  await page.locator('#fullO').fill('hello moon\nnew line here\nquiet waters (oh)\nhello moon');
+  await expect(page.locator('#fullStat')).toContainText('новых строк 1');
   await page.locator('#btnFullApply').click();
+  await page.locator('#tabLines').click();
   await expect(page.locator('#lines .ln')).toHaveCount(4);
   await expect(page.locator('#ln1 input.o')).toHaveValue('new line here');
   await expect(page.locator('#ln2 input.o')).toHaveValue('quiet waters');
@@ -124,10 +126,16 @@ test('whole text, find & replace, chorus timing', async ({ page }) => {
   for (const k of ['f', 'g', 'h']) { await page.keyboard.press(k); await page.waitForTimeout(120); }
   await page.keyboard.press('Space');
   await page.keyboard.press('c');
+
   // the repeat got the same word lengths, shifted by the line start difference (7 - 1 = 6 s), flagged auto
   await expect.poll(async () => {
     const ls = (await (await page.request.get('/api/project')).json()).project?.lines;
     const a = ls?.[0]?.sync?.orig, b = ls?.[3]?.sync?.orig;
     return a && b && !a.some((x: { g?: 1 }) => x.g) ? [Math.round((b[0].a - a[0].a) * 1000), Math.round((b[1].b - a[1].b) * 1000), b[0].g] : null;
   }).toEqual([6000, 6000, 1]);
+
+  // Ctrl+C / Ctrl+V: a copy of the selected line at the playhead
+  await page.keyboard.press('Control+c');
+  await page.keyboard.press('Control+v');
+  await expect(page.locator('#lines .ln')).toHaveCount(5);
 });

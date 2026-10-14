@@ -3,12 +3,12 @@
 // Two word lanes (main track, background vocals): clicking the other lane switches to it. The lines band at the
 // bottom drags a whole line (all its words on every track). Double click edits text in place.
 import { S, clamp, conf, emit, ensureSync, isBg, isTr, mkLayer, r3, spreadLine, wordsOf } from '../state.ts';
-import type { Layer, Line, WordSync } from '../core/index.ts';
+import { shiftLine, type Layer, type WordSync } from '../core/index.ts';
 import { now, playWord, seekTo } from '../audio.ts';
 import { buildPreview, refreshPreviewLine } from '../preview.ts';
 import { scheduleSave } from '../persist.ts';
-import { selectWord, setLayer, snap, stepSel } from '../sync.ts';
-import { closeEdit, editing, focusRow, newLineEdit, openEdit } from '../lineEdit.ts';
+import { fitLines, selectWord, setLayer, snap, stepSel } from '../sync.ts';
+import { closeEdit, dropWordCopy, editing, focusRow, newLineEdit, openEdit } from '../lineEdit.ts';
 import { JOIN, W, drawWave, laneLayer, lineAt, zoomAt, type Box, type Lane } from './wave.ts';
 
 type Seq = { i: number; k: number; x: WordSync & { a: number; b: number } };
@@ -17,7 +17,11 @@ type Hit = { type: 'edge'; t: number; lane: Lane; d: number; b: Box; edge: 'a' |
 
 function waveHit(mx: number, my: number): Hit {
   const t = W.start + mx / W.px, tol = 9 / W.px, G = W.G;
-  if (my >= G.lY - 1 && my <= G.lY + G.lH + 1) return { type: 'band', t, i: lineAt(t) };
+  if (my >= G.lY - 1 && my <= G.lY + G.lH + 1) { // the line in that band row
+    const row = clamp(Math.floor((my - G.lY) / (G.lH / W.nr)), 0, W.nr - 1);
+    let i = -1; S.lines.forEach((l, k) => { if (W.rows[k] === row && t >= l.t && t <= l.end) i = k; });
+    return { type: 'band', t, i };
+  }
   if (my >= G.wY - 1) return { type: 'wave', t };
   const lane: Lane = my < G.bY - 1 ? 'main' : 'bg', bs = W.boxes.filter(b => b.lane === lane);
   let best: { d: number; b: Box; edge: 'a' | 'b' } | null = null;
@@ -42,12 +46,6 @@ function buildCands(excl: Set<WordSync>) {
   const out: number[] = [], other = mkLayer(!isBg(S.layer), isTr(S.layer));
   seqWords().concat(seqWords(other)).forEach(e => { if (!excl.has(e.x)) out.push(e.x.a, e.x.b); });
   S.lines.forEach(l => out.push(l.t)); return out;
-}
-/** shift a whole line (its LRC span and every timed word on every track) by d seconds, from a snapshot o */
-function shiftLine(l: Line, o: Line, d: number) {
-  d = Math.max(d, -o.t);
-  l.t = r3(o.t + d); l.end = r3(o.end + d);
-  if (o.sync) for (const k of Object.keys(o.sync) as Layer[]) l.sync![k]?.forEach((x, j) => { const y = o.sync![k]![j]; if (y.a != null) x.a = r3(y.a + d); if (y.b != null) x.b = r3(y.b + d); });
 }
 function nearestCand(t: number, cands: number[]) {
   if (!S.snap || W.ctrl) return null;
@@ -82,9 +80,9 @@ export function setupWave(cv: HTMLCanvasElement) {
       const excl = new Set<WordSync>([x]); if (partner) excl.add(partner.x);
       W.drag = { type: 'edge', roll: !!partner && !e.altKey, me, partner, target, sq, edge: h.edge, cands: buildCands(excl), i: h.b.i };
     }
-    else if (h.type === 'word') { selectWord(h.b.i, h.b.k); W.pend = { type: 'move', i: h.b.i, k: h.b.k, x0: mx, off: h.t - h.b.a, ghost: !h.b.real }; }
+    else if (h.type === 'word') { selectWord(h.b.i, h.b.k); W.pend = { type: 'move', i: h.b.i, k: h.b.k, x0: mx, off: h.t - h.b.a, ghost: !h.b.real, alt: e.altKey, a: h.b.a, len: h.b.b - h.b.a, lane: h.lane }; }
     else if (h.type === 'lane' && !switched && S.sel && wordsOf(S.sel.i, S.layer).length) W.pend = { type: 'paint', x0: mx, t0: h.t };
-    else if (h.type === 'band' && h.i >= 0) W.pend = { type: 'line', x0: mx, t0: h.t, i: h.i };
+    else if (h.type === 'band' && h.i >= 0) W.pend = { type: 'line', x0: mx, t0: h.t, i: h.i, alt: e.altKey };
     else W.pend = { type: 'pan', x0: mx, start0: W.start, t0: h.t };
   };
   const onMove = (e: MouseEvent) => {
@@ -92,7 +90,9 @@ export function setupWave(cv: HTMLCanvasElement) {
     W.ctrl = e.ctrlKey || e.metaKey;
     if (W.pend && !W.drag && Math.abs(mx - W.pend.x0) > 3) {
       const p = W.pend;
-      if (p.type === 'move') {
+      if (p.type === 'move' && p.alt) // Alt+drag = drop a copy of the word (onto either track)
+        W.drag = { type: 'wcopy', w: wordsOf(p.i, S.layer)[p.k], off: p.off, a: p.a, len: Math.max(0.05, p.len), lane: p.lane, cands: buildCands(new Set()) };
+      else if (p.type === 'move') {
         snap(); if (p.ghost) spreadLine(p.i, S.layer);
         const sq = seqWords(), idx = sq.findIndex(q => q.i === p.i && q.k === p.k);
         if (idx >= 0) {
@@ -103,7 +103,13 @@ export function setupWave(cv: HTMLCanvasElement) {
         }
       }
       else if (p.type === 'paint') { snap(); const sx = ensureSync(S.sel!.i, S.layer)[S.sel!.k]; W.drag = { type: 'paint', i: S.sel!.i, k: S.sel!.k, t0: p.t0, cands: buildCands(new Set([sx])) }; }
-      else if (p.type === 'line') { snap(); const l = S.lines[p.i]; W.drag = { type: 'line', i: p.i, t0: p.t0, o: JSON.parse(JSON.stringify(l)), l, cands: buildCands(new Set(Object.values(l.sync || {}).flat() as WordSync[])).filter(c => c !== l.t) }; }
+      else if (p.type === 'line') {
+        snap(); let l = S.lines[p.i];
+        if (p.alt) { // Alt+drag = drag out a copy of the whole line
+          l = JSON.parse(JSON.stringify(l)); S.lines.splice(p.i + 1, 0, l);
+          if (S.sel && S.sel.i > p.i) S.sel.i++; S.picked.clear(); buildPreview(true);
+        }
+        W.drag = { type: 'line', i: p.i, t0: p.t0, o: JSON.parse(JSON.stringify(l)), l, cands: buildCands(new Set(Object.values(l.sync || {}).flat() as WordSync[])).filter(c => c !== l.t) }; }
       else W.drag = { type: 'pan', x0: p.x0, start0: p.start0 };
       W.pend = null;
     }
@@ -111,6 +117,13 @@ export function setupWave(cv: HTMLCanvasElement) {
     if (d) {
       if (d.type === 'pan') { W.start = Math.max(0, d.start0 - (mx - d.x0) / W.px); cv.style.cursor = 'grabbing'; return; }
       const traw = tAt(mx);
+      if (d.type === 'wcopy') {
+        let a = Math.max(0, traw - d.off);
+        const na = nearestCand(a, d.cands), nb = nearestCand(a + d.len, d.cands);
+        if (na && (!nb || na.d <= nb.d)) { a = na.c; W.snapAt = na.c; } else if (nb) { a = nb.c - d.len; W.snapAt = nb.c; } else W.snapAt = null;
+        d.a = r3(a); if (my < W.G.bY - 1) d.lane = 'main'; else if (my < W.G.wY) d.lane = 'bg';
+        cv.style.cursor = 'copy'; drawWave(); return;
+      }
       if (d.type === 'line') { // drag the line start onto a magnet target
         const a = snapOne(d.o.t + traw - d.t0, d.cands); shiftLine(d.l, d.o, a - d.o.t); refreshPreviewLine(S.lines.indexOf(d.l)); return;
       }
@@ -128,7 +141,7 @@ export function setupWave(cv: HTMLCanvasElement) {
           else { const T = clamp(t0, te.x.a + 0.02, nx ? nx.x.a : 1e9); if (T !== t0) W.snapAt = null; te.x.b = T; conf(te.x); }
         }
       } else if (d.type === 'move') {
-        const w = d.me.x, len = d.len, follow = !e.altKey;
+        const w = d.me.x, len = d.len, follow = !e.shiftKey; // Shift = move alone (glued neighbours stay)
         let a = Math.max(0, traw - d.off);
         const na = nearestCand(a, d.cands), nb = nearestCand(a + len, d.cands);
         if (na && (!nb || na.d <= nb.d)) { a = na.c; W.snapAt = na.c; } else if (nb) { a = nb.c - len; W.snapAt = nb.c; } else W.snapAt = null;
@@ -147,12 +160,13 @@ export function setupWave(cv: HTMLCanvasElement) {
     if (W.pend) { if (W.pend.type === 'pan' || W.pend.type === 'paint' || W.pend.type === 'line') seekTo(W.pend.t0); W.pend = null; return; }
     if (W.drag) {
       const d = W.drag; W.drag = null; W.snapAt = null;
+      if (d.type === 'wcopy') return dropWordCopy(d.w, d.lane, d.a, d.a + d.len);
       if (d.type === 'paint') { const n = stepSel(1); if (n) S.sel = { i: n.i, k: n.k }; }
       if (d.type === 'line') { // keep lines ordered by start; the selection follows its line
         const sl = S.sel ? S.lines[S.sel.i] : null; S.lines.sort((x, y) => x.t - y.t);
         if (sl && S.sel) S.sel.i = S.lines.indexOf(sl); S.picked.clear(); buildPreview(true);
       }
-      if (d.type !== 'pan') { S.lines.forEach((_, i) => refreshPreviewLine(i)); emit(); drawWave(); scheduleSave(); }
+      if (d.type !== 'pan') { fitLines(); S.lines.forEach((_, i) => refreshPreviewLine(i)); emit(); drawWave(); scheduleSave(); }
     }
   };
   window.addEventListener('mousemove', onMove);

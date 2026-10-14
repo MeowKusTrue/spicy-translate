@@ -10,7 +10,7 @@ export type Lane = 'main' | 'bg';
 export type Box = { i: number; k: number; a: number; b: number; real: boolean; g: boolean; lane: Lane; layer: Layer };
 export const W = {
   peaks: null as Float32Array | null, pps: 200, px: 140, start: 0,
-  G: { mY: 3, mH: 44, bY: 50, bH: 32, wY: 85, lY: 140, lH: 24 },
+  G: { mY: 3, mH: 44, bY: 50, bH: 32, wY: 85, lY: 140, lH: 24 }, rows: [] as number[], nr: 1,
   drag: null as any, pend: null as any, boxes: [] as Box[], ctrl: false,
   snapAt: null as number | null, flash: null as { t: number; kind: 'F' | 'G' | 'H'; at: number } | null,
 };
@@ -51,7 +51,13 @@ function geo(h: number) {
 }
 export const laneLayer = (lane: Lane): Layer => mkLayer(lane === 'bg', isTr(S.layer));
 export const laneY = (lane: Lane) => lane === 'bg' ? [W.G.bY, W.G.bH] : [W.G.mY, W.G.mH];
-export function lineAt(t: number) { let r = -1; S.lines.forEach((l, i) => { if (t >= l.t && t <= l.end) r = i; }); return r; }
+/** the line at time t (lead lines win over background-only ones); -1 = none */
+export function lineAt(t: number) { let r = -1; S.lines.forEach((l, i) => { if (t >= l.t && t <= l.end && (r < 0 || l.text.trim() || !S.lines[r].text.trim())) r = i; }); return r; }
+/** overlapping lines (duets, background-only lines) get their own rows in the band, up to 3 */
+export function bandRows() {
+  const ends: number[] = [];
+  return S.lines.map(l => { let r = ends.findIndex(e => e <= l.t + 0.01); if (r < 0) { r = Math.min(2, ends.length); if (r === ends.length) ends.push(0); } ends[r] = Math.max(ends[r], l.end); return r; });
+}
 export function drawWave() {
   const cv = canvas(); if (!cv || !S.dock) return;
   const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
@@ -86,10 +92,12 @@ export function drawWave() {
   }
   // source lines band (drag = move the whole line with all its words, double click = edit it in the list)
   g.font = '12px system-ui'; g.textBaseline = 'middle';
+  const rows = W.rows = bandRows(), nr = W.nr = Math.max(1, ...rows.map(r => r + 1));
   S.lines.forEach((l, li) => {
     if (l.end < t0 || l.t > t1) return;
-    const x1 = X(l.t), x2 = X(l.end), ac = l.agent === 'v2' ? TH.a2 : l.agent === 'v1000' ? TH.a : TH.t, other = !!l.agent && l.agent !== 'v1', y = G.lY, hh = G.lH;
-    g.fillStyle = `rgba(${ac},${other ? .2 : .08})`; g.fillRect(x1, y, Math.max(2, x2 - x1 - 2), hh);
+    const hh = G.lH / nr, y = G.lY + rows[li] * hh;
+    const x1 = X(l.t), x2 = X(l.end), ac = l.agent === 'v2' ? TH.a2 : l.agent === 'v1000' ? TH.a : TH.t, other = !!l.agent && l.agent !== 'v1';
+    g.fillStyle = `rgba(${ac},${other ? .2 : .08})`; g.fillRect(x1, y + .5, Math.max(2, x2 - x1 - 2), hh - 1);
     g.fillStyle = `rgba(${ac},${other ? .9 : .35})`; g.fillRect(x1, y, other ? 3 : 1, hh);
     if (S.picked.has(li) || S.sel?.i === li) { g.strokeStyle = S.picked.has(li) ? `rgb(${TH.a})` : `rgba(${TH.t},.4)`; g.lineWidth = 1.5; g.strokeRect(x1 + .75, y + .75, Math.max(2, x2 - x1 - 3.5), hh - 1.5); g.lineWidth = 1; }
     const main = l.text.trim();
@@ -122,6 +130,13 @@ export function drawWave() {
     const rb = W.boxes.filter(b => b.real && b.lane === lane).sort((p, q) => p.a - q.a);
     for (let q = 0; q + 1 < rb.length; q++) if (Math.abs(rb[q].b - rb[q + 1].a) <= JOIN) { g.fillStyle = `rgb(${TH.t})`; g.fillRect(X(rb[q].b) - 1, y, 2, hh); }
     g.globalAlpha = 1;
+  }
+  // Alt+drag: ghost of the word copy under the cursor
+  if (W.drag?.type === 'wcopy') {
+    const [y, hh] = laneY(W.drag.lane as Lane), x1 = X(W.drag.a), x2 = X(W.drag.a + W.drag.len);
+    g.fillStyle = `rgba(${TH.t},.18)`; g.fillRect(x1, y, Math.max(2, x2 - x1), hh);
+    g.setLineDash([4, 3]); g.strokeStyle = `rgb(${TH.t})`; g.strokeRect(x1 + .5, y + .5, Math.max(2, x2 - x1) - 1, hh - 1); g.setLineDash([]);
+    g.fillStyle = `rgb(${TH.t})`; g.font = '600 13px system-ui'; g.textBaseline = 'middle'; g.fillText('+ ' + plainW(W.drag.w), x1 + 5, y + hh / 2 + 1);
   }
   // playhead
   const px = X(t); g.fillStyle = `rgb(${TH.t})`; g.fillRect(px, 0, 1.5, h);

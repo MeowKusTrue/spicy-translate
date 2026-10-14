@@ -1,12 +1,12 @@
 // Editing texts and lines: the list inputs, the inline editor on the wave (double click / E), adding and removing
 // lines (own words, background vocals with no lead line), "(…)" -> background vocals. bg = bg translation, bgo = bg original.
-import { alignRows, findAll, insertLine, lineRow, parensToBg, parseRow, remapSync, repeatTiming, replaceUnit, sameLines, type Layer, type Line } from './core/index.ts';
+import { alignRows, findAll, fmtTime, insertLine, insertWord, lineRow, parensToBg, parseRow, plainW, remapSync, repeatTiming, replaceUnit, sameLines, shiftLine, type Layer, type Line } from './core/index.ts';
 import { S, clamp, emit, fillLine, isBg, isTr, layerText, lineState, r3, setText, toast, viewWords, wordsOf } from './state.ts';
 import { now } from './audio.ts';
 import { buildPreview } from './preview.ts';
 import { scheduleSave } from './persist.ts';
 import { CH, afterSyncChange, restore, selectWord, setLayer, snap } from './sync.ts';
-import { W, drawWave, laneY } from './waveform/wave.ts';
+import { W, drawWave, laneLayer, laneY, lineAt, type Lane } from './waveform/wave.ts';
 
 const after = () => { buildPreview(true); emit(); drawWave(); scheduleSave(); };
 /**
@@ -111,26 +111,35 @@ export function closeEdit(commit: boolean) {
   } else {
     if (v === layerText(l, layer)) return;
     if (!fresh) snap();
-    editText(i, layer, v); fillLine(i, layer); afterSyncChange(false, i);
+    keepText(i, layer, v);
+    if (fresh) l.end = r3(Math.min(l.end, l.t + Math.max(0.6, 0.45 * wordsOf(i, layer).length)));
+    fillLine(i, layer); buildPreview(true); afterSyncChange(false, i);
   }
 }
 
-/* ---------- whole-song text ---------- */
-export function openFull(tr = isTr(S.layer)) { S.full = { tr, text: S.lines.map(l => lineRow(l, tr)).join('\n') }; emit(); }
+/* ---------- whole-song text (the «Текст» tab): original and translation side by side ---------- */
+export const fullDraft = () => ({ o: S.lines.map(l => lineRow(l, false)).join('\n'), t: S.lines.map(l => lineRow(l, true)).join('\n'), dirty: false });
+export function setTab(tab: 'lines' | 'text') { S.tab = tab; if (tab === 'text' && (!S.full || !S.full.dirty)) S.full = fullDraft(); emit(); }
+export function resetFull() { S.full = fullDraft(); emit(); }
+const rowsOf = (s: string) => { const r = s.split(/\r?\n/).map(x => x.trim()); while (r.length && !r[r.length - 1]) r.pop(); return r; };
+/** rows of both columns + for each row the line it continues (-1 = new) */
+export function fullRows() {
+  const f = S.full!, o = rowsOf(f.o), t = rowsOf(f.t);
+  return { o, t, map: alignRows(S.lines.map(l => lineRow(l, false)), o) };
+}
 /**
- * Apply the whole-song editor: one row per line, "(…)" = background vocals. In the original, rows can be added,
- * removed and reordered by editing (lines are matched by text, timings of unchanged words stay). The translation
- * goes row-for-row, so its row count must match.
+ * Apply the «Текст» tab: a row = a line, "(…)" = its background vocals, a row of only "(…)" = background-only line.
+ * Original rows can be added / removed / edited (lines are matched by text; timings of unchanged words stay);
+ * translation rows sit next to their original rows (empty = no translation).
  */
 export function applyFull() {
-  const f = S.full; if (!f) return;
-  let rows = f.text.split(/\r?\n/).map(s => s.trim());
-  if (f.tr) { while (rows.length > S.lines.length && !rows[rows.length - 1]) rows.pop(); }
-  else rows = rows.filter(Boolean);
-  if (f.tr && rows.length !== S.lines.length) return toast(`В переводе строк ${rows.length}, а в песне ${S.lines.length}: перевод идёт строка в строку. Строки добавляй и удаляй в оригинале.`, 'err');
-  if (!rows.length) return toast('Пусто — удалять весь текст так нельзя.', 'err');
+  if (!S.full) return;
+  const { o, t } = fullRows(), hasT = t.some(Boolean);
+  if (hasT && t.length !== o.length) return toast(`Строк: оригинал ${o.length}, перевод ${t.length}. Выровняй столбцы: строка перевода стоит напротив своей строки (пустая — без перевода).`, 'err');
+  const rows = o.map((x, j) => ({ o: x, t: t[j] || '' })).filter(r => r.o || r.t);
+  if (!rows.length) return toast('Пусто — так весь текст не удалить.', 'err');
   snap();
-  const map = f.tr ? rows.map((_, j) => j) : alignRows(S.lines.map(l => lineRow(l, false)), rows);
+  const map = alignRows(S.lines.map(l => lineRow(l, false)), rows.map(r => r.o));
   const old = S.lines, next: Line[] = map.map(m => m >= 0 ? old[m] : { t: -1, end: -1, text: '', tr: '' });
   for (let j = 0; j < next.length;) { // new lines go evenly into the time between their neighbours
     if (next[j].t >= 0) { j++; continue; }
@@ -142,17 +151,57 @@ export function applyFull() {
     j = e;
   }
   S.lines = next;
-  const ml: Layer = f.tr ? 'tr' : 'orig', bl: Layer = f.tr ? 'bg' : 'bgo';
-  rows.forEach((row, j) => {
-    const { main, bg } = parseRow(row), l = S.lines[j];
-    keepText(j, ml, main);
-    if (bg || l.bg) keepText(j, bl, bg);
+  rows.forEach((r, j) => {
+    const l = S.lines[j];
+    for (const tr of hasT ? [false, true] : [false]) {
+      const { main, bg } = parseRow(tr ? r.t : r.o), bl: Layer = tr ? 'bg' : 'bgo';
+      keepText(j, tr ? 'tr' : 'orig', main);
+      if (bg || layerText(l, bl)) keepText(j, bl, bg);
+    }
     if (l.bg && !l.bg.text.trim() && !l.bg.tr.trim()) { delete l.bg; if (l.sync) { delete l.sync.bg; delete l.sync.bgo; } }
   });
   if (S.sel && S.sel.i >= S.lines.length) S.sel = { i: S.lines.length - 1, k: 0 };
   const added = map.filter(m => m < 0).length, removed = old.length - map.filter(m => m >= 0).length;
-  S.full = null; afterLines();
+  afterLines(); S.full = fullDraft(); emit();
   toast(`Текст применён${added ? `, новых строк: ${added}` : ''}${removed ? `, удалено: ${removed}` : ''}. Тайминги неизменённых слов на месте. Ctrl+Z — отмена.`, 'ok');
+}
+
+/* ---------- copies: Alt+drag a word on the wave, Ctrl+C / Ctrl+V lines ---------- */
+/** a dropped copy of a word: goes into the line under it on that track (or a new line there) */
+export function dropWordCopy(w: string, lane: Lane, a: number, b: number) {
+  if (!w) return;
+  const layer = laneLayer(lane); a = r3(Math.max(0, a)); b = r3(Math.max(a + 0.02, b));
+  snap();
+  let i = lineAt((a + b) / 2);
+  if (i < 0) {
+    i = insertLine(S.lines, a, isBg(layer) ? { bg: { text: '', tr: '' } } : {}); S.lines[i].end = r3(Math.max(b, a + 0.3));
+    if (S.sel && S.sel.i >= i) S.sel.i++;
+  }
+  fillLine(i, layer);
+  const k = insertWord(S.lines[i], layer, w, a, b);
+  setLayer(layer); S.sel = { i, k: Math.max(0, k) };
+  afterLines(); S.sel = S.sel && S.sel.i < S.lines.length ? S.sel : null;
+  toast(`Копия «${plainW(w)}» → ${isBg(layer) ? 'бэк' : 'основа'}. Ctrl+Z — отмена.`, 'ok');
+}
+let CLIP: Line[] = [];
+const clone = (l: Line): Line => JSON.parse(JSON.stringify(l));
+/** Ctrl+C: the picked lines (or the line of the selected word), with all tracks and timings; also as text */
+export function copyLines() {
+  const ids = S.picked.size ? [...S.picked].sort((x, y) => x - y) : S.sel ? [S.sel.i] : [];
+  if (!ids.length) return toast('Выдели строки (клик / Shift / Ctrl в списке) или выбери слово.', 'err');
+  CLIP = ids.map(i => clone(S.lines[i]));
+  navigator.clipboard?.writeText(CLIP.map(l => lineRow(l, false)).join('\n')).catch(() => {});
+  toast(`Скопировано строк: ${CLIP.length}. Ctrl+V — вставить у курсора (тайминги сохранятся).`, 'ok');
+}
+/** Ctrl+V: the copied lines at the playhead, keeping their spacing and word timings */
+export function pasteLines(at = now()) {
+  if (!CLIP.length) return toast('Сначала скопируй строки (Ctrl+C) или тащи строку с Alt.', 'err');
+  snap();
+  const d = at - CLIP[0].t, add = CLIP.map(o => { const c = clone(o); shiftLine(c, o, d); return c; });
+  S.lines.push(...add); S.lines.sort((x, y) => x.t - y.t);
+  S.sel = { i: S.lines.indexOf(add[0]), k: 0 };
+  afterLines(); add.forEach(l => S.picked.add(S.lines.indexOf(l))); emit();
+  toast(`Вставлено строк: ${add.length} с ${fmtTime(Math.max(0, at))}. Ctrl+Z — отмена.`, 'ok');
 }
 
 /* ---------- find & replace ---------- */

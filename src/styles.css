@@ -242,3 +242,18 @@ input.wedit.bg{border-color:var(--acc2)}
 .chk.inline input{width:auto;margin:0}
 .modal .help.full{width:min(860px,100%)}
 #fullTa{width:100%;min-height:46vh;font:14px/1.55 ui-monospace,Menlo,Consolas,monospace;resize:vertical}
+/* tabs in the translation card + the «Текст» tab */
+.tabs{display:flex;gap:2px;margin-top:12px;border-bottom:1px solid var(--line)}
+.tabs button{border:0;border-bottom:2px solid transparent;border-radius:8px 8px 0 0;background:transparent;color:var(--mut);padding:7px 14px;font-weight:700}
+.tabs button.on{color:var(--txt);border-bottom-color:var(--acc);background:color-mix(in srgb,var(--acc) 8%,transparent)}
+.textab-wrap{margin-top:10px}
+.textab{display:grid;grid-template-columns:58px 1fr 1fr;grid-template-rows:auto 1fr;height:min(64vh,680px);border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--field)}
+.textab .th{padding:6px 10px;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--mut);border-bottom:1px solid var(--line)}
+.textab .gut{overflow:hidden;padding:8px 0;font:11px/22px ui-monospace,Menlo,monospace;color:var(--mut);text-align:right;border-right:1px solid var(--line)}
+.textab .gut div{height:22px;padding-right:8px;cursor:pointer;white-space:nowrap}
+.textab .gut div:hover{color:var(--txt)}
+.textab .gut div.new{color:var(--acc);cursor:default}
+.textab textarea{height:100%;min-height:0;margin:0;border:0;border-radius:0;resize:none;background:transparent;padding:8px 10px;font:13.5px/22px ui-monospace,Menlo,Consolas,monospace;white-space:pre;overflow:auto;outline:none}
+.textab textarea+textarea{border-left:1px solid var(--line)}
+.textab textarea:focus{background:color-mix(in srgb,var(--acc) 4%,transparent)}
+.hint.err{color:#ff9a9a}

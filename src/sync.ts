@@ -1,5 +1,5 @@
 // Word sync actions (hotkeys AND toolbar buttons use these) + undo/redo on text+sync snapshots.
-import { plainW, sameLines, splitWords, syllabify, units, unitsText, type Layer } from './core/index.ts';
+import { fitBgOnly, plainW, sameLines, splitWords, syllabify, units, unitsText, type Layer } from './core/index.ts';
 import { S, conf, emit, ensureSync, fillLine, layerText, lineState, r3, setText, spreadLine, toast, viewWords, wordsOf, type ViewWord } from './state.ts';
 import { now, playWord } from './audio.ts';
 import { buildPreview, refreshPreviewLine } from './preview.ts';
@@ -19,7 +19,16 @@ export function restore(json: string) {
 }
 export function doUndo() { if (!S.undo.length) return; S.redo.push(stateJSON()); restore(S.undo.pop()!); }
 export function doRedo() { if (!S.redo.length) return; S.undo.push(stateJSON()); restore(S.redo.pop()!); }
+/** background-only lines follow their words; lines stay ordered by start, the selection follows its line */
+export function fitLines() {
+  const sl = S.sel ? S.lines[S.sel.i] : null; let moved = false;
+  S.lines.forEach(l => { const t = l.t; fitBgOnly(l); if (l.t !== t) moved = true; });
+  if (!moved) return false;
+  S.lines.sort((x, y) => x.t - y.t); if (sl && S.sel) S.sel.i = S.lines.indexOf(sl); S.picked.clear(); buildPreview(true);
+  return true;
+}
 export function afterSyncChange(all: boolean, i = 0) {
+  if (fitLines()) all = true;
   if (all) S.lines.forEach((_, k) => refreshPreviewLine(k)); else refreshPreviewLine(i);
   emit(); drawWave(); scheduleSave();
 }
