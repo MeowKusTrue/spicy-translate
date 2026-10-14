@@ -1,18 +1,20 @@
 // Word sync actions (hotkeys AND toolbar buttons use these) + undo/redo on text+sync snapshots.
-import { plainW, splitWords, syllabify, units, unitsText, type Layer } from './core/index.ts';
-import { S, conf, emit, ensureSync, fillLine, layerText, lineState, r3, spreadLine, toast, viewWords, wordsOf, type ViewWord } from './state.ts';
+import { plainW, sameLines, splitWords, syllabify, units, unitsText, type Layer } from './core/index.ts';
+import { S, conf, emit, ensureSync, fillLine, layerText, lineState, r3, setText, spreadLine, toast, viewWords, wordsOf, type ViewWord } from './state.ts';
 import { now, playWord } from './audio.ts';
 import { buildPreview, refreshPreviewLine } from './preview.ts';
 import { scheduleSave } from './persist.ts';
 import { W, drawWave } from './waveform/wave.ts';
 
 /* ---------- undo ---------- */
-const stateJSON = () => JSON.stringify(S.lines.map(l => ({ s: l.sync || null, x: l.text, t: l.tr || '', g: l.bg || null })));
+// whole lines: undo also covers inserted / deleted / moved lines
+const stateJSON = () => JSON.stringify(S.lines);
 export function snap() { S.undo.push(stateJSON()); if (S.undo.length > 200) S.undo.shift(); S.redo = []; }
-function restore(json: string) {
-  const arr = JSON.parse(json); let txt = false;
-  S.lines.forEach((l, i) => { const a = arr[i]; if (!a) return; if (a.s) l.sync = a.s; else delete l.sync; if (l.text !== a.x || (l.tr || '') !== a.t || JSON.stringify(l.bg || null) !== JSON.stringify(a.g)) txt = true; l.text = a.x; l.tr = a.t; if (a.g) l.bg = a.g; else delete l.bg; });
-  if (txt) { buildPreview(true); emit(); }
+export function restore(json: string) {
+  const txt = (ls: typeof S.lines) => JSON.stringify(ls.map(l => [l.t, l.end, l.text, l.tr, l.bg, l.agent]));
+  const before = txt(S.lines); S.lines = JSON.parse(json);
+  if (S.sel && S.sel.i >= S.lines.length) S.sel = S.lines.length ? { i: S.lines.length - 1, k: 0 } : null;
+  if (txt(S.lines) !== before) { S.picked.clear(); buildPreview(true); }
   afterSyncChange(true);
 }
 export function doUndo() { if (!S.undo.length) return; S.redo.push(stateJSON()); restore(S.undo.pop()!); }
@@ -23,6 +25,12 @@ export function afterSyncChange(all: boolean, i = 0) {
 }
 
 /* ---------- word selection + marking ---------- */
+/** switch what the keys and the wave edit: track (main / bg) × language; both tracks stay visible on the wave */
+export function setLayer(l: Layer) {
+  S.layer = l;
+  if (S.sel) S.sel.k = Math.max(0, Math.min(S.sel.k, wordsOf(S.sel.i, l).length - 1));
+  emit(); drawWave();
+}
 export function selectWord(i: number, k: number) {
   if (i < 0 || i >= S.lines.length) return;
   S.sel = { i, k };
@@ -39,6 +47,8 @@ export function stepWord(d: number) { const n = stepSel(d); if (n) selectWord(n.
 export function flashBtn(id: string) { const b = document.getElementById(id); if (!b) return; b.classList.remove('hit'); void b.offsetWidth; b.classList.add('hit'); }
 function flashChip() { requestAnimationFrame(() => { const c = document.querySelector<HTMLElement>('#syncLines .chip.sel'); if (c) { c.classList.remove('hit'); void c.offsetWidth; c.classList.add('hit'); } }); }
 
+/** the line finished last (H/G on its last word moves the selection on, C still means that line) */
+export const CH = { last: -1 };
 export function mark(kind: 'F' | 'G' | 'H') {
   if (!S.sel) return;
   const ws = wordsOf(S.sel.i, S.layer);
@@ -57,6 +67,7 @@ export function mark(kind: 'F' | 'G' | 'H') {
     const nx = stepSel(1); if (nx) S.sel = { i: nx.i, k: nx.k };
   }
   afterSyncChange(false, li);
+  if (kind !== 'F' && last && lineState(li, S.layer) === 'done') { CH.last = li; const k = sameLines(S.lines, li).length; if (k) toast(`Эта строка повторяется ещё ${k} раз — C (или «Строка ⋯ → ⧉ на повторы») перенесёт тайминг.`, 'ok'); }
 }
 export function nudgeWord(d: number) {
   if (!S.sel) return toast('Сначала выбери слово.', 'err');
@@ -70,7 +81,7 @@ export function resetWord() {
   fillLine(S.sel.i, S.layer); afterSyncChange(false, S.sel.i);
 }
 export function playSel() { if (!S.sel) return; const w = viewWords(S.sel.i, S.layer)[S.sel.k]; if (w && w.a != null) playWord(w as ViewWord & { a: number; b: number }); }
-function setLayerText(i: number, layer: Layer, text: string) { if (layer === 'tr') S.lines[i].tr = text; else S.lines[i].text = text; }
+const setLayerText = setText;
 
 export function joinWords() {
   if (!S.sel) return toast('Выбери первое из двух слов.', 'err');

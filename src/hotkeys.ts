@@ -1,8 +1,9 @@
 // Sync dock toggling + keyboard: F/G/H, A/D, Space, arrows, [ ] ', , . nudge, M/U join/split, N magnet, L loop, R, Del, Ctrl+Z.
-import { S, emit, ls, toast, viewWords } from './state.ts';
+import { S, emit, isBg, isTr, ls, mkLayer, toast, viewWords, wordsOf } from './state.ts';
 import { now, pause, play, seekTo, setRate } from './audio.ts';
 import { PV } from './preview.ts';
-import { doRedo, doUndo, joinWords, mark, nudgeWord, resetWord, splitWord, stepWord } from './sync.ts';
+import { doRedo, doUndo, joinWords, mark, nudgeWord, resetWord, setLayer, splitWord, stepWord } from './sync.ts';
+import { openEdit, repeatChorus } from './lineEdit.ts';
 import { drawWave } from './waveform/wave.ts';
 import { cycleAgent, setAgent } from './agents.ts';
 
@@ -22,9 +23,9 @@ export function updateKbd() {
 }
 const blurActive = () => { const a = document.activeElement; if (a instanceof HTMLElement && a !== document.body) a.blur(); };
 
-const KEYS = new Set(['Digit1', 'Digit2', 'Digit3', 'KeyV', 'KeyM', 'KeyU', 'KeyN', 'KeyL', 'KeyR', 'Comma', 'Period', 'Space', 'KeyF', 'KeyG', 'KeyH', 'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'BracketLeft', 'BracketRight', 'Quote', 'Delete', 'Backspace']);
+const KEYS = new Set(['KeyC', 'KeyB', 'KeyT', 'KeyE', 'Digit1', 'Digit2', 'Digit3', 'KeyV', 'KeyM', 'KeyU', 'KeyN', 'KeyL', 'KeyR', 'Comma', 'Period', 'Space', 'KeyF', 'KeyG', 'KeyH', 'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'BracketLeft', 'BracketRight', 'Quote', 'Delete', 'Backspace']);
 function onKey(e: KeyboardEvent) {
-  if (!S.dock || S.help) return;
+  if (!S.dock || S.help || S.full) return;
   const tg = e.target as HTMLInputElement, tag = tg.tagName;
   if (tag === 'TEXTAREA' || tag === 'SELECT' || (tag === 'INPUT' && tg.type !== 'range' && tg.type !== 'checkbox' && tg.type !== 'radio' && tg.type !== 'file')) return;
   const c = e.code;
@@ -46,6 +47,10 @@ function onKey(e: KeyboardEvent) {
   if (c === 'KeyM') return joinWords();
   if (c === 'KeyU') return splitWord();
   if (e.repeat) return;
+  if (c === 'KeyB') { setLayer(mkLayer(!isBg(S.layer), isTr(S.layer))); return toast(isBg(S.layer) ? 'Дорожка: бэк (B — обратно на основу).' : 'Дорожка: основа.', 'ok'); }
+  if (c === 'KeyT') { setLayer(mkLayer(isBg(S.layer), !isTr(S.layer))); return toast(isTr(S.layer) ? 'Размечаем перевод (T).' : 'Размечаем оригинал (T).', 'ok'); }
+  if (c === 'KeyE') { if (S.sel) openEdit(S.sel.i, S.layer, wordsOf(S.sel.i, S.layer).length ? S.sel.k : -1); return; }
+  if (c === 'KeyC') return repeatChorus();
   if (c === 'KeyN') return setSnap(!S.snap);
   if (c === 'KeyL') return setLoop(!S.loop);
   if (c === 'KeyR') { if (S.sel) { const vw = viewWords(S.sel.i, S.layer).filter(x => x.a != null); seekTo(Math.max(0, (vw.length ? vw[0].a! : S.lines[S.sel.i].t) - 0.4)); } return; }

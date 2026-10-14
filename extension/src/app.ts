@@ -1,7 +1,7 @@
 // Панель редактора поверх Spotify. Логика разметки — порт reference/index.html (секция app), часы — плеер Spotify вместо <audio>.
 import css from './style.css';
 import { importLyrics, liveLines } from './core.ts';
-import { buildTTML, entriesToLines, fmtTime, getWords, parseLRC, parsePlain, plainW, qaCheck, splitWords, syllabify, syncComplete, units, unitsText, wordList,
+import { buildTTML, entriesToLines, fmtTime, getWords, insertLine, parensToBg, parseLRC, parsePlain, plainW, qaCheck, remapSync, replaceUnit, splitWords, syllabify, syncComplete, units, unitsText, wordList,
   type Line, type Mode, type Span, type TTMLOpts, type Word } from './core.ts';
 import { findLyrics, type TrackInfo } from './lrclib.ts';
 import { agentsByTime, readSpicyCache, spicyToLines } from './spicyCache.ts';
@@ -91,6 +91,22 @@ function playWord(w: { a: number; b: number }) { clearTimeout(playStop); seekTo(
 /* ---------- words / layers ---------- */
 function layerText(l: Line, layer: Layer) { return layer === 'tr' ? (l.tr || '') : layer === 'orig' ? l.text : layer === 'bg' ? (l.bg?.tr || '') : (l.bg?.text || ''); }
 function wordsOf(i: number, layer: Layer) { return wordList(layerText(S.lines[i], layer)); }
+/* a layer = track (main / bg) × language (translation / original); the timeline shows both tracks of the language */
+const isBg = (l: Layer) => l === 'bg' || l === 'bgo';
+const isTr = (l: Layer) => l === 'tr' || l === 'bg';
+const mkLayer = (bg: boolean, tr: boolean): Layer => bg ? (tr ? 'bg' : 'bgo') : (tr ? 'tr' : 'orig');
+function setLayer(l: Layer) {
+  S.layer = l;
+  root.querySelectorAll<HTMLElement>('#st-seg button').forEach(b => b.classList.toggle('on', b.dataset.v === (isTr(l) ? 'tr' : 'orig')));
+  root.querySelectorAll<HTMLElement>('#st-trk button').forEach(b => b.classList.toggle('on', b.dataset.v === (isBg(l) ? 'bg' : 'main')));
+  if (S.sel) S.sel.k = Math.max(0, Math.min(S.sel.k, wordsOf(S.sel.i, l).length - 1));
+  renderSync();
+}
+function setText(i: number, layer: Layer, v: string) {
+  const l = S.lines[i];
+  if (layer === 'tr') l.tr = v; else if (layer === 'orig') l.text = v;
+  else { l.bg = l.bg || { text: '', tr: '' }; if (layer === 'bg') l.bg.tr = v; else l.bg.text = v; }
+}
 function ensureSync(i: number, layer: Layer): Span[] {
   const l = S.lines[i], n = wordsOf(i, layer).length;
   l.sync = l.sync || {};
@@ -161,8 +177,7 @@ function saveProject() {
 }
 function setLines(lines: Line[]) {
   S.lines = lines; S.undo = []; S.redo = []; S.sel = null; S.picked.clear(); S.pickAnchor = -1;
-  S.layer = lines.some(l => l.tr && l.tr.trim()) ? 'tr' : 'orig'; $('layer').value = S.layer;
-  renderEditor(); buildPreview();
+  renderEditor(); buildPreview(); setLayer(lines.some(l => l.tr && l.tr.trim()) ? 'tr' : 'orig');
   if (lines.length) selectWord(0, 0); else renderSync();
 }
 function applyProject(p: any) {
@@ -267,12 +282,13 @@ function setAgent(agent: 'v1' | 'v2' | 'v1000') {
   msg(`Голос «${AGENTS.find(a => a.id === agent)!.label}» → строк: ${ids.length}`, 'ok');
 }
 function renderEditor() {
-  const box = $('lines'); box.innerHTML = '';
-  if (!S.lines.length) box.innerHTML = '<div class="st-hint">Тут будут строки трека. Нет в LRCLIB и Spicy? «Текст» → импорт файла или вставь текст.</div>';
+  const box = $('lines'), top = box.scrollTop; box.innerHTML = '';
+  if (!S.lines.length) box.innerHTML = '<div class="st-hint">Тут будут строки трека. Нет в LRCLIB и Spicy? «Текст» → импорт файла или вставь текст. Или «+ строка» — и пиши свои.</div>';
   S.lines.forEach((l, i) => {
-    const row = document.createElement('div'); row.className = 'st-ln' + (S.picked.has(i) ? ' picked' : ''); row.id = 'st-ln' + i;
+    const row = document.createElement('div'); row.className = 'st-ln' + (S.picked.has(i) ? ' picked' : '') + (l.text.trim() ? '' : ' bgonly'); row.id = 'st-ln' + i;
     row.onclick = e => { if (!(e.target as HTMLElement).closest('input,button,.t')) pickLine(i, e); };
-    row.innerHTML = '<div class="t"></div><div class="st-txt"><input class="o" type="text" title="Оригинал — можно править"><input class="tr" type="text" placeholder="перевод…"><div class="st-bgrow"></div></div>';
+    row.innerHTML = '<div class="t"></div><div class="st-txt"><input class="o" type="text" title="Оригинал — можно править" placeholder="(без основной строки — только бэк)"><input class="tr" type="text" placeholder="перевод…"><div class="st-bgrow"></div></div>'
+      + '<span class="st-rowact"><button class="st-ins" title="Вставить пустую строку после этой">+</button><button class="st-del" title="Удалить строку (Ctrl+Z вернёт)">🗑</button></span>';
     const t = row.querySelector('.t') as HTMLElement; t.textContent = mmss(l.t) + '.' + Math.floor((l.t % 1) * 10);
     t.onclick = () => { seekTo(l.t); selectWord(i, 0); };
     const ag = document.createElement('button'); ag.className = 'st-ag'; paintAgent(ag, i);
@@ -281,16 +297,31 @@ function renderEditor() {
     o.value = l.text; inp.value = l.tr || '';
     o.oninput = () => editText(i, 'orig', o.value);
     inp.oninput = () => editText(i, 'tr', inp.value);
+    o.onfocus = inp.onfocus = () => focusLine(i, inp === document.activeElement ? 'tr' : 'orig');
+    (row.querySelector('.st-ins') as HTMLElement).onclick = e => { e.stopPropagation(); addLineAfter(i); };
+    (row.querySelector('.st-del') as HTMLElement).onclick = e => { e.stopPropagation(); delLine(i); };
     renderBgRow(row.querySelector('.st-bgrow') as HTMLElement, i);
     box.appendChild(row); refreshRowMark(i);
   });
+  box.scrollTop = top;
 }
-/** Text edits keep word timings when the word count is unchanged; otherwise that layer's timings are dropped. */
+/** focusing a text field in the list = work on that line and track (timeline follows) */
+function focusLine(i: number, layer: Layer) {
+  if (S.sel?.i === i && S.layer === layer) return;
+  setLayer(layer); selectWord(i, 0);
+  const l = S.lines[i], w = ($('wave') as HTMLCanvasElement).clientWidth || 800; // bring the line into view
+  if (l.t < W.start || l.end > W.start + w / W.px) W.start = Math.max(0, l.t - (w * 0.15) / W.px);
+}
+/**
+ * Text edits keep word timings: unchanged words keep their spans, a fixed typo keeps its span, new words are placed
+ * into the gaps (auto, dashed) so they can be dragged right away.
+ */
 function editText(i: number, layer: Layer, v: string) {
-  const l = S.lines[i];
-  if (layer === 'tr') l.tr = v; else if (layer === 'orig') l.text = v;
-  else { l.bg = l.bg || { text: '', tr: '' }; if (layer === 'bg') l.bg.tr = v; else l.bg.text = v; }
-  if (l.sync && l.sync[layer] && l.sync[layer]!.length !== wordList(layerText(l, layer)).length) delete l.sync[layer];
+  const l = S.lines[i], old = layerText(l, layer);
+  setText(i, layer, v);
+  const ns = remapSync(old, v, l.sync && l.sync[layer]);
+  if (ns) { l.sync![layer] = ns; fillLine(i, layer); } else if (l.sync) delete l.sync[layer];
+  root.querySelector('#st-ln' + i)?.classList.toggle('bgonly', !l.text.trim());
   refreshRowMark(i); buildPreview(true); renderSync(); scheduleSave();
 }
 function renderBgRow(box: HTMLElement, i: number) {
@@ -305,10 +336,41 @@ function renderBgRow(box: HTMLElement, i: number) {
   bo.value = l.bg.text; btr.value = l.bg.tr;
   bo.oninput = () => editText(i, 'bgo', bo.value);
   btr.oninput = () => editText(i, 'bg', btr.value);
+  bo.onfocus = () => focusLine(i, 'bgo'); btr.onfocus = () => focusLine(i, 'bg');
   (box.querySelector('.st-delbg') as HTMLElement).onclick = e => {
-    e.stopPropagation(); delete l.bg; if (l.sync) { delete l.sync.bg; delete l.sync.bgo; }
+    e.stopPropagation(); snap(); delete l.bg; if (l.sync) { delete l.sync.bg; delete l.sync.bgo; }
+    if (!l.text.trim() && !(l.tr || '').trim()) return delLine(i, false);
     renderBgRow(box, i); buildPreview(true); renderSync(); scheduleSave();
   };
+}
+/* ---------- adding / removing lines ---------- */
+function afterLines() { S.picked.clear(); S.pickAnchor = -1; renderEditor(); buildPreview(true); afterSyncChange(true); }
+function focusRow(i: number, sel = 'input.o') {
+  const r = root.querySelector('#st-ln' + i) as HTMLElement | null; if (!r) return;
+  r.scrollIntoView({ block: 'center' }); (r.querySelector(sel) as HTMLInputElement | null)?.focus();
+}
+function addLineAt(t: number, bg = false) {
+  snap(); const i = insertLine(S.lines, Math.max(0, r3(t)), bg ? { bg: { text: '', tr: '' } } : {});
+  if (S.sel && S.sel.i >= i) S.sel.i++;
+  afterLines(); return i;
+}
+function addLineAfter(i: number) {
+  const l = S.lines[i], nx = S.lines[i + 1];
+  const j = addLineAt(nx && nx.t < l.end + 0.5 ? (l.t + nx.t) / 2 : l.end);
+  focusRow(j);
+}
+function delLine(i: number, withSnap = true) {
+  if (!S.lines[i]) return;
+  if (withSnap) snap();
+  S.lines.splice(i, 1);
+  if (S.sel) { if (S.sel.i === i) S.sel = S.lines.length ? { i: Math.min(i, S.lines.length - 1), k: 0 } : null; else if (S.sel.i > i) S.sel.i--; }
+  afterLines(); msg('Строка удалена. Ctrl+Z — вернуть.', 'ok');
+}
+function bracketsToBg() {
+  if (!S.lines.length) return msg('Нет строк.', 'err');
+  snap(); let n = 0; S.lines.forEach(l => { if (parensToBg(l)) n++; });
+  if (!n) { S.undo.pop(); return msg('Скобок в тексте нет — бэки добавь вручную: «+ бэк» у строки или двойной клик на дорожке «бэк».', 'err'); }
+  afterLines(); msg(`Бэки из скобок: строк ${n}. Тайминги слов переехали вместе со словами. Ctrl+Z — отмена.`, 'ok');
 }
 function refreshRowMark(i: number) {
   const row = root.querySelector('#st-ln' + i); if (!row) return;
@@ -337,8 +399,7 @@ function applyTr(rows: { i: number; tr: string; bg?: string }[]) {
     if (r.tr.trim()) { l.tr = r.tr.trim(); if (l.sync) delete l.sync.tr; n++; }
     if (l.bg && r.bg && r.bg.trim()) { l.bg.tr = r.bg.trim(); if (l.sync) delete l.sync.bg; }
   });
-  if (n) { S.layer = 'tr'; $('layer').value = 'tr'; }
-  renderEditor(); buildPreview(true); renderSync(); scheduleSave(); return n;
+  renderEditor(); buildPreview(true); if (n) setLayer(isBg(S.layer) ? 'bg' : 'tr'); else renderSync(); scheduleSave(); return n;
 }
 function applyPaste() {
   const raw = $('paste').value.trim(); if (!raw) return;
@@ -464,12 +525,14 @@ function frame() {
 }
 
 /* ---------- undo ---------- */
-const stateJSON = () => JSON.stringify(S.lines.map(l => ({ s: l.sync || null, x: l.text, t: l.tr || '', g: l.bg || null })));
+// whole lines: undo also covers inserted / deleted lines
+const stateJSON = () => JSON.stringify(S.lines);
 function snap() { S.undo.push(stateJSON()); if (S.undo.length > 200) S.undo.shift(); S.redo = []; }
 function restore(json: string) {
-  const arr = JSON.parse(json); let txt = false;
-  S.lines.forEach((l, i) => { const a = arr[i]; if (!a) return; if (a.s) l.sync = a.s; else delete l.sync; if (l.text !== a.x || (l.tr || '') !== a.t || JSON.stringify(l.bg || null) !== JSON.stringify(a.g)) txt = true; l.text = a.x; l.tr = a.t; if (a.g) l.bg = a.g; else delete l.bg; });
-  if (txt) { renderEditor(); buildPreview(true); }
+  const txt = (ls: Line[]) => JSON.stringify(ls.map(l => [l.t, l.text, l.tr, l.bg, l.agent]));
+  const before = txt(S.lines); S.lines = JSON.parse(json);
+  if (S.sel && S.sel.i >= S.lines.length) S.sel = S.lines.length ? { i: S.lines.length - 1, k: 0 } : null;
+  if (txt(S.lines) !== before) { S.picked.clear(); renderEditor(); buildPreview(true); }
   afterSyncChange(true);
 }
 function doUndo() { if (!S.undo.length) return; S.redo.push(stateJSON()); restore(S.undo.pop()!); }
@@ -523,9 +586,7 @@ function resetWord() {
   fillLine(S.sel.i, S.layer); afterSyncChange(false, S.sel.i);
 }
 function playSel() { if (!S.sel) return; const w = viewWords(S.sel.i, S.layer)[S.sel.k]; if (w && w.a != null) playWord(w as any); }
-function setLayerText(i: number, layer: Layer, text: string) {
-  if (layer === 'tr') { S.lines[i].tr = text; const el = root.querySelector('#st-ln' + i + ' input') as HTMLInputElement | null; if (el) el.value = text; } else S.lines[i].text = text;
-}
+function setLayerText(i: number, layer: Layer, text: string) { setText(i, layer, text); syncRow(i); }
 function joinWords() {
   if (!S.sel) return msg('Выбери первое из двух слов.', 'err');
   const { i, k } = S.sel, layer = S.layer, us = units(layerText(S.lines[i], layer));
@@ -576,7 +637,7 @@ function renderSync() {
     const row = document.createElement('div'); row.className = 'st-sl' + (i === ci ? ' cur' : '');
     const lab = document.createElement('span'); lab.className = 'lab'; lab.textContent = mmss(S.lines[i].t); row.appendChild(lab);
     const ws = wordsOf(i, S.layer), us = units(layerText(S.lines[i], S.layer)), vw = viewWords(i, S.layer), sy = S.lines[i].sync && S.lines[i].sync![S.layer];
-    if (!ws.length) { const e = document.createElement('span'); e.className = 'st-hint'; e.textContent = S.layer === 'tr' ? '(нет перевода)' : '(пусто)'; row.appendChild(e); }
+    if (!ws.length) { const e = document.createElement('span'); e.className = 'st-hint'; e.textContent = isBg(S.layer) ? '(нет бэка — двойной клик по дорожке «бэк» или E)' : S.layer === 'tr' ? '(нет перевода — E, чтобы вписать)' : '(пусто — E, чтобы вписать)'; row.appendChild(e); }
     ws.forEach((w, k) => {
       const c = document.createElement('span'); c.className = 'st-chip' + (w.includes(' ') ? ' grp' : ''); c.textContent = plainW(w);
       const x = sy && sy.length === ws.length ? sy[k] : null;
@@ -607,87 +668,124 @@ function updateGuide() {
 }
 
 /* ---------- timeline (word blocks instead of a waveform — the stream is DRM) ---------- */
-const W = { px: 140, start: 0, drag: null as any, pend: null as any, boxes: [] as any[], LANE: 46, flash: null as any, snapAt: null as number | null, ctrl: false };
+const W = { px: 140, start: 0, drag: null as any, pend: null as any, boxes: [] as any[], flash: null as any, snapAt: null as number | null, ctrl: false,
+  G: { mY: 3, mH: 46, bY: 52, bH: 34, lY: 90, lH: 40 } };
 const JOIN = 0.0015;
+type Lane = 'main' | 'bg';
+/* three stacked lanes: main track words, background vocals words, source lines (+ ruler under them) */
+function geo(h: number) {
+  const mH = Math.round(clamp(h * 0.34, 28, 46)), bH = Math.round(clamp(h * 0.26, 22, 36)), mY = 3, bY = mY + mH + 3, lY = bY + bH + 4;
+  return { mY, mH, bY, bH, lY, lH: Math.max(12, h - lY - 18) };
+}
+const laneLayer = (lane: Lane) => mkLayer(lane === 'bg', isTr(S.layer));
+const laneY = (lane: Lane) => lane === 'bg' ? [W.G.bY, W.G.bH] : [W.G.mY, W.G.mH];
+function lineAt(t: number) { let r = -1; S.lines.forEach((l, i) => { if (t >= l.t && t <= l.end) r = i; }); return r; }
 function drawWave() {
   const cv = $('wave') as HTMLCanvasElement;
   const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
   if (!w || !h) return;
   if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
   const g = cv.getContext('2d')!; g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
-  const t = now();
+  const t = now(), G = W.G = geo(h);
   if (playing() && !W.drag) { if (t < W.start || t > W.start + w / W.px * 0.8) W.start = Math.max(0, t - w / W.px * 0.25); }
-  const t0 = W.start, t1 = t0 + w / W.px, X = (tt: number) => (tt - t0) * W.px, LANE = W.LANE;
+  const t0 = W.start, t1 = t0 + w / W.px, X = (tt: number) => (tt - t0) * W.px;
   // ruler
   g.fillStyle = `rgba(${TH.t},.35)`; g.font = '10px ui-monospace,monospace'; g.textBaseline = 'top';
   const step = W.px > 400 ? 0.5 : W.px > 150 ? 1 : W.px > 60 ? 2 : 5;
   for (let s = Math.ceil(t0 / step) * step; s < t1; s += step) { const x = X(s); g.fillRect(x, h - 6, 1, 6); g.fillText(mmss(s) + (step < 1 ? '.' + Math.round((s % 1) * 10) : ''), x + 3, h - 15); }
+  // lane backgrounds: the active track is tinted and has a stripe on the left
+  const actLane: Lane = isBg(S.layer) ? 'bg' : 'main';
+  for (const lane of ['main', 'bg'] as const) {
+    const [y, hh] = laneY(lane), col = lane === 'bg' ? TH.a2 : TH.a, on = lane === actLane;
+    g.fillStyle = on ? `rgba(${col},.08)` : `rgba(${TH.t},.025)`; g.fillRect(0, y, w, hh);
+    if (on) { g.fillStyle = `rgb(${col})`; g.fillRect(0, y, 3, hh); }
+    g.fillStyle = `rgba(${on ? col : TH.t},${on ? .55 : .25})`; g.font = '700 9px ui-monospace,monospace'; g.textBaseline = 'top';
+    g.fillText(lane === 'bg' ? 'БЭК' : isTr(S.layer) ? 'ПЕРЕВОД' : 'ОРИГИНАЛ', 7, y + 2);
+  }
   // lower band: source lines (LRC timing) with original text, for orientation
   g.font = '12px system-ui'; g.textBaseline = 'middle';
   S.lines.forEach((l, li) => {
     if (l.end < t0 || l.t > t1) return;
-    const x1 = X(l.t), x2 = X(l.end), ac = l.agent === 'v2' ? TH.a2 : l.agent === 'v1000' ? TH.a : TH.t, other = !!l.agent && l.agent !== 'v1';
-    g.fillStyle = `rgba(${ac},${other ? .18 : .06})`; g.fillRect(x1, LANE + 6, Math.max(2, x2 - x1 - 2), h - LANE - 26);
-    g.fillStyle = `rgba(${ac},${other ? .9 : .3})`; g.fillRect(x1, LANE + 6, other ? 3 : 1, h - LANE - 26);
-    if (S.picked.has(li)) { g.strokeStyle = `rgb(${TH.a})`; g.lineWidth = 1.5; g.strokeRect(x1 + .75, LANE + 6.75, Math.max(2, x2 - x1 - 3.5), h - LANE - 27.5); }
-    g.fillStyle = `rgba(${TH.t},.6)`;
-    g.save(); g.beginPath(); g.rect(x1 + 4, LANE + 6, Math.max(0, x2 - x1 - 8), h - LANE - 26); g.clip(); g.fillText(plainW(l.text), x1 + 6, LANE + 6 + (h - LANE - 26) / 2); g.restore();
+    const x1 = X(l.t), x2 = X(l.end), ac = l.agent === 'v2' ? TH.a2 : l.agent === 'v1000' ? TH.a : TH.t, other = !!l.agent && l.agent !== 'v1', y = G.lY, hh = G.lH;
+    g.fillStyle = `rgba(${ac},${other ? .18 : .06})`; g.fillRect(x1, y, Math.max(2, x2 - x1 - 2), hh);
+    g.fillStyle = `rgba(${ac},${other ? .9 : .3})`; g.fillRect(x1, y, other ? 3 : 1, hh);
+    if (S.picked.has(li) || S.sel?.i === li) { g.strokeStyle = S.picked.has(li) ? `rgb(${TH.a})` : `rgba(${TH.t},.35)`; g.lineWidth = 1.5; g.strokeRect(x1 + .75, y + .75, Math.max(2, x2 - x1 - 3.5), hh - 1.5); g.lineWidth = 1; }
+    const main = l.text.trim();
+    g.fillStyle = main ? `rgba(${TH.t},.6)` : `rgba(${TH.a2},.8)`;
+    g.save(); g.beginPath(); g.rect(x1 + 4, y, Math.max(0, x2 - x1 - 8), hh); g.clip(); g.fillText(main ? plainW(l.text) : '♪ ' + plainW(l.bg?.text || l.bg?.tr || 'только бэк'), x1 + 6, y + hh / 2); g.restore();
   });
-  // word boxes
+  // word boxes of both tracks; the inactive one is dimmed but still clickable (click = switch to it)
   W.boxes = [];
-  g.font = '600 14px system-ui';
-  for (let i = 0; i < S.lines.length; i++) {
-    const l = S.lines[i]; if (l.end + 8 < t0 || l.t - 8 > t1) continue;
-    viewWords(i, S.layer).forEach((wd, k) => {
-      if (wd.a == null || wd.b == null) return;
-      const x1 = X(wd.a), x2 = X(wd.b); if (x2 < -2 || x1 > w + 2) return;
-      const sel = S.sel && S.sel.i === i && S.sel.k === k;
-      if (wd.real) {
-        g.fillStyle = sel ? `rgba(${TH.a2},.45)` : wd.g ? `rgba(${TH.a},.16)` : `rgba(${TH.a},.35)`; g.fillRect(x1, 3, Math.max(2, x2 - x1), LANE - 6);
-        g.strokeStyle = sel ? `rgb(${TH.a2})` : `rgba(${TH.a},.9)`; g.fillStyle = sel ? `rgb(${TH.a2})` : `rgba(${TH.a},.95)`; g.fillRect(x1, 3, 3, LANE - 6); g.fillRect(x2 - 3, 3, 3, LANE - 6); if (wd.g) g.setLineDash([3, 3]); g.strokeRect(x1 + .5, 3.5, Math.max(2, x2 - x1) - 1, LANE - 7); g.setLineDash([]);
-      } else { g.setLineDash([3, 3]); g.strokeStyle = sel ? `rgb(${TH.a2})` : `rgba(${TH.t},.25)`; g.strokeRect(x1 + .5, 3.5, Math.max(2, x2 - x1) - 1, LANE - 7); g.setLineDash([]); }
-      g.save(); g.beginPath(); g.rect(x1 + 2, 3, Math.max(0, x2 - x1 - 4), LANE - 6); g.clip();
-      g.fillStyle = wd.real ? `rgb(${TH.t})` : `rgba(${TH.t},.45)`; g.fillText((wd.b - wd.a >= 1 ? '✦ ' : '') + plainW(wd.word) + (wd.sp === false ? '-' : ''), x1 + 5, LANE / 2 + 1); g.restore();
-      W.boxes.push({ i, k, a: wd.a, b: wd.b, real: !!wd.real });
-    });
+  for (const lane of ['main', 'bg'] as const) {
+    const layer = laneLayer(lane), on = layer === S.layer, [y, hh] = laneY(lane), col = lane === 'bg' ? TH.a2 : TH.a;
+    g.font = lane === 'bg' ? '600 12.5px system-ui' : '600 14px system-ui'; g.textBaseline = 'middle'; g.globalAlpha = on ? 1 : .5;
+    for (let i = 0; i < S.lines.length; i++) {
+      const l = S.lines[i]; if (l.end + 8 < t0 || l.t - 8 > t1) continue;
+      viewWords(i, layer).forEach((wd, k) => {
+        if (wd.a == null || wd.b == null) return;
+        const x1 = X(wd.a), x2 = X(wd.b); if (x2 < -2 || x1 > w + 2) return;
+        const sel = on && S.sel && S.sel.i === i && S.sel.k === k, bw = Math.max(2, x2 - x1);
+        if (wd.real) {
+          g.fillStyle = sel ? `rgba(${TH.t},.3)` : wd.g ? `rgba(${col},.16)` : `rgba(${col},.35)`; g.fillRect(x1, y, bw, hh);
+          g.strokeStyle = sel ? `rgb(${TH.t})` : `rgba(${col},.9)`; g.fillStyle = sel ? `rgb(${TH.t})` : `rgba(${col},.95)`; g.fillRect(x1, y, 3, hh); g.fillRect(x2 - 3, y, 3, hh);
+          g.lineWidth = sel ? 2 : 1; if (wd.g) g.setLineDash([3, 3]); g.strokeRect(x1 + .5, y + .5, bw - 1, hh - 1); g.setLineDash([]); g.lineWidth = 1;
+        } else { g.setLineDash([3, 3]); g.strokeStyle = sel ? `rgb(${TH.t})` : `rgba(${TH.t},.25)`; g.strokeRect(x1 + .5, y + .5, bw - 1, hh - 1); g.setLineDash([]); }
+        g.save(); g.beginPath(); g.rect(x1 + 2, y, Math.max(0, x2 - x1 - 4), hh); g.clip();
+        g.fillStyle = wd.real ? `rgb(${TH.t})` : `rgba(${TH.t},.45)`; g.fillText((wd.b - wd.a >= 1 ? '✦ ' : '') + plainW(wd.word) + (wd.sp === false ? '-' : ''), x1 + 5, y + hh / 2 + 1); g.restore();
+        W.boxes.push({ i, k, a: wd.a, b: wd.b, real: !!wd.real, lane, layer });
+      });
+    }
+    // joined edges (touching words) get a bright joint so you can see what moves together
+    const rb = W.boxes.filter(b => b.real && b.lane === lane).sort((p, q) => p.a - q.a);
+    for (let q = 0; q + 1 < rb.length; q++) if (Math.abs(rb[q].b - rb[q + 1].a) <= JOIN) { g.fillStyle = `rgb(${TH.t})`; g.fillRect(X(rb[q].b) - 1, y, 2, hh); }
+    g.globalAlpha = 1;
   }
-  // joined edges (touching words) get a bright joint so you can see what moves together
-  const rb = W.boxes.filter(b => b.real).sort((p, q) => p.a - q.a);
-  for (let q = 0; q + 1 < rb.length; q++) if (Math.abs(rb[q].b - rb[q + 1].a) <= JOIN) { g.fillStyle = `rgb(${TH.t})`; g.fillRect(X(rb[q].b) - 1, 3, 2, LANE - 6); }
   g.fillStyle = `rgb(${TH.t})`; g.fillRect(X(t), 0, 1.5, h); // playhead
   if (W.flash) {
     const age = (performance.now() - W.flash.at) / 800;
-    if (age < 1) { const fx = X(W.flash.t), col = ({ F: '110,231,183', G: '182,156,255', H: '255,122,200' } as any)[W.flash.kind]; g.fillStyle = `rgba(${col},${(1 - age).toFixed(2)})`; g.fillRect(fx - 1.5, 0, 3, h); g.font = '800 13px ui-monospace,monospace'; g.textBaseline = 'top'; g.fillText(W.flash.kind, fx + 5, LANE + 4); }
+    if (age < 1) { const fx = X(W.flash.t), col = ({ F: '110,231,183', G: '182,156,255', H: '255,122,200' } as any)[W.flash.kind]; g.fillStyle = `rgba(${col},${(1 - age).toFixed(2)})`; g.fillRect(fx - 1.5, 0, 3, h); g.font = '800 13px ui-monospace,monospace'; g.textBaseline = 'top'; g.fillText(W.flash.kind, fx + 5, G.lY + 2); }
     else W.flash = null;
   }
   if (W.snapAt != null && W.drag) { const sx = X(W.snapAt); g.fillStyle = '#ffd166'; g.fillRect(sx - 0.75, 0, 1.5, h); }
 }
-function waveHit(mx: number, my: number) {
-  const t = W.start + mx / W.px, tol = 9 / W.px, lane = my < W.LANE;
+function waveHit(mx: number, my: number): any {
+  const t = W.start + mx / W.px, tol = 9 / W.px, G = W.G;
+  if (my >= G.lY - 2) return { type: 'band', t, i: lineAt(t) };
+  const lane: Lane = my < G.bY - 1 ? 'main' : 'bg', bs = W.boxes.filter(b => b.lane === lane);
   let best: any = null;
-  for (const b of W.boxes) {
+  for (const b of bs) {
     if (!b.real) continue;
     for (const edge of ['a', 'b']) { const d = Math.abs(b[edge] - t); if (d <= tol && (!best || d < best.d)) best = { d, b, edge }; }
   }
-  if (best) return { type: 'edge', t, ...best };
-  if (lane) for (const b of W.boxes) if (t >= b.a && t <= b.b) return { type: 'word', t, b };
-  return { type: lane ? 'lane' : 'bg', t };
+  if (best) return { type: 'edge', t, lane, ...best };
+  for (const b of bs) if (t >= b.a && t <= b.b) return { type: 'word', t, lane, b };
+  return { type: 'lane', t, lane };
 }
 /* DaVinci-style editing: magnet snapping, roll (joined edges move together), Alt = detach, no overlaps */
-function seqWords() {
+function seqWords(layer = S.layer) {
   const out: { i: number; k: number; x: { a: number; b: number; g?: 1 } }[] = [];
   S.lines.forEach((l, i) => {
-    const sy = l.sync && l.sync[S.layer]; if (!sy || sy.length !== wordsOf(i, S.layer).length) return;
+    const sy = l.sync && l.sync[layer]; if (!sy || sy.length !== wordsOf(i, layer).length) return;
     sy.forEach((x, k) => { if (x.a != null && x.b != null) out.push({ i, k, x: x as any }); });
   });
   return out;
 }
-function buildCands(excl: Set<any>) { const out: number[] = []; seqWords().forEach(e => { if (!excl.has(e.x)) out.push(e.x.a, e.x.b); }); S.lines.forEach(l => out.push(l.t)); return out; }
+// magnet targets: other words of this track, words of the other track (align backing to lead), line starts
+function buildCands(excl: Set<any>) {
+  const out: number[] = [], other = mkLayer(!isBg(S.layer), isTr(S.layer));
+  seqWords().concat(seqWords(other)).forEach(e => { if (!excl.has(e.x)) out.push(e.x.a, e.x.b); }); S.lines.forEach(l => out.push(l.t)); return out;
+}
 function nearestCand(t: number, cands: number[]) {
   if (!S.snap || W.ctrl) return null;
   const tol = 10 / W.px; let best: { d: number; c: number } | null = null;
   for (const c of cands.concat([now()])) { const d = Math.abs(c - t); if (d <= tol && (!best || d < best.d)) best = { d, c }; }
   return best;
+}
+/** shift a whole line (its span and every timed word on every track) by d seconds, from a snapshot o */
+function shiftLine(l: Line, o: Line, d: number) {
+  d = Math.max(d, -o.t);
+  l.t = r3(o.t + d); l.end = r3(o.end + d);
+  if (o.sync) for (const k of Object.keys(o.sync) as Layer[]) l.sync![k]?.forEach((x, j) => { const y = o.sync![k]![j]; if (y.a != null) x.a = r3(y.a + d); if (y.b != null) x.b = r3(y.b + d); });
 }
 function snapOne(t: number, cands: number[]) { const n = nearestCand(t, cands); W.snapAt = n ? n.c : null; return n ? n.c : t; }
 function setupWave() {
@@ -697,6 +795,10 @@ function setupWave() {
     const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top, h = waveHit(mx, my);
     W.ctrl = e.ctrlKey || e.metaKey;
     if (e.button === 2) { if (h.b) playWord({ a: h.b.a, b: h.b.b }); return; }
+    if (WE.el) closeEdit(true);
+    // clicking the other track switches to it (main <-> background vocals)
+    const switched = !!h.lane && laneLayer(h.lane) !== S.layer;
+    if (switched) setLayer(laneLayer(h.lane));
     if (h.type === 'edge') {
       const sq = seqWords(), idx = sq.findIndex(q => q.i === h.b.i && q.k === h.b.k); if (idx < 0) return;
       const me = sq[idx], x = me.x; let partner = null;
@@ -712,7 +814,8 @@ function setupWave() {
       W.drag = { type: 'edge', roll: !!partner && !e.altKey, me, partner, target, sq, edge: h.edge, cands: buildCands(excl), i: h.b.i };
     }
     else if (h.type === 'word') { selectWord(h.b.i, h.b.k); W.pend = { type: 'move', i: h.b.i, k: h.b.k, x0: mx, off: h.t - h.b.a, ghost: !h.b.real }; }
-    else if (h.type === 'lane' && S.sel) W.pend = { type: 'paint', x0: mx, t0: h.t };
+    else if (h.type === 'lane' && !switched && S.sel && wordsOf(S.sel.i, S.layer).length) W.pend = { type: 'paint', x0: mx, t0: h.t };
+    else if (h.type === 'band' && h.i >= 0) W.pend = { type: 'line', x0: mx, t0: h.t, i: h.i };
     else W.pend = { type: 'pan', x0: mx, start0: W.start, t0: h.t };
   };
   window.addEventListener('mousemove', e => {
@@ -731,6 +834,7 @@ function setupWave() {
           W.drag = { type: 'move', i: p.i, me, pv, nx, jp, jn, off: p.off, len: me.x.b - me.x.a, cands: buildCands(excl) };
         }
       }
+      else if (p.type === 'line') { snap(); const l = S.lines[p.i]; W.drag = { type: 'line', t0: p.t0, o: JSON.parse(JSON.stringify(l)), l, cands: buildCands(new Set(Object.values(l.sync || {}).flat())).filter(c => c !== l.t) }; }
       else if (p.type === 'paint') { snap(); const sx = ensureSync(S.sel!.i, S.layer)[S.sel!.k]; W.drag = { type: 'paint', i: S.sel!.i, k: S.sel!.k, t0: p.t0, cands: buildCands(new Set([sx])) }; }
       else W.drag = { type: 'pan', x0: p.x0, start0: p.start0 };
       W.pend = null;
@@ -739,6 +843,7 @@ function setupWave() {
     if (d) {
       if (d.type === 'pan') { W.start = Math.max(0, d.start0 - (mx - d.x0) / W.px); cv.style.cursor = 'grabbing'; return; }
       const traw = tAt(mx);
+      if (d.type === 'line') { const a = snapOne(d.o.t + traw - d.t0, d.cands); shiftLine(d.l, d.o, a - d.o.t); refreshPreviewLine(S.lines.indexOf(d.l)); return; }
       if (d.type === 'paint') {
         const t = snapOne(traw, d.cands), w = S.lines[d.i].sync![S.layer]![d.k]; w.a = Math.min(d.t0, t); w.b = Math.max(d.t0, t, w.a + 0.02); conf(w);
       } else if (d.type === 'edge') {
@@ -766,22 +871,84 @@ function setupWave() {
       }
       refreshPreviewLine(d.i); return;
     }
-    if (mx >= 0 && mx <= r.width && my >= 0 && my <= r.height) { const h = waveHit(mx, my); cv.style.cursor = h.type === 'edge' ? 'ew-resize' : h.type === 'word' ? 'grab' : h.type === 'lane' && S.sel ? 'crosshair' : 'default'; }
+    if (mx >= 0 && mx <= r.width && my >= 0 && my <= r.height) { const h = waveHit(mx, my); cv.style.cursor = h.type === 'edge' ? 'ew-resize' : h.type === 'word' ? 'grab' : h.type === 'lane' && laneLayer(h.lane) === S.layer && S.sel ? 'crosshair' : h.type === 'band' && h.i >= 0 ? 'move' : 'default'; }
   });
   window.addEventListener('mouseup', () => {
-    if (W.pend) { if (W.pend.type === 'pan' || W.pend.type === 'paint') seekTo(W.pend.t0); W.pend = null; return; }
+    if (W.pend) { if (W.pend.type === 'pan' || W.pend.type === 'paint' || W.pend.type === 'line') seekTo(W.pend.t0); W.pend = null; return; }
     if (W.drag) {
       const d = W.drag; W.drag = null; W.snapAt = null;
       if (d.type === 'paint') { const n = stepSel(1); if (n) S.sel = { i: n.i, k: n.k }; }
+      if (d.type === 'line') { // keep lines ordered by start; the selection follows its line
+        const sl = S.sel ? S.lines[S.sel.i] : null; S.lines.sort((x, y) => x.t - y.t);
+        if (sl && S.sel) S.sel.i = S.lines.indexOf(sl); S.picked.clear(); renderEditor(); buildPreview(true);
+      }
       if (d.type !== 'pan') { S.lines.forEach((_, i) => { refreshPreviewLine(i); refreshRowMark(i); }); renderSync(); scheduleSave(); }
     }
   });
   cv.oncontextmenu = e => e.preventDefault();
+  // double click: word = edit it, empty space of a line = edit the whole line text of that track, nowhere = new line here
+  cv.ondblclick = e => {
+    const r = cv.getBoundingClientRect(), h = waveHit(e.clientX - r.left, e.clientY - r.top);
+    W.pend = null; W.drag = null;
+    if (h.b) { setLayer(h.b.layer); S.sel = { i: h.b.i, k: h.b.k }; return openEdit(h.b.i, h.b.layer, h.b.k); }
+    if (h.type === 'band') return h.i >= 0 ? focusRow(h.i) : newLineEdit(h.t, mkLayer(false, isTr(S.layer)));
+    const layer = laneLayer(h.lane), i = lineAt(h.t);
+    if (i < 0) return newLineEdit(h.t, layer);
+    setLayer(layer); selectWord(i, 0); openEdit(i, layer);
+  };
   cv.onwheel = e => {
     e.preventDefault(); const r = cv.getBoundingClientRect();
     if (e.ctrlKey || e.metaKey) zoomAt(e.clientX - r.left, e.deltaY < 0 ? 1.18 : 1 / 1.18);
     else W.start = Math.max(0, W.start + (e.deltaX || e.deltaY) / W.px * 1.2);
   };
+}
+/* ---------- inline text editor on the timeline ---------- */
+const WE = { el: null as HTMLInputElement | null, i: -1, layer: 'tr' as Layer, k: -1, fresh: false };
+function newLineEdit(t: number, layer: Layer) {
+  const i = addLineAt(t, isBg(layer));
+  setLayer(layer); S.sel = { i, k: 0 }; openEdit(i, layer, -1, true);
+}
+/** k >= 0: one word (spaces add words, empty deletes it); k = -1: the whole text of the line on this track */
+function openEdit(i: number, layer: Layer, k = -1, fresh = false) {
+  closeEdit(true);
+  const cv = $('wave') as HTMLCanvasElement, l = S.lines[i]; if (!l) return;
+  const [y, hh] = laneY(isBg(layer) ? 'bg' : 'main'), vw = viewWords(i, layer).filter(x => x.a != null), one = k >= 0 ? viewWords(i, layer)[k] : null;
+  const a = one && one.a != null ? one.a : vw.length ? vw[0].a! : l.t, b = one && one.b != null ? one.b : vw.length ? vw[vw.length - 1].b! : l.end;
+  const X = (t: number) => (t - W.start) * W.px, cw = cv.clientWidth || 800;
+  const left = clamp(X(a) - 4, 0, Math.max(0, cw - 160)), width = clamp(X(b) - X(a) + 30, k >= 0 ? 130 : 280, Math.max(160, cw - left));
+  const el = document.createElement('input'); el.type = 'text'; el.className = 'st-wedit' + (isBg(layer) ? ' bg' : '');
+  el.value = k >= 0 ? (wordsOf(i, layer)[k] || '') : layerText(l, layer);
+  el.placeholder = k >= 0 ? 'слово · пробел — ещё слова · пусто — удалить' : (isBg(layer) ? 'бэк' : 'строка') + (isTr(layer) ? ' (перевод)' : ' (оригинал)') + ' · Enter — готово, Esc — отмена';
+  Object.assign(el.style, { left: cv.offsetLeft + left + 'px', top: cv.offsetTop + y + 'px', width: width + 'px', height: Math.max(26, hh) + 'px' });
+  Object.assign(WE, { el, i, layer, k, fresh });
+  el.onkeydown = ev => { ev.stopPropagation(); if (ev.key === 'Enter') { ev.preventDefault(); closeEdit(true); } };
+  el.onblur = () => closeEdit(true);
+  $('dock').appendChild(el); el.focus(); el.select();
+}
+function closeEdit(commit: boolean) {
+  const el = WE.el; if (!el) return;
+  WE.el = null; el.onblur = null; el.remove();
+  const { i, layer, k, fresh } = WE, l = S.lines[i]; if (!l) return;
+  const v = el.value.replace(/[^\S\u00a0]+/g, ' ').trim();
+  if (fresh && (!commit || !v)) { const u = S.undo.pop(); if (u) restore(u); return; } // empty new line = never mind
+  if (!commit) return;
+  if (k >= 0) {
+    if (v === (wordsOf(i, layer)[k] || '')) return;
+    snap(); const r = replaceUnit(layerText(l, layer), l.sync && l.sync[layer], k, v); if (!r) return;
+    setText(i, layer, r.text); l.sync = l.sync || {};
+    if (r.sync && r.sync.length) { l.sync[layer] = r.sync; fillLine(i, layer); } else delete l.sync[layer];
+    S.sel = { i, k: clamp(k, 0, Math.max(0, wordsOf(i, layer).length - 1)) };
+    syncRow(i); buildPreview(true); afterSyncChange(false, i);
+  } else {
+    if (v === layerText(l, layer)) return;
+    if (!fresh) snap();
+    editText(i, layer, v); fillLine(i, layer); syncRow(i); afterSyncChange(false, i);
+  }
+}
+function syncRow(i: number) { // list row <- model, without rebuilding the whole list (keeps focus)
+  const r = root.querySelector('#st-ln' + i), l = S.lines[i]; if (!r || !l) return;
+  (r.querySelector('input.o') as HTMLInputElement).value = l.text; (r.querySelector('input.tr') as HTMLInputElement).value = l.tr || '';
+  r.classList.toggle('bgonly', !l.text.trim()); renderBgRow(r.querySelector('.st-bgrow') as HTMLElement, i);
 }
 function zoomAt(mx: number, f: number) { const ta = W.start + mx / W.px; W.px = Math.min(1500, Math.max(20, W.px * f)); W.start = Math.max(0, ta - mx / W.px); }
 function centerOnSel() {
@@ -823,20 +990,21 @@ function runQa() {
   msg(S.lines.length ? (r.length ? `QA: ошибок ${e}, замечаний ${r.length - e}` : 'QA: всё чисто ✓') : '', e ? 'err' : 'ok');
   r.slice(0, 80).forEach(x => {
     const d = document.createElement('div'); d.className = x.sev; d.textContent = `строка ${x.i + 1}: ${x.msg}`;
-    d.onclick = () => { S.layer = mainLayerFor(x.i); $('layer').value = S.layer; seekTo(S.lines[x.i].t); selectWord(x.i, 0); centerOnSel(); };
+    d.onclick = () => { setLayer(mainLayerFor(x.i)); seekTo(S.lines[x.i].t); selectWord(x.i, 0); centerOnSel(); };
     box.appendChild(d);
   });
 }
 
 /* ---------- hotkeys (capture phase: Spotify must not see the keys we use, e.g. Space) ---------- */
-const KEYS = new Set(['Digit1', 'Digit2', 'Digit3', 'KeyV', 'KeyM', 'KeyU', 'KeyN', 'KeyL', 'KeyR', 'Comma', 'Period', 'Space', 'KeyF', 'KeyG', 'KeyH', 'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Delete', 'Backspace']);
+const KEYS = new Set(['KeyB', 'KeyT', 'KeyE', 'Digit1', 'Digit2', 'Digit3', 'KeyV', 'KeyM', 'KeyU', 'KeyN', 'KeyL', 'KeyR', 'Comma', 'Period', 'Space', 'KeyF', 'KeyG', 'KeyH', 'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'Delete', 'Backspace']);
 function onKey(e: KeyboardEvent) {
   if (!S.open) return;
   const tg = e.target as HTMLElement, tag = tg && tg.tagName;
   if (e.code === 'Escape') { // peel one layer per press: help → menus → text field → the panel itself
     e.stopImmediatePropagation();
     const menus = root.querySelectorAll('details[open]'), act = document.activeElement as HTMLElement | null;
-    if (!$('help').hidden) $('help').hidden = true;
+    if (WE.el) closeEdit(false);
+    else if (!$('help').hidden) $('help').hidden = true;
     else if (menus.length) menus.forEach(d => (d as HTMLDetailsElement).open = false);
     else if (act && root.contains(act) && /^(INPUT|TEXTAREA|SELECT)$/.test(act.tagName)) act.blur();
     else if (S.picked.size) { S.picked.clear(); paintPicked(); drawWave(); }
@@ -860,6 +1028,9 @@ function onKey(e: KeyboardEvent) {
   if (c === 'KeyM') return joinWords();
   if (c === 'KeyU') return splitWord();
   if (e.repeat) return;
+  if (c === 'KeyB') { setLayer(mkLayer(!isBg(S.layer), isTr(S.layer))); return msg(isBg(S.layer) ? 'Дорожка: бэк (B — обратно на основу).' : 'Дорожка: основа.', 'ok'); }
+  if (c === 'KeyT') { setLayer(mkLayer(isBg(S.layer), !isTr(S.layer))); return msg(isTr(S.layer) ? 'Размечаем перевод (T).' : 'Размечаем оригинал (T).', 'ok'); }
+  if (c === 'KeyE') { if (S.sel) openEdit(S.sel.i, S.layer, wordsOf(S.sel.i, S.layer).length ? S.sel.k : -1); return; }
   if (c === 'KeyN') { S.snap = !S.snap; $('snapChk').checked = S.snap; store.set('snap', S.snap ? '1' : '0'); return msg(S.snap ? '🧲 Магнит включён (N). Ctrl при перетаскивании — отключает на лету.' : 'Магнит выключен (N).', 'ok'); }
   if (c === 'KeyL') return setLoop(!S.loop);
   if (c === 'KeyR') { if (S.sel) { const vw = viewWords(S.sel.i, S.layer).filter(x => x.a != null); seekTo(Math.max(0, (vw.length ? vw[0].a! : S.lines[S.sel.i].t) - 0.4)); } return; }
@@ -920,13 +1091,21 @@ const HTML = `
   <button id="st-close" title="Закрыть">✕</button>
 </div>
 <div class="st-main">
-  <div class="st-lines" id="st-lines"></div>
+  <div class="st-left">
+    <div class="st-ltools">
+      <button id="st-addAt" title="Пустая строка в точке воспроизведения — для своих слов или бэка, которого нет в найденном тексте">+ строка у курсора</button>
+      <button id="st-addBgAt" title="Отдельный бэк (без основной строки) в точке воспроизведения">+ бэк у курсора</button>
+      <button id="st-parens" title="«текст (бэк)» → «(бэк)» уходит в фоновый вокал строки, тайминги слов переезжают вместе со словами">( ) → бэки</button>
+    </div>
+    <div class="st-lines" id="st-lines"></div>
+  </div>
   <div class="st-stage"><div class="st-lyr"><div class="st-lyrIn" id="st-lyrIn"></div></div></div>
 </div>
 <div class="st-dock" id="st-dock">
   <div class="st-grip" id="st-grip" title="Потяни, чтобы изменить высоту панели (двойной клик — как было)"></div>
   <div class="st-dbar">
-    <select id="st-layer" title="Что размечаем"><option value="tr">перевод</option><option value="orig">оригинал</option><option value="bg">бэк: перевод</option><option value="bgo">бэк: оригинал</option></select>
+    <span class="st-seg" id="st-seg" title="Что размечаем: перевод или оригинал (T)"><button data-v="tr">Перевод</button><button data-v="orig">Оригинал</button></span>
+    <span class="st-seg st-trk" id="st-trk" title="Дорожка: основная строка или бэк (B). Клик по дорожке на таймлайне тоже переключает"><button data-v="main">Основа</button><button data-v="bg">Бэк</button></span>
     <span class="st-guide" id="st-guide"></span>
     <small class="st-stat" id="st-syncStat"></small>
     <button id="st-zoomOut" title="Ctrl+колесо">−</button><button id="st-zoomIn">+</button><button id="st-fit">⤢ строка</button>
@@ -965,6 +1144,8 @@ const HTML = `
     <li>«Экспорт» → «Залить в Spicy Lyrics», потом переключи трек туда-обратно.</li>
   </ol>
   <p><kbd>A</kbd>/<kbd>D</kbd> слово · <kbd>←</kbd>/<kbd>→</kbd> ±5 с (Shift ±1) · <kbd>L</kbd> цикл строки · <kbd>R</kbd> к началу строки · <kbd>,</kbd> <kbd>.</kbd> сдвиг ±10 мс (Shift ±50) · <kbd>Del</kbd> сбросить · <kbd>M</kbd> склеить · <kbd>U</kbd> слоги/разделить · <kbd>N</kbd> магнит</p>
+  <p><b>Дорожки.</b> Сверху — основная строка, под ней — бэк, ниже — строки трека. Клик по дорожке (или <kbd>B</kbd>) переключает основу/бэк, <kbd>T</kbd> — перевод/оригинал. <b>Двойной клик</b>: по слову — исправить его (пробел добавит слова, пусто — удалит), по пустому месту строки — вписать/исправить всю строку этой дорожки, там, где строк нет, — новая строка (на дорожке «бэк» — отдельный бэк). <kbd>E</kbd> — править выбранное слово. Тайминги неизменённых слов сохраняются.</p>
+  <p>Полоса строк внизу: тащи строку — едет целиком со всеми словами на обеих дорожках.</p>
   <p>Таймлайн: тащи блок или край · белая перемычка = края склеены (<kbd>Alt</kbd> — отцепить, <kbd>Ctrl</kbd> — без магнита) · верх: зажми и проведи = «нарисовать» слово · низ: тащи = листать, клик = перемотка · <kbd>Ctrl</kbd>+колесо = зум · ПКМ = проиграть слово. Слоги: впиши <b>|</b> в тексте (кра|си|вый). Скорость воспроизведения в Spotify для музыки не меняется.</p>
   <button id="st-helpClose">Понятно</button>
 </div></div>`;
@@ -976,6 +1157,9 @@ function mount() {
   on('close', () => toggle(false));
   on('helpBtn', () => { $('help').hidden = false; }); on('helpClose', () => { $('help').hidden = true; });
   on('reload', () => { if (confirm('Перезагрузить текст из LRCLIB? Перевод и разметка этого трека пропадут.')) loadTrack(true); });
+  on('addAt', () => focusRow(addLineAt(now())));
+  on('addBgAt', () => { const i = addLineAt(now(), true); renderBgRow(root.querySelector('#st-ln' + i + ' .st-bgrow') as HTMLElement, i); focusRow(i, '.st-bgrow input'); });
+  on('parens', bracketsToBg);
   on('fromSpicy', fromSpicy); on('agentsSpicy', agentsFromSpicy);
   on('ag1', () => setAgent('v1')); on('ag2', () => setAgent('v2')); on('ag3', () => setAgent('v1000'));
   ($('file') as HTMLInputElement).onchange = (e: Event) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) importFile(f); (e.target as HTMLInputElement).value = ''; };
@@ -994,7 +1178,8 @@ function mount() {
   on('lineSpread', () => { if (!S.sel) return msg('Сначала выбери слово.', 'err'); snap(); spreadLine(S.sel.i, S.layer); afterSyncChange(false, S.sel.i); });
   on('allSpread', () => { snap(); S.lines.forEach((_, i) => { if (lineState(i, S.layer) !== 'done') spreadLine(i, S.layer); }); afterSyncChange(true); });
   on('lineReset', () => { if (!S.sel) return; snap(); const l = S.lines[S.sel.i]; if (l.sync) delete l.sync[S.layer]; afterSyncChange(false, S.sel.i); });
-  $('layer').onchange = () => { S.layer = $('layer').value; renderSync(); };
+  root.querySelectorAll<HTMLElement>('#st-seg button').forEach(b => b.onclick = () => setLayer(mkLayer(isBg(S.layer), b.dataset.v === 'tr')));
+  root.querySelectorAll<HTMLElement>('#st-trk button').forEach(b => b.onclick = () => setLayer(mkLayer(b.dataset.v === 'bg', isTr(S.layer))));
   root.querySelectorAll('input[name=st-mode]').forEach(r => (r as HTMLInputElement).onchange = () => {
     const bi = mode() === 'bilingual'; $('spread').checked = true; $('spread').disabled = bi;
     S.lines.forEach((_, i) => refreshRowMark(i)); buildPreview(true); renderSync(); scheduleSave();
@@ -1021,8 +1206,8 @@ function mount() {
 /* bottom panel height: drag the grip; the timeline grows with it */
 function setDockH(h: number) {
   const max = Math.max(220, (root.clientHeight || innerHeight) - 160);
-  h = clamp(Math.round(h), 200, max);
-  root.style.setProperty('--dockH', h + 'px'); root.style.setProperty('--waveH', Math.round(clamp(h * 0.36, 100, 300)) + 'px');
+  h = clamp(Math.round(h), 250, max);
+  root.style.setProperty('--dockH', h + 'px'); root.style.setProperty('--waveH', Math.round(clamp(h * 0.42, 140, 330)) + 'px');
   store.set('dockH', String(h)); drawWave();
 }
 function setupGrip() {

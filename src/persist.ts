@@ -17,7 +17,7 @@ export function scheduleSave() {
 export function saveProject() {
   if (!S.lines.length) return; clearTimeout(saveT);
   const k = trackKey(); let ok = true;
-  if (k) ok = ls.set('proj:' + k, JSON.stringify({ lang: S.meta.lang, lines: S.lines.map(l => ({ text: l.text, tr: l.tr || '', sync: l.sync || null, agent: l.agent, bg: l.bg })) }));
+  if (k) ok = ls.set('proj:' + k, JSON.stringify({ lang: S.meta.lang, lines: S.lines.map(l => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || null, agent: l.agent, bg: l.bg })) }));
   ok = ls.set('last', projectJSON()) && ok;
   S.save = ok ? { msg: '💾 сохранено ' + new Date().toLocaleTimeString().slice(0, 8), cls: 'ok' } : { msg: '💾 браузер не даёт сохранить — скачай проект', cls: 'warn' }; emit();
   pushLive();
@@ -25,6 +25,12 @@ export function saveProject() {
 export function restoreProject() {
   const k = trackKey(); if (!k) return false;
   let p; try { p = JSON.parse(ls.get('proj:' + k, 'null')!); } catch { return false; }
+  if (p && p.lines && p.lines.length && p.lines.every((x: { t?: number }) => typeof x.t === 'number')) {
+    // saved with timings: take it whole (keeps added / removed / moved lines, background-only lines, singers)
+    S.lines = p.lines.map((x: any) => ({ t: x.t, end: x.end, text: x.text, tr: x.tr || '', ...(x.sync ? { sync: x.sync } : {}), ...(x.agent ? { agent: x.agent } : {}), ...(x.bg ? { bg: x.bg } : {}) }));
+    if (p.lang) S.meta.lang = p.lang;
+    S.sel = S.lines.length ? { i: 0, k: 0 } : null; buildPreview(); emit(); return true;
+  }
   if (!p || !p.lines || p.lines.length !== S.lines.length || !p.lines.every((x: { text: string }, i: number) => plainW(x.text) === plainW(S.lines[i].text))) return false;
   p.lines.forEach((x: { text: string; tr?: string; sync?: any }, i: number) => { S.lines[i].text = x.text; S.lines[i].tr = x.tr || ''; if (x.sync) S.lines[i].sync = x.sync; });
   if (p.lang) S.meta.lang = p.lang;

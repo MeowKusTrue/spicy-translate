@@ -60,10 +60,10 @@ export function parseTTML(xml: string): Line[] {
       else if (p) {
         const main = finish(p.main), bg = finish(p.bg);
         const text = main ? main.text : p.plain.replace(/\s+/g, ' ').trim();
-        if (text && Number.isFinite(p.t)) {
+        if ((text || bg) && Number.isFinite(p.t)) { // a <p> with only x-bg = background-only line
           const ok = main && units(main.text).length === main.sync.length;
           const bgOk = bg && units(bg.text).length === bg.sync.length;
-          const t = p.t, end = Number.isFinite(p.end) ? p.end : (main ? main.sync[main.sync.length - 1].b! : t + 3);
+          const last = main || bg, t = p.t, end = Number.isFinite(p.end) ? p.end : (last ? last.sync[last.sync.length - 1].b! : t + 3);
           const agent = (p.agent === 'v2' || p.agent === 'v2000') ? 'v2' : (p.agent === 'v1000' ? 'v1000' : undefined) as Agent | undefined;
           const sync: Line['sync'] = {};
           if (ok) sync!.orig = main!.sync;

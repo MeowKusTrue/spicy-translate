@@ -222,3 +222,23 @@ button.danger{color:#ff9a9a}
 .ln:hover .addbg{opacity:1}
 .pl .bg{font-size:.62em}
 .lyrics{cursor:ns-resize}
+/* track / language switches in the dock */
+.tseg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;flex:none}
+.tseg button{border:0;border-radius:0;padding:5px 11px;font-size:13px;background:transparent;color:var(--mut)}
+.tseg button.on{background:color-mix(in srgb,var(--acc) 24%,transparent);color:var(--txt)}
+.tseg button.on.bg{background:color-mix(in srgb,var(--acc2) 28%,transparent)}
+/* inline word / line editor over the wave */
+input.wedit{position:fixed;z-index:40;width:auto;margin:0;border:2px solid var(--acc);background:var(--bg);color:var(--txt);font-weight:600;font-size:15px;padding:2px 9px;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.5);outline:none}
+input.wedit.bg{border-color:var(--acc2)}
+/* line list: insert after / delete, background-only lines */
+.ln{position:relative}
+.ln .rowact{position:absolute;right:8px;top:6px;display:flex;gap:4px;opacity:0;transition:opacity .15s}
+.ln:hover .rowact,.ln:focus-within .rowact{opacity:1}
+.ln .rowact button{padding:1px 8px;font-size:12px;background:var(--pop,var(--bg))}
+.ln.bgonly{border-left:2px solid var(--acc2)}
+/* find & replace, whole-text editor */
+.findbox{margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--field)}
+.chk.inline{display:inline-flex;align-items:center;gap:5px;font-size:13px;color:var(--mut);margin:0}
+.chk.inline input{width:auto;margin:0}
+.modal .help.full{width:min(860px,100%)}
+#fullTa{width:100%;min-height:46vh;font:14px/1.55 ui-monospace,Menlo,Consolas,monospace;resize:vertical}

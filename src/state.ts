@@ -33,6 +33,8 @@ export const S = {
   save: { msg: '💾 —', cls: '' } as Msg, live: null as Msg | null,
   qa: null as QaItem[] | null, paste: null as string | null, out: null as string | null,
   help: false, typing: false, busyAuto: false, busyLlm: false,
+  full: null as null | { tr: boolean; text: string }, // whole-song text editor
+  find: null as null | { q: string; r: string; where: 'tr' | 'orig' | 'all'; cs: boolean; word: boolean },
 };
 
 /* ---------- change notification for React ---------- */
@@ -104,3 +106,12 @@ export function fillLine(i: number, layer: Layer) {
   return true;
 }
 export function mainLayerFor(i: number): Layer { return S.meta.mode === 'bilingual' ? 'orig' : (S.lines[i].tr && S.lines[i].tr.trim() ? 'tr' : 'orig'); }
+/* a layer = track (main / bg) × language (translation / original); the wave shows both tracks of the language */
+export const isBg = (l: Layer) => l === 'bg' || l === 'bgo';
+export const isTr = (l: Layer) => l === 'tr' || l === 'bg';
+export const mkLayer = (bg: boolean, tr: boolean): Layer => bg ? (tr ? 'bg' : 'bgo') : (tr ? 'tr' : 'orig');
+export function setText(i: number, layer: Layer, v: string) {
+  const l = S.lines[i];
+  if (layer === 'tr') l.tr = v; else if (layer === 'orig') l.text = v;
+  else { l.bg = l.bg || { text: '', tr: '' }; if (layer === 'bg') l.bg.tr = v; else l.bg.text = v; }
+}

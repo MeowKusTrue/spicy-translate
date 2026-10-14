@@ -29,14 +29,15 @@ export function buildTTML(o: ExportOpts) {
   for (const l of lines) {
     const hasTr = l.tr && l.tr.trim();
     const mainLayer = bilingual ? 'orig' : (hasTr ? 'tr' : 'orig');
-    const mainText = mainLayer === 'tr' ? l.tr.trim() : l.text;
-    if (!mainText || !mainText.trim()) continue;
+    const mainText = mainLayer === 'tr' ? l.tr.trim() : l.text, hasMain = !!(mainText && mainText.trim());
+    // a line may be background vocals only (empty lead): Spicy renders those in word mode
+    if (!hasMain && !(wordTiming && l.bg && (l.bg.text.trim() || l.bg.tr.trim()))) continue;
     const sync = l.sync || {};
     const it: Item = { a: Math.max(0, l.t + shift), b: Math.max(0, l.end + shift), mainText, main: null, bg: null, agent: l.agent || 'v1' };
     if (wordTiming) {
-      it.main = sh(getWords(mainText, sync[mainLayer], l.t, l.end));
-      if (bilingual && hasTr) it.bg = sh(getWords(l.tr.trim().replace(/[()]/g, ''), sync.tr, l.t, l.end));
-      else if (!bilingual && l.bg) { // background vocals: translated if there is a translation, else the original; no parentheses (Spicy rule)
+      it.main = hasMain ? sh(getWords(mainText, sync[mainLayer], l.t, l.end)) : [];
+      if (bilingual && hasTr && hasMain) it.bg = sh(getWords(l.tr.trim().replace(/[()]/g, ''), sync.tr, l.t, l.end));
+      else if (l.bg && (!bilingual || !hasMain)) { // background vocals: translated if there is a translation, else the original; no parentheses (Spicy rule)
         const useTr = !!(l.bg.tr && l.bg.tr.trim()), text = (useTr ? l.bg.tr : l.bg.text || '').trim();
         if (text) {
           const so = sync.bgo, n = units(l.bg.text).length;
@@ -46,6 +47,7 @@ export function buildTTML(o: ExportOpts) {
         }
       }
       const all = it.main.concat(it.bg || []);
+      if (!all.length) continue;
       it.a = Math.min(...all.map(w => w.a)); it.b = Math.max(...all.map(w => w.b));
     }
     items.push(it);

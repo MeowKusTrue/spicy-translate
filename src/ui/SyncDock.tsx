@@ -1,13 +1,14 @@
 // Bottom dock: top bar, waveform, word chips, F/G/H toolbar with "Строка ⋯" and ⚙ menus.
 import { useEffect, useRef } from 'react';
 import { fmtTime, mmss, plainW, units } from '../core/index.ts';
-import { S, emit, layerText, lineState, ls, viewWords, wordsOf } from '../state.ts';
+import { S, isBg, isTr, layerText, lineState, ls, mkLayer, viewWords, wordsOf, emit } from '../state.ts';
 import { playWord } from '../audio.ts';
 import { dockMouseDown, setLoop, setSnap, toggleDock } from '../hotkeys.ts';
 import { setupGrip } from '../dockSize.ts';
 import { setAgent } from '../agents.ts';
+import { repeatChorus } from '../lineEdit.ts';
 import {
-  clearLayer, doRedo, doUndo, joinWords, mark, nudgeWord, playSel, resetLine, resetWord, selectWord,
+  clearLayer, doRedo, doUndo, joinWords, mark, nudgeWord, playSel, resetLine, resetWord, selectWord, setLayer,
   splitWord, spreadAll, spreadSelLine, stepWord, syllabifyLine, wordLabel,
 } from '../sync.ts';
 import { centerOnSel, drawWave, zoomAt } from '../waveform/wave.ts';
@@ -34,7 +35,7 @@ function Chips() {
     const ws = wordsOf(i, S.layer), us = units(layerText(S.lines[i], S.layer)), vw = viewWords(i, S.layer), sy = S.lines[i].sync && S.lines[i].sync![S.layer];
     rows.push(<div key={i} className={'sl' + (i === ci ? ' cur' : '')}>
       <span className="lab">{mmss(S.lines[i].t)}</span>
-      {!ws.length && <span className="keys">{S.layer === 'tr' ? '(нет перевода)' : '(пусто)'}</span>}
+      {!ws.length && <span className="keys">{isBg(S.layer) ? '(нет бэка — двойной клик по дорожке «бэк» или E)' : S.layer === 'tr' ? '(нет перевода — E, чтобы вписать)' : '(пусто — E, чтобы вписать)'}</span>}
       {ws.map((w, k) => {
         const x = sy && sy.length === ws.length ? sy[k] : null;
         let cls = 'chip' + (w.includes(' ') ? ' grp' : '');
@@ -63,7 +64,14 @@ export function SyncDock() {
     <div className="grip" ref={gr} title="Потяни, чтобы изменить высоту панели (двойной клик — как было)"></div>
     <div className="bar">
       <b className="ttl">Разметка слов</b>
-      <select id="layer" title="Что размечаем" value={S.layer} onChange={e => { S.layer = e.target.value as typeof S.layer; emit(); drawWave(); }}><option value="tr">перевод</option><option value="orig">оригинал</option><option value="bg">бэк: перевод</option><option value="bgo">бэк: оригинал</option></select>
+      <span className="tseg" title="Что размечаем: перевод или оригинал (T)">
+        <button className={isTr(S.layer) ? 'on' : ''} id="segTr" onClick={() => setLayer(mkLayer(isBg(S.layer), true))}>Перевод</button>
+        <button className={isTr(S.layer) ? '' : 'on'} id="segOrig" onClick={() => setLayer(mkLayer(isBg(S.layer), false))}>Оригинал</button>
+      </span>
+      <span className="tseg trk" title="Дорожка: основная строка или бэк (B). Клик по дорожке на волне тоже переключает">
+        <button className={isBg(S.layer) ? '' : 'on'} id="segMain" onClick={() => setLayer(mkLayer(false, isTr(S.layer)))}>Основа</button>
+        <button className={isBg(S.layer) ? 'on bg' : ''} id="segBg" onClick={() => setLayer(mkLayer(true, isTr(S.layer)))}>Бэк</button>
+      </span>
       <span className="hint-line" id="guideTxt"><Guide /></span>
       <small id="dockMsg" className={S.toast.cls}>{S.toast.msg}</small><span className={'kbd' + (S.typing ? ' warn' : '')} id="kbd">{S.typing ? '⌨ клавиши выключены — кликни по волне' : ''}</span>
       <small className="stat" id="syncStat">{S.lines.length ? `синхронизировано строк: ${done}/${S.lines.length}` : ''}</small>
@@ -105,6 +113,7 @@ export function SyncDock() {
           <summary className="btn sm">Строка ⋯</summary>
           <div className="pop">
             <button className="sm" id="btnSylLine" onClick={syllabifyLine}>✂ Разбить строку на слоги</button>
+            <button className="sm" id="btnChorus" title="C — та же разметка слов на все строки с таким же текстом (припев), со сдвигом по началу строки" onClick={repeatChorus}>⧉ Тайминг строки → на повторы (C)</button>
             <button className="sm" id="btnLineSpread" onClick={spreadSelLine}>↔ Раскидать слова строки ровно</button>
             <button className="sm" id="btnAllSpread" onClick={spreadAll}>↔ Раскидать все неразмеченные строки</button>
             <button className="sm" id="btnLineReset" onClick={resetLine}>⌫ Сбросить строку</button>

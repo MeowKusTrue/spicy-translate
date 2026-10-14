@@ -1,6 +1,6 @@
 import { S, lineState, mainLayerFor, useS } from '../state.ts';
 import { toggleDock } from '../hotkeys.ts';
-import { ExportCard, SearchCard, TranslateCard } from './Cards.tsx';
+import { ExportCard, FullTextModal, SearchCard, TranslateCard } from './Cards.tsx';
 import { Stage } from './Stage.tsx';
 import { SyncDock } from './SyncDock.tsx';
 import { HelpModal } from './HelpModal.tsx';
@@ -40,6 +40,7 @@ export function App() {
     </main>
     <SyncDock />
     <HelpModal />
+    <FullTextModal />
     <Drop />
   </>;
 }

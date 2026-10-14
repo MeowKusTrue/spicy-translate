@@ -57,7 +57,7 @@ function applyTr(rows: { i: number; tr: string; bg?: string }[]) {
     if (r.tr.trim()) { l.tr = r.tr.trim(); if (l.sync) delete l.sync.tr; n++; }
     if (l.bg && r.bg && r.bg.trim()) { l.bg.tr = r.bg.trim(); if (l.sync) delete l.sync.bg; }
   });
-  if (n) S.layer = 'tr';
+  if (n) S.layer = S.layer === 'bg' || S.layer === 'bgo' ? 'bg' : 'tr';
   refresh(); return n;
 }
 export async function llmTranslate() {

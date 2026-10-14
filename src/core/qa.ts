@@ -9,7 +9,7 @@ export function qaCheck(lines: Line[], mode: Mode = 'translation'): QaItem[] {
   lines.forEach((l, i) => {
     const hasTr = l.tr && l.tr.trim(), layer = bil ? 'orig' : (hasTr ? 'tr' : 'orig');
     const text = layer === 'tr' ? l.tr.trim() : l.text;
-    if (!text || !text.trim()) { out.push({ i, sev: 'err', msg: 'пустая строка — Spicy не загрузит файл' }); return; }
+    if (!text || !text.trim()) { if (!(l.bg && (l.bg.text.trim() || l.bg.tr.trim()))) out.push({ i, sev: 'err', msg: 'пустая строка — Spicy не загрузит файл' }); return; } // bg-only line is fine
     if (!hasTr) out.push({ i, sev: 'warn', msg: 'нет перевода — пойдёт оригинал' });
     const ww = wordList(text), sy = l.sync && l.sync[layer];
     if (!syncComplete(sy, ww.length)) out.push({ i, sev: 'warn', msg: 'слова не размечены — будет равномерный спред' });

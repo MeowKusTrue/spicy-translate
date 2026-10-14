@@ -10,7 +10,8 @@ import { LANGS, applyPaste, autoTranslate, clearTr, copyPrompt, llmTranslate } f
 import { copyTTML, download, gotoQa, runQa, saveLRC, saveProjectFile, saveSRT, toggleCode } from '../exporting.ts';
 import { drawWave } from '../waveform/wave.ts';
 import { agentOf, cycleAgent, pickLine } from '../agents.ts';
-import { addBg, delBg, editText } from '../lineEdit.ts';
+import { addBg, addBgHere, addLineAfter, addLineHere, applyFull, bracketsToBg, delBg, delLine, editText, findOpts, focusLine, openFull, replaceEverywhere } from '../lineEdit.ts';
+import { findAll } from '../core/index.ts';
 
 const set = (f: () => void) => { f(); emit(); };
 const St = ({ id, m }: { id: string; m: { msg: string; cls: string } }) => <div className={'status ' + m.cls} id={id}>{m.msg}</div>;
@@ -50,24 +51,28 @@ export function SearchCard() {
 
 function LineRow({ i }: { i: number }) {
   const l = S.lines[i];
-  return <div className={'ln' + (S.picked.has(i) ? ' picked' : '')} id={'ln' + i} onClick={e => { if (!(e.target as HTMLElement).closest('input,button,.t')) pickLine(i, e); }}>
+  return <div className={'ln' + (S.picked.has(i) ? ' picked' : '') + (l.text.trim() ? '' : ' bgonly')} id={'ln' + i} onClick={e => { if (!(e.target as HTMLElement).closest('input,button,.t')) pickLine(i, e); }}>
     <div className="t" onClick={() => { seekTo(l.t); selectWord(i, 0); }}>
       {mmss(l.t) + '.' + String(Math.floor((l.t % 1) * 10))}
       {lineState(i, mainLayerFor(i)) === 'done' && <i className="sd" title="слова синхронизированы" />}
       <button className="ag" data-agent={agentOf(i).id} title={agentOf(i).title + ' (клик или V — сменить)'} onClick={e => { e.stopPropagation(); cycleAgent(i); }}>{agentOf(i).label}</button>
     </div>
     <div className="txt">
-      <input className="o" type="text" title="Оригинал — можно править" value={l.text} onChange={e => editText(i, 'orig', e.target.value)} />
-      <input className="tr" type="text" placeholder="перевод…" value={l.tr || ''} onChange={e => editText(i, 'tr', e.target.value)} />
+      <input className="o" type="text" title="Оригинал — можно править" placeholder="(без основной строки — только бэк)" value={l.text} onFocus={() => focusLine(i, 'orig')} onChange={e => editText(i, 'orig', e.target.value)} />
+      <input className="tr" type="text" placeholder="перевод…" value={l.tr || ''} onFocus={() => focusLine(i, 'tr')} onChange={e => editText(i, 'tr', e.target.value)} />
       {l.bg
         ? <div className="bgrow">
             <span className="bglab" title="Фоновый вокал: в Spicy мелкой строкой под основной">бэк</span>
-            <input type="text" placeholder="бэк: оригинал" value={l.bg.text} onChange={e => editText(i, 'bgo', e.target.value)} />
-            <input type="text" placeholder="бэк: перевод" value={l.bg.tr} onChange={e => editText(i, 'bg', e.target.value)} />
+            <input type="text" placeholder="бэк: оригинал" value={l.bg.text} onFocus={() => focusLine(i, 'bgo')} onChange={e => editText(i, 'bgo', e.target.value)} />
+            <input type="text" placeholder="бэк: перевод" value={l.bg.tr} onFocus={() => focusLine(i, 'bg')} onChange={e => editText(i, 'bg', e.target.value)} />
             <button className="sm ic" title="Убрать бэк" onClick={e => { e.stopPropagation(); delBg(i); }}>✕</button>
           </div>
         : <button className="addbg" title="Добавить фоновый вокал (бэки, ад-либы) к этой строке" onClick={e => { e.stopPropagation(); addBg(i); }}>+ бэк</button>}
     </div>
+    <span className="rowact">
+      <button className="sm ic" title="Вставить пустую строку после этой" onClick={e => { e.stopPropagation(); addLineAfter(i); }}>+</button>
+      <button className="sm ic" title="Удалить строку (Ctrl+Z вернёт)" onClick={e => { e.stopPropagation(); delLine(i); }}>🗑</button>
+    </span>
   </div>;
 }
 
@@ -85,6 +90,8 @@ export function TranslateCard() {
       <button id="btnPrompt" title="Скопирует промпт со строками — вставь в Claude/ChatGPT для художественного перевода" onClick={copyPrompt}>Промпт для LLM</button>
       <button id="btnPaste" onClick={() => { set(() => S.paste = S.paste ?? ''); setTimeout(() => document.getElementById('pasteTa')?.focus()); }}>Вставить перевод списком</button>
       <button id="btnClear" onClick={clearTr}>Очистить</button>
+      <button id="btnFull" title="Весь текст песни одним полем: правь, добавляй и удаляй строки, (бэк) в скобках" disabled={!S.lines.length} onClick={() => openFull()}>✎ Весь текст</button>
+      <button id="btnFind" title="Найти и заменить по всей песне" disabled={!S.lines.length} onClick={() => set(() => S.find = S.find ? null : { q: '', r: '', where: 'all', cs: false, word: true })}>🔎 Заменить</button>
     </div>
     <details className="llm" id="llmBox">
       <summary>🤖 Перевод через LLM (с контекстом всей песни)</summary>
@@ -103,7 +110,13 @@ export function TranslateCard() {
       <textarea id="pasteTa" placeholder="Вставь сюда готовый перевод — по одной строке на строку оригинала (нумерация «1.» тоже ок)" value={S.paste || ''} onChange={e => set(() => S.paste = e.target.value)} />
       <div className="row" style={{ marginTop: 8 }}><button className="pri" id="btnPasteApply" onClick={applyPaste}>Применить</button><button id="btnPasteCancel" onClick={() => set(() => S.paste = null)}>Отмена</button></div>
     </div>
+    {S.find && <FindBox />}
     <St id="st2" m={S.st2} />
+    {S.lines.length > 0 && <div className="row ltools" style={{ marginTop: 10, flexWrap: 'wrap' }}>
+      <button className="sm" id="btnAddLine" title="Пустая строка в точке воспроизведения — для своих слов или бэка, которого нет в найденном тексте" onClick={addLineHere}>+ строка у курсора</button>
+      <button className="sm" id="btnAddBg" title="Отдельный бэк (без основной строки) в точке воспроизведения" onClick={addBgHere}>+ бэк у курсора</button>
+      <button className="sm" id="btnParens" title="«текст (бэк)» → «(бэк)» уходит в фоновый вокал строки, тайминги слов переезжают вместе со словами" onClick={bracketsToBg}>( ) → бэки</button>
+    </div>}
     <div className="lines" id="lines" style={{ marginTop: 10 }}>{S.lines.map((_, i) => <LineRow key={i} i={i} />)}</div>
   </section>;
 }
@@ -145,4 +158,47 @@ export function ExportCard() {
       <li>Если не обновилось — очисти кэш Spicy Lyrics и открой трек заново.</li>
     </ol>
   </section>;
+}
+
+function FindBox() {
+  const f = S.find!, n = findAll(S.lines, findOpts()).n;
+  const up = (p: Partial<NonNullable<typeof S.find>>) => set(() => Object.assign(S.find!, p));
+  return <div className="findbox" id="findBox">
+    <div className="grid2">
+      <input type="text" id="findQ" placeholder="найти…" value={f.q} autoFocus onChange={e => up({ q: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') replaceEverywhere(); }} />
+      <input type="text" id="findR" placeholder="заменить на… (пусто = удалить)" value={f.r} onChange={e => up({ r: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') replaceEverywhere(); }} />
+    </div>
+    <div className="row" style={{ marginTop: 6, flexWrap: 'wrap' }}>
+      <select id="findWhere" value={f.where} onChange={e => up({ where: e.target.value as 'tr' | 'orig' | 'all' })} style={{ width: 'auto' }}>
+        <option value="tr">в переводе</option><option value="orig">в оригинале</option><option value="all">везде</option>
+      </select>
+      <label className="chk inline"><input type="checkbox" checked={f.word} onChange={e => up({ word: e.target.checked })} />целое слово</label>
+      <label className="chk inline"><input type="checkbox" checked={f.cs} onChange={e => up({ cs: e.target.checked })} />Аа</label>
+      <small className="hint" id="findN" style={{ margin: 0 }}>{f.q ? `совпадений: ${n}` : ''}</small>
+      <button className="sm pri" id="btnReplace" disabled={!n} onClick={replaceEverywhere}>Заменить всё</button>
+    </div>
+  </div>;
+}
+
+/** whole-song text in one field: one row per line, "(…)" = background vocals */
+export function FullTextModal() {
+  const f = S.full; if (!f) return null;
+  const rows = f.text.split(/\r?\n/).filter(x => x.trim()).length;
+  const close = () => set(() => S.full = null);
+  return <div className="modal" id="fullModal" onClick={e => { if ((e.target as Element).id === 'fullModal') close(); }}>
+    <div className="help full">
+      <button className="sm ic close" title="Закрыть без изменений" onClick={close}>✕</button>
+      <h3>Весь текст</h3>
+      <div className="row" style={{ marginBottom: 8, flexWrap: 'wrap' }}>
+        <span className="tseg">
+          <button className={f.tr ? '' : 'on'} id="fullOrig" onClick={() => openFull(false)}>Оригинал</button>
+          <button className={f.tr ? 'on' : ''} id="fullTr" onClick={() => openFull(true)}>Перевод</button>
+        </span>
+        <small className="hint" style={{ margin: 0, flex: 1 }}>{f.tr ? `строк ${rows} из ${S.lines.length} — перевод идёт строка в строку` : `строк: ${rows} (было ${S.lines.length})`}</small>
+        <button className="pri" id="btnFullApply" onClick={applyFull}>Применить</button>
+      </div>
+      <textarea id="fullTa" spellCheck={false} value={f.text} onChange={e => set(() => S.full!.text = e.target.value)} />
+      <p>Строка = строка песни. <b>(в скобках)</b> — бэк этой строки, строка только из <b>(…)</b> — отдельный бэк. {f.tr ? 'Перевод правится построчно.' : 'Можно добавлять, удалять и менять строки — новые встанут между соседями по времени.'} Тайминги неизменённых слов сохраняются. <b>|</b> — граница слога.</p>
+    </div>
+  </div>;
 }

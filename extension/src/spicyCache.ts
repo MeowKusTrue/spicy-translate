@@ -50,7 +50,10 @@ export function spicyToLines(d: any, duration = 0): Line[] | null {
         if (!w || !Number.isFinite(a) || !Number.isFinite(b)) continue;
         us.push({ w, sp: !s.IsPartOfWord }); sy.push({ a: r3(a), b: r3(Math.max(a, b)) });
       }
-      if (!us.length) continue;
+      if (!us.length) { // background vocals only, no lead
+        if (bg) out.push({ t: bg.sync[0].a!, end: r3(Math.max(bg.sync[bg.sync.length - 1].b!, bg.sync[0].a! + 0.3)), text: '', tr: '', sync: { bgo: bg.sync }, bg: { text: bg.text, tr: '' }, ...(agent ? { agent } : {}) });
+        continue;
+      }
       us[us.length - 1].sp = true;
       const text = unitsText(us), ok = units(text).length === sy.length;
       const t = Number.isFinite(num(c.Lead.StartTime)) ? c.Lead.StartTime : sy[0].a!;
