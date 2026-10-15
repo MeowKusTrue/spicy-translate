@@ -12,7 +12,7 @@ import {
   splitWord, spreadAll, spreadSelLine, stepWord, syllabifyLine, wordLabel,
 } from '../sync.ts';
 import { centerOnSel, drawWave, zoomAt } from '../waveform/wave.ts';
-import { setupWave } from '../waveform/edit.ts';
+import { setupMini, setupWave } from '../waveform/edit.ts';
 import { stepInfo } from './App.tsx';
 
 function Guide() {
@@ -55,6 +55,8 @@ function Chips() {
 export function SyncDock() {
   const cv = useRef<HTMLCanvasElement>(null);
   useEffect(() => setupWave(cv.current!), []);
+  const mini = useRef<HTMLCanvasElement>(null);
+  useEffect(() => setupMini(mini.current!), []);
   const gr = useRef<HTMLDivElement>(null);
   useEffect(() => setupGrip(gr.current!), []);
   useEffect(() => { const f = () => drawWave(); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f); }, []);
@@ -87,7 +89,9 @@ export function SyncDock() {
       <button className="sm" id="btnHelp" title="Как размечать" onClick={() => { S.help = !S.help; emit(); }}>?</button>
       <button className="sm" id="btnDockClose" title="Закрыть" onClick={() => toggleDock(false)}>✕</button>
     </div>
+    <canvas id="mini" ref={mini} title="Вся песня: клик/тяни — показать это место, 2× — играть отсюда. Зелёное — размечено, жёлтое — частично, розовое — отдельные бэки"></canvas>
     <canvas id="wave" ref={cv}></canvas>
+    <div id="waveTip" className="wtip" hidden></div>
     <div className="sync-lines" id="syncLines"><Chips /></div>
     <div className="actions" id="wordBar">
       <span className="grp"><button className="sm ic" id="wbPrev" title="Предыдущее слово (A)" onClick={() => stepWord(-1)}>‹</button><button className="sm ic" id="wbNext" title="Следующее слово (D)" onClick={() => stepWord(1)}>›</button></span>

@@ -1,6 +1,6 @@
 import { S, lineState, mainLayerFor, useS } from '../state.ts';
-import { toggleDock } from '../hotkeys.ts';
-import { ExportCard, SearchCard, TranslateCard } from './Cards.tsx';
+import { PAGES, setPage } from '../hotkeys.ts';
+import { AudioCard, ExportCard, LinesCard, Next, SearchCard, TextCard, TranslateCard } from './Cards.tsx';
 import { Stage } from './Stage.tsx';
 import { SyncDock } from './SyncDock.tsx';
 import { HelpModal } from './HelpModal.tsx';
@@ -13,9 +13,32 @@ export function stepInfo() {
   const f = st.findIndex(x => !x[1]); return { st, cur: f < 0 ? 4 : f, n, tr, done };
 }
 
-function Stepper() {
-  const { st, cur } = stepInfo();
-  return <div className="stepper" id="stepper">{st.map((x, k) => <span key={k} className={x[1] ? 'ok' : k === cur ? 'cur' : ''}>{(x[1] ? '✓ ' : '') + x[0]}</span>)}</div>;
+/** tabs in the header: each shows how far that step is */
+function Nav() {
+  const { n, tr, done } = stepInfo(), errs = (S.qa || []).filter(x => x.sev === 'err').length;
+  const badge: Record<string, [string, boolean]> = {
+    track: [n ? (S.hasAudio ? '✓' : 'без ♪') : '', n > 0 && S.hasAudio],
+    text: [n ? String(n) : '', false],
+    tr: [n ? `${tr}/${n}` : '', n > 0 && tr === n],
+    sync: [n ? `${done}/${n}` : '', n > 0 && done === n],
+    export: [S.qa ? (errs ? '!' + errs : '✓') : '', !!S.qa && !errs],
+  };
+  return <nav className="nav" role="tablist">{PAGES.map(([id, label], k) => {
+    const [b, ok] = badge[id];
+    return <button key={id} role="tab" id={'nav-' + id} className={S.page === id ? 'on' : ''} title={`Alt+${k + 1}`} disabled={!n && id !== 'track'} onClick={() => setPage(id)}>
+      <i>{k + 1}</i>{label}{id === 'text' && S.full?.dirty ? ' •' : ''}{b && <em className={ok ? 'ok' : ''}>{b}</em>}
+    </button>;
+  })}</nav>;
+}
+
+function Page() {
+  switch (S.page) {
+    case 'track': return <><SearchCard /><AudioCard />{S.lines.length > 0 && <Next to="text" label="Дальше: текст" />}</>;
+    case 'text': return <><TextCard />{S.lines.length > 0 && <Next to="tr" label="Дальше: перевод" />}</>;
+    case 'tr': return <><TranslateCard /><LinesCard /><Next to="sync" label="Дальше: синхра по словам" /></>;
+    case 'sync': return <LinesCard />;
+    case 'export': return <ExportCard />;
+  }
 }
 
 export function App() {
@@ -23,19 +46,14 @@ export function App() {
   return <>
     <header>
       <div className="logo">S</div>
-      <div><h1>Spicy Translate</h1><span>синхронный перевод для Spicy Lyrics · TTML</span></div>
+      <div className="brand"><h1>Spicy Translate</h1><span>синхронный перевод для Spicy Lyrics · TTML</span></div>
+      <Nav />
       <div style={{ flex: 1 }}></div>
       <span className={'pill ' + (S.live?.cls || '')} id="liveLink" title="Связь с локальным сервером / MCP" hidden={!S.live}>{S.live?.msg}</span>
       <span className={'pill ' + S.save.cls} id="saveInd" title="Проект сохраняется автоматически в браузере">{S.save.msg}</span>
-      <button className="pri" id="btnDock" title="Пословная синхронизация с волной и хоткеями" onClick={() => toggleDock()}>Синхра по словам</button>
     </header>
-    <main>
-      <div className="col">
-        <Stepper />
-        <SearchCard />
-        <TranslateCard />
-        <ExportCard />
-      </div>
+    <main className={'page-' + S.page}>
+      <div className="col" key={S.page}><Page /></div>
       <div className="col"><Stage /></div>
     </main>
     <SyncDock />

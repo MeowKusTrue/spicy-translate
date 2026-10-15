@@ -11,7 +11,11 @@ import { copyTTML, download, gotoQa, runQa, saveLRC, saveProjectFile, saveSRT, t
 import { drawWave } from '../waveform/wave.ts';
 import { agentOf, cycleAgent, pickLine } from '../agents.ts';
 import { useRef } from 'react';
-import { addBg, addBgHere, addLineAfter, addLineHere, applyFull, bracketsToBg, delBg, delLine, editText, findOpts, focusLine, fullRows, replaceEverywhere, resetFull, setTab } from '../lineEdit.ts';
+import { addBg, addBgHere, addLineAfter, addLineHere, applyFull, bracketsToBg, delBg, delLine, editText, findOpts, focusLine, fullRows, replaceEverywhere, resetFull } from '../lineEdit.ts';
+import { setPage } from '../hotkeys.ts';
+import { loadAudioFile } from '../load.ts';
+import { W } from '../waveform/wave.ts';
+import type { Page } from '../state.ts';
 import { findAll } from '../core/index.ts';
 
 const set = (f: () => void) => { f(); emit(); };
@@ -19,7 +23,7 @@ const St = ({ id, m }: { id: string; m: { msg: string; cls: string } }) => <div 
 
 export function SearchCard() {
   return <section className="card">
-    <h2><b>1</b> Найти трек и тайминги</h2>
+    <h2>Найти трек и тайминги</h2>
     <div className="row">
       <input type="text" id="q" placeholder="Исполнитель — название (например: Eminem Lose Yourself)" value={S.q}
         onChange={e => set(() => S.q = e.target.value)} onKeyDown={e => { if (e.key === 'Enter') search(); }} />
@@ -80,7 +84,7 @@ function LineRow({ i }: { i: number }) {
 export function TranslateCard() {
   const llm = (k: keyof typeof S.llm) => ({ value: S.llm[k], onChange: (e: { target: { value: string } }) => set(() => S.llm[k] = e.target.value) });
   return <section className="card">
-    <h2><b>2</b> Перевод</h2>
+    <h2>Перевод</h2>
     <div className="grid2">
       <select id="lang" value={S.meta.lang} onChange={e => set(() => S.meta.lang = e.target.value)}>
         {LANGS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
@@ -112,25 +116,28 @@ export function TranslateCard() {
     </div>
     {S.find && <FindBox />}
     <St id="st2" m={S.st2} />
-    {S.lines.length > 0 && <div className="tabs" role="tablist">
-      <button role="tab" id="tabLines" className={S.tab === 'lines' ? 'on' : ''} onClick={() => setTab('lines')}>Строки</button>
-      <button role="tab" id="tabText" className={S.tab === 'text' ? 'on' : ''} onClick={() => setTab('text')}>Текст{S.full?.dirty ? ' •' : ''}</button>
-    </div>}
-    {S.tab === 'text' && S.lines.length > 0 ? <TextTab /> : <>
-    {S.lines.length > 0 && <div className="row ltools" style={{ marginTop: 10, flexWrap: 'wrap' }}>
+  </section>;
+}
+
+/** the lines list (translation and sync tabs): texts, singers, background vocals, add / delete lines */
+export function LinesCard() {
+  if (!S.lines.length) return null;
+  return <section className="card linescard">
+    <h2>Строки <small>{S.lines.length}</small></h2>
+    <div className="row ltools" style={{ flexWrap: 'wrap' }}>
       <button className="sm" id="btnAddLine" title="Пустая строка в точке воспроизведения — для своих слов или бэка, которого нет в найденном тексте" onClick={addLineHere}>+ строка у курсора</button>
       <button className="sm" id="btnAddBg" title="Отдельный бэк (без основной строки) в точке воспроизведения" onClick={addBgHere}>+ бэк у курсора</button>
       <button className="sm" id="btnParens" title="«текст (бэк)» → «(бэк)» уходит в фоновый вокал строки, тайминги слов переезжают вместе со словами" onClick={bracketsToBg}>( ) → бэки</button>
-    </div>}
+    </div>
     <div className="lines" id="lines" style={{ marginTop: 10 }}>{S.lines.map((_, i) => <LineRow key={i} i={i} />)}</div>
-    </>}
   </section>;
 }
+
 
 export function ExportCard() {
   const bi = S.meta.mode === 'bilingual', qa = S.qa, errs = qa ? qa.filter(x => x.sev === 'err').length : 0;
   return <section className="card">
-    <h2><b>3</b> Экспорт TTML</h2>
+    <h2>Экспорт TTML</h2>
     <div className="seg">
       <label><input type="radio" name="mode" value="translation" checked={!bi} onChange={() => setMode('translation')} /><span>Только перевод</span></label>
       <label><input type="radio" name="mode" value="bilingual" checked={bi} onChange={() => setMode('bilingual')} /><span>Оригинал + перевод</span></label>
@@ -212,4 +219,23 @@ function TextTab() {
       <textarea id="fullT" ref={refs.t} wrap="off" spellCheck={false} value={f.t} placeholder="перевод — напротив своей строки" onScroll={e => scroll(e.currentTarget)} onKeyDown={key} onChange={e => edit('t', e.target.value)} />
     </div>
   </div>;
+}
+
+/** «Текст» tab: the whole song */
+export function TextCard() {
+  if (!S.lines.length) return <section className="card"><h2>Текст песни</h2><p className="hint">Сначала загрузи текст на вкладке «Трек».</p><Next to="track" label="К выбору трека" /></section>;
+  return <section className="card textcard"><h2>Текст песни <small>оригинал и перевод рядом</small></h2><TextTab /></section>;
+}
+export function AudioCard() {
+  return <section className="card">
+    <h2>Аудио</h2>
+    <div className="row" style={{ flexWrap: 'wrap' }}>
+      <label className="btn pri">♪ Выбрать аудиофайл<input type="file" accept="audio/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) loadAudioFile(f); e.target.value = ''; }} /></label>
+      <span className={'hint' + (S.hasAudio ? ' okc' : '')} style={{ margin: 0 }}>{S.hasAudio ? (W.peaks ? '✓ аудио и волна готовы' : '✓ аудио подключено') : 'Или перетащи файл на страницу — по имени файла подберу текст.'}</span>
+    </div>
+  </section>;
+}
+/** big "next step" button at the bottom of a tab */
+export function Next({ to, label }: { to: Page; label: string }) {
+  return <button className="next" id={'next-' + to} onClick={() => setPage(to)}>{label} →</button>;
 }

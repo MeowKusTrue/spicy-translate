@@ -125,3 +125,17 @@
 .st-ln:hover .st-rowact{opacity:1}
 .st .st-rowact button{padding:0 7px;font-size:11px;background:var(--pop)}
 .st-ln.bgonly{border-left:2px solid var(--acc2)}
+/* left panel: Строки / Текст */
+.st-ltabs{display:flex;gap:2px;border-bottom:1px solid var(--line)}
+.st .st-ltabs button{border:0;border-bottom:2px solid transparent;border-radius:8px 8px 0 0;background:transparent;color:var(--mut);padding:5px 12px}
+.st .st-ltabs button.on{color:var(--txt);border-bottom-color:var(--acc);background:color-mix(in srgb,var(--acc) 8%,transparent)}
+.st-text{flex:1;min-height:0;display:flex;flex-direction:column;gap:6px}
+.st-text[hidden],.st-ltools[hidden],.st-lines[hidden]{display:none}
+.st-trow{display:flex;gap:6px;align-items:center}
+.st-hint.err{color:#ff9a9a}
+.st-tgrid{flex:1;min-height:0;display:grid;grid-template-columns:46px 1fr 1fr;grid-template-rows:auto 1fr;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--field)}
+.st-tgrid .th{padding:4px 8px;font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--mut);border-bottom:1px solid var(--line)}
+.st-tgut{overflow:hidden;padding:6px 0;font:10.5px/20px ui-monospace,monospace;color:var(--mut);text-align:right;border-right:1px solid var(--line)}
+.st-tgut div{height:20px;padding-right:6px;white-space:nowrap}.st-tgut div.new{color:var(--acc)}
+.st .st-tgrid textarea{height:100%;min-height:0;margin:0;border:0;border-radius:0;resize:none;background:transparent;padding:6px 8px;font:12.5px/20px ui-monospace,Consolas,monospace;white-space:pre;overflow:auto}
+.st .st-tgrid textarea+textarea{border-left:1px solid var(--line)}

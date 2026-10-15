@@ -1,7 +1,7 @@
 // Waveform canvas: state W, peaks, drawing, zoom.
 import { mmss, plainW } from '../core/index.ts';
 import type { Layer } from '../core/index.ts';
-import { S, clamp, isBg, isTr, mkLayer, status, viewWords } from '../state.ts';
+import { S, clamp, isBg, isTr, lineState, mainLayerFor, mkLayer, status, viewWords } from '../state.ts';
 import { now } from '../audio.ts';
 import { computePeaks } from './peaks.ts';
 import PeaksWorker from './peaks.worker.ts?worker&inline';
@@ -11,6 +11,7 @@ export type Box = { i: number; k: number; a: number; b: number; real: boolean; g
 export const W = {
   peaks: null as Float32Array | null, pps: 200, px: 140, start: 0,
   G: { mY: 3, mH: 44, bY: 50, bH: 32, wY: 85, lY: 140, lH: 24 }, rows: [] as number[], nr: 1,
+  multi: [] as { i: number; k: number; layer: Layer }[], // words picked with a Shift+drag box / Shift+click
   drag: null as any, pend: null as any, boxes: [] as Box[], ctrl: false,
   snapAt: null as number | null, flash: null as { t: number; kind: 'F' | 'G' | 'H'; at: number } | null,
 };
@@ -123,6 +124,7 @@ export function drawWave() {
         } else { g.setLineDash([3, 3]); g.strokeStyle = sel ? `rgb(${TH.t})` : `rgba(${TH.t},.25)`; g.strokeRect(x1 + .5, y + .5, bw - 1, hh - 1); g.setLineDash([]); }
         g.save(); g.beginPath(); g.rect(x1 + 2, y, Math.max(0, x2 - x1 - 4), hh); g.clip();
         g.fillStyle = wd.real ? `rgb(${TH.t})` : `rgba(${TH.t},.45)`; g.fillText((wd.b - wd.a >= 1 ? '✦ ' : '') + plainW(wd.word) + (wd.sp === false ? '-' : ''), x1 + 5, y + hh / 2 + 1); g.restore();
+        if (W.multi.some(m => m.i === i && m.k === k && m.layer === layer)) { g.globalAlpha = 1; g.strokeStyle = '#ffd166'; g.lineWidth = 2; g.strokeRect(x1 + 1, y + 1, bw - 2, hh - 2); g.lineWidth = 1; g.globalAlpha = on ? 1 : .5; }
         W.boxes.push({ i, k, a: wd.a, b: wd.b, real: !!wd.real, g: !!wd.g, lane, layer });
       });
     }
@@ -130,6 +132,15 @@ export function drawWave() {
     const rb = W.boxes.filter(b => b.real && b.lane === lane).sort((p, q) => p.a - q.a);
     for (let q = 0; q + 1 < rb.length; q++) if (Math.abs(rb[q].b - rb[q + 1].a) <= JOIN) { g.fillStyle = `rgb(${TH.t})`; g.fillRect(X(rb[q].b) - 1, y, 2, hh); }
     g.globalAlpha = 1;
+  }
+  if (W.drag?.type === 'box') { // Shift+drag selection rectangle
+    const d = W.drag, x = Math.min(d.x0, d.x1), y = Math.min(d.y0, d.y1);
+    g.fillStyle = 'rgba(255,209,102,.12)'; g.fillRect(x, y, Math.abs(d.x1 - d.x0), Math.abs(d.y1 - d.y0));
+    g.strokeStyle = '#ffd166'; g.setLineDash([4, 3]); g.strokeRect(x + .5, y + .5, Math.abs(d.x1 - d.x0), Math.abs(d.y1 - d.y0)); g.setLineDash([]);
+  }
+  if (W.drag?.type === 'mcopy') for (const c of W.drag.items) { // ghosts of a multi-copy
+    const [y, hh] = laneY(isBg(c.layer) ? 'bg' : 'main'), x1 = X(c.a + W.drag.d), x2 = X(c.b + W.drag.d);
+    g.fillStyle = `rgba(${TH.t},.15)`; g.fillRect(x1, y, Math.max(2, x2 - x1), hh); g.setLineDash([4, 3]); g.strokeStyle = `rgb(${TH.t})`; g.strokeRect(x1 + .5, y + .5, Math.max(2, x2 - x1) - 1, hh - 1); g.setLineDash([]);
   }
   // Alt+drag: ghost of the word copy under the cursor
   if (W.drag?.type === 'wcopy') {
@@ -146,6 +157,24 @@ export function drawWave() {
     else W.flash = null;
   }
   if (W.snapAt != null && W.drag) { const sx = X(W.snapAt); g.fillStyle = '#ffd166'; g.fillRect(sx - 0.75, 0, 1.5, h); g.font = '11px ui-monospace,monospace'; g.fillText('🧲 ' + W.snapAt.toFixed(3), sx + 5, G.lY - 14); }
+  drawMini(t, w / W.px);
+}
+/** whole-song strip over the wave: lines colored by sync state, background-only lines pink, the visible window, playhead */
+export const songLen = () => Math.max(S.duration || 0, ...S.lines.map(l => l.end + 1), 1);
+function drawMini(t: number, view: number) {
+  const cv = document.getElementById('mini') as HTMLCanvasElement | null; if (!cv) return;
+  const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight; if (!w || !h) return;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const g = cv.getContext('2d')!; g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  const D = songLen(), X = (s: number) => s / D * w;
+  g.fillStyle = `rgba(${TH.t},.05)`; g.fillRect(0, 0, w, h);
+  S.lines.forEach((l, i) => {
+    const st = lineState(i, mainLayerFor(i)), bgOnly = !l.text.trim();
+    g.fillStyle = bgOnly ? `rgba(${TH.a2},.75)` : st === 'done' ? `rgba(${TH.a},.85)` : st === 'part' ? 'rgba(251,191,36,.75)' : `rgba(${TH.t},.28)`;
+    g.fillRect(X(l.t), bgOnly ? h * .6 : 3, Math.max(1.5, X(l.end) - X(l.t) - 1), bgOnly ? h * .4 - 2 : h * .55 - 3);
+  });
+  g.strokeStyle = `rgba(${TH.t},.8)`; g.lineWidth = 1.5; g.strokeRect(X(W.start) + .75, .75, Math.max(4, X(view)) - 1.5, h - 1.5); g.lineWidth = 1;
+  g.fillStyle = `rgb(${TH.t})`; g.fillRect(X(t), 0, 1.5, h);
 }
 
 export function zoomAt(mx: number, f: number) { const ta = W.start + mx / W.px; W.px = Math.min(1500, Math.max(20, W.px * f)); W.start = Math.max(0, ta - mx / W.px); }

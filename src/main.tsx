@@ -1,13 +1,13 @@
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import './styles.css';
-import { S, emit, ls, toast } from './state.ts';
+import { S, emit, ls, toast, type Page } from './state.ts';
 import { setVolume } from './audio.ts';
 import { buildPreview } from './preview.ts';
 import { idbGet, loadProject, saveProject, trackKey } from './persist.ts';
 import { LIVE, liveInit } from './live.ts';
 import { loadAudioFile } from './load.ts';
-import { installHotkeys } from './hotkeys.ts';
+import { installHotkeys, setPage } from './hotkeys.ts';
 import { startLoop } from './loop.ts';
 import { App } from './ui/App.tsx';
 import { initTheme } from './theme.ts';
@@ -40,4 +40,5 @@ try {
     S.save = { msg: '💾 восстановлено', cls: 'ok' }; emit();
   }
 } catch { LIVE.applying = false; }
+setPage(S.lines.length ? (ls.get('page', 'tr') as Page) : 'track');
 liveInit();

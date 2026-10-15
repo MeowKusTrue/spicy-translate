@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignRows, buildTTML, findAll, insertLine, insertWord, shiftLine, lineRow, parensToBg, parseRow, parseTTML, qaCheck, remapSync, repeatTiming, replaceUnit, type Line } from '../src/core/index.ts';
+import { alignRows, buildTTML, findAll, insertLine, insertWord, lineFromWords, shiftLine, lineRow, parensToBg, parseRow, parseTTML, qaCheck, remapSync, repeatTiming, replaceUnit, type Line } from '../src/core/index.ts';
 
 describe('whole-text rows', () => {
   it('alignRows keeps unchanged and edited rows on their lines, marks new ones', () => {
@@ -105,5 +105,14 @@ describe('copies', () => {
     const l: Line = JSON.parse(JSON.stringify(o));
     shiftLine(l, o, 2);
     expect([l.t, l.end, l.sync!.orig![0].a, l.sync!.bgo![0].b]).toEqual([3, 4, 3, 3.8]);
+  });
+});
+
+describe('lineFromWords', () => {
+  it('a copied bg word becomes its own background-only line', () => {
+    const l = lineFromWords([{ layer: 'bgo', w: 'эй', a: 5, b: 5.4 }])!;
+    expect([l.text, l.bg!.text, l.t, l.sync!.bgo]).toEqual(['', 'эй', 5, [{ a: 5, b: 5.4 }]]);
+    const m = lineFromWords([{ layer: 'orig', w: 'два', a: 2, b: 3 }, { layer: 'orig', w: 'раз', a: 1, b: 2 }, { layer: 'bgo', w: 'ой', a: 1.5, b: 2 }])!;
+    expect([m.text, m.bg!.text, m.t, m.end]).toEqual(['раз два', 'ой', 1, 3]);
   });
 });

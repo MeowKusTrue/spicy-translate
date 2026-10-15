@@ -5,6 +5,7 @@ import { splitWords, syncComplete, units, wordList } from './core/index.ts';
 import type { Layer, Line, Mode, QaItem, WordSync } from './core/index.ts';
 
 export type Msg = { msg: string; cls: string };
+export type Page = 'track' | 'text' | 'tr' | 'sync' | 'export';
 export interface LrclibHit { id: number; trackName: string; artistName: string; albumName: string | null; duration: number; syncedLyrics: string | null; plainLyrics: string | null }
 
 export const ls = {
@@ -33,7 +34,8 @@ export const S = {
   save: { msg: '💾 —', cls: '' } as Msg, live: null as Msg | null,
   qa: null as QaItem[] | null, paste: null as string | null, out: null as string | null,
   help: false, typing: false, busyAuto: false, busyLlm: false,
-  tab: 'lines' as 'lines' | 'text', full: null as null | { o: string; t: string; dirty: boolean }, // «Текст» tab draft
+  page: 'track' as Page, prevPage: 'tr' as Page, // the tab shown; the sync tab opens the dock
+  full: null as null | { o: string; t: string; dirty: boolean }, // «Текст» tab draft
   find: null as null | { q: string; r: string; where: 'tr' | 'orig' | 'all'; cs: boolean; word: boolean },
 };
 

@@ -1,19 +1,28 @@
 // Sync dock toggling + keyboard: F/G/H, A/D, Space, arrows, [ ] ', , . nudge, M/U join/split, N magnet, L loop, R, Del, Ctrl+Z.
-import { S, emit, isBg, isTr, ls, mkLayer, toast, viewWords, wordsOf } from './state.ts';
+import { S, emit, isBg, isTr, ls, mkLayer, toast, viewWords, wordsOf, type Page } from './state.ts';
 import { now, pause, play, seekTo, setRate } from './audio.ts';
 import { PV } from './preview.ts';
 import { doRedo, doUndo, joinWords, mark, nudgeWord, resetWord, setLayer, splitWord, stepWord } from './sync.ts';
-import { copyLines, openEdit, pasteLines, repeatChorus } from './lineEdit.ts';
-import { drawWave } from './waveform/wave.ts';
+import { copyLines, fullDraft, openEdit, pasteLines, repeatChorus } from './lineEdit.ts';
+import { W, drawWave } from './waveform/wave.ts';
 import { cycleAgent, setAgent } from './agents.ts';
 
-export function toggleDock(on?: boolean) {
-  S.dock = on === undefined ? !S.dock : on;
-  if (S.dock && document.activeElement instanceof HTMLElement) document.activeElement.blur();
-  updateKbd(); document.body.classList.toggle('dock-open', S.dock);
-  if (S.dock) { setTimeout(drawWave, 30); if (!ls.get('helpSeen', '')) { S.help = true; ls.set('helpSeen', '1'); } }
-  PV.lastAct = -2; emit();
+export const PAGES: [Page, string][] = [['track', 'Трек'], ['text', 'Текст'], ['tr', 'Перевод'], ['sync', 'Синхра'], ['export', 'Экспорт']];
+/** switch the tab; «Синхра» opens the word-sync dock (wave, keys), the others close it */
+export function setPage(p: Page) {
+  if (p !== 'sync' && p !== S.page) S.prevPage = p;
+  S.page = p; ls.set('page', p);
+  if (p === 'text' && (!S.full || !S.full.dirty)) S.full = fullDraft();
+  const dock = p === 'sync';
+  if (dock !== S.dock) {
+    S.dock = dock; document.body.classList.toggle('dock-open', dock);
+    if (dock && document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    if (dock) { setTimeout(drawWave, 30); if (!ls.get('helpSeen', '')) { S.help = true; ls.set('helpSeen', '1'); } }
+    PV.lastAct = -2;
+  }
+  updateKbd(); emit(); window.scrollTo({ top: 0 });
 }
+export function toggleDock(on?: boolean) { setPage((on ?? !S.dock) ? 'sync' : S.prevPage || 'tr'); }
 export function setSnap(on: boolean) { S.snap = on; ls.set('snap', on ? '1' : '0'); toast(on ? '🧲 Магнит включён (N). Ctrl при перетаскивании — отключает на лету.' : 'Магнит выключен (N).', 'ok'); }
 export function setLoop(on: boolean) { S.loop = on; toast(on ? '🔁 Цикл выбранной строки включён (L). Жми Space.' : 'Цикл выключен.', 'ok'); }
 export function updateKbd() {
@@ -64,9 +73,14 @@ function onKey(e: KeyboardEvent) {
 /** global listeners (installed once) */
 export function installHotkeys() {
   document.addEventListener('keydown', onKey);
+  document.addEventListener('keydown', e => { // Alt+1..5 = tabs
+    const n = /^Digit([1-5])$/.exec(e.code); if (!n || !e.altKey || e.ctrlKey || e.metaKey) return;
+    e.preventDefault(); setPage(PAGES[+n[1] - 1][0]);
+  });
   document.addEventListener('keydown', e => {
     if (e.code !== 'Escape') return;
     if (S.help) { S.help = false; emit(); }
+    if (W.multi.length) { W.multi = []; drawWave(); }
     document.querySelectorAll<HTMLDetailsElement>('details.menu[open]').forEach(d => d.open = false);
     blurActive(); updateKbd();
   });

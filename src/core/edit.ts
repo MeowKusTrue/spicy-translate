@@ -214,3 +214,18 @@ export function fitBgOnly(l: Line) {
   if (a === l.t && b === l.end) return false;
   l.t = a; l.end = b; return true;
 }
+/** Alt+drag copies: a NEW line made of copied words (each keeps its track and timing), like a duplicated clip */
+export function lineFromWords(ws: { layer: Layer; w: string; a: number; b: number }[]): Line | null {
+  const l: Line = { t: 0, end: 0, text: '', tr: '' }, all: number[] = [];
+  for (const layer of ['orig', 'tr', 'bgo', 'bg'] as Layer[]) {
+    const us: Unit[] = [], sy: WordSync[] = [];
+    ws.filter(x => x.layer === layer).sort((p, q) => p.a - q.a).forEach(x => {
+      const nu = units(x.w); if (!nu.length) return;
+      nu[nu.length - 1].sp = true; us.push(...nu); sy.push(...spread(nu, r3(x.a), r3(Math.max(x.a + 0.02, x.b)))); all.push(x.a, x.b);
+    });
+    if (us.length) { setTxt(l, layer, unitsText(us)); (l.sync = l.sync || {})[layer] = sy; }
+  }
+  if (!all.length) return null;
+  l.t = r3(Math.max(0, Math.min(...all))); l.end = r3(Math.max(l.t + 0.3, ...all));
+  return l;
+}

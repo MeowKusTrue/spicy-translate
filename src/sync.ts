@@ -12,7 +12,7 @@ const stateJSON = () => JSON.stringify(S.lines);
 export function snap() { S.undo.push(stateJSON()); if (S.undo.length > 200) S.undo.shift(); S.redo = []; }
 export function restore(json: string) {
   const txt = (ls: typeof S.lines) => JSON.stringify(ls.map(l => [l.t, l.end, l.text, l.tr, l.bg, l.agent]));
-  const before = txt(S.lines); S.lines = JSON.parse(json);
+  const before = txt(S.lines); S.lines = JSON.parse(json); W.multi = [];
   if (S.sel && S.sel.i >= S.lines.length) S.sel = S.lines.length ? { i: S.lines.length - 1, k: 0 } : null;
   if (txt(S.lines) !== before) { S.picked.clear(); buildPreview(true); }
   afterSyncChange(true);

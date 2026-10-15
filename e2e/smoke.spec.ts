@@ -8,13 +8,14 @@ test('load, F/G/H, join/syllables, export TTML', async ({ page }) => {
   await page.getByText('Вставить LRC / текст вручную').click();
   await page.locator('#manual').fill(LRC);
   await page.locator('#btnManual').click();
-  await expect(page.locator('#lines .ln')).toHaveCount(3);
+  await expect(page.locator('#nav-text em')).toHaveText('3'); // the tabs show how far each step is
   await page.locator('#mTitle').fill('Lanterns');
   await page.locator('#mArtist').fill('Nobody');
+  await page.locator('#nav-tr').click();
   // translation of line 1 with a pre-split syllable
   await page.locator('#ln0 input.tr').fill('бумажные фо|на|ри плывут');
 
-  await page.locator('#btnDock').click();
+  await page.locator('#nav-sync').click();
   await page.locator('#help #helpClose').click();
   await page.locator('#segTr').click();
   await page.locator('#syncLines .chip', { hasText: 'бумажные' }).click();
@@ -38,8 +39,8 @@ test('load, F/G/H, join/syllables, export TTML', async ({ page }) => {
   await page.keyboard.press('Control+z');
   await expect(page.locator('#syncLines .chip.grp')).toHaveCount(1);
 
-  // export (the fixed dock covers the export card, close it first)
-  await page.locator('#btnDockClose').click();
+  // export tab
+  await page.locator('#nav-export').click();
   await page.locator('#btnShow').click();
   const ttml = await page.locator('#out').textContent();
   expect(ttml).toContain('itunes:timing="Word"');
@@ -59,6 +60,7 @@ test('background vocals: (…) -> bg, bg-only line, delete + undo, word edit on 
   await page.getByText('Вставить LRC / текст вручную').click();
   await page.locator('#manual').fill('[00:01.00]paper lanterns (lanterns) drifting\n[00:04.00]over quiet water\n[00:08.00]');
   await page.locator('#btnManual').click();
+  await page.locator('#nav-tr').click();
   await page.locator('#btnParens').click();
   await expect(page.locator('#ln0 input.o')).toHaveValue('paper lanterns drifting');
   await expect(page.locator('#ln0 .bgrow input').first()).toHaveValue('lanterns');
@@ -72,7 +74,7 @@ test('background vocals: (…) -> bg, bg-only line, delete + undo, word edit on 
   // delete a line, Ctrl+Z brings it back
   await page.locator('#ln2 .rowact button[title^="Удалить"]').click();
   await expect(page.locator('#lines .ln')).toHaveCount(2);
-  await page.locator('#btnDock').click();
+  await page.locator('#nav-sync').click();
   await page.locator('#help #helpClose').click();
   await page.keyboard.press('Control+z');
   await expect(page.locator('#lines .ln')).toHaveCount(3);
@@ -85,7 +87,7 @@ test('background vocals: (…) -> bg, bg-only line, delete + undo, word edit on 
   await page.keyboard.press('Enter');
   await expect(page.locator('#ln2 input.o')).toHaveValue('over and quiet water');
 
-  await page.locator('#btnDockClose').click();
+  await page.locator('#nav-export').click();
   await page.locator('#btnShow').click();
   const ttml = await page.locator('#out').textContent();
   expect(ttml).toMatch(/<p [^>]+><span ttm:role="x-bg"><span [^>]+>ooh<\/span><\/span><\/p>/);
@@ -98,11 +100,11 @@ test('whole text, find & replace, chorus timing', async ({ page }) => {
   await page.locator('#btnManual').click();
 
   // whole text: insert a line, add a background part, fix a word
-  await page.locator('#tabText').click();
+  await page.locator('#nav-text').click();
   await page.locator('#fullO').fill('hello moon\nnew line here\nquiet waters (oh)\nhello moon');
   await expect(page.locator('#fullStat')).toContainText('новых строк 1');
   await page.locator('#btnFullApply').click();
-  await page.locator('#tabLines').click();
+  await page.locator('#nav-tr').click();
   await expect(page.locator('#lines .ln')).toHaveCount(4);
   await expect(page.locator('#ln1 input.o')).toHaveValue('new line here');
   await expect(page.locator('#ln2 input.o')).toHaveValue('quiet waters');
@@ -118,7 +120,7 @@ test('whole text, find & replace, chorus timing', async ({ page }) => {
   await expect(page.locator('#ln3 input.o')).toHaveValue('hi moon');
 
   // mark line 1 on the original and copy its timing to the repeat with C
-  await page.locator('#btnDock').click();
+  await page.locator('#nav-sync').click();
   await page.locator('#help #helpClose').click();
   await page.locator('#segOrig').click();
   await page.locator('#syncLines .chip', { hasText: 'hi' }).first().click();
