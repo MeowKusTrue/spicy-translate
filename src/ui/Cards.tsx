@@ -3,15 +3,15 @@ import { mmss, wordList } from '../core/index.ts';
 import { S, emit, lineState, mainLayerFor, status } from '../state.ts';
 import { seekTo } from '../audio.ts';
 import { buildPreview } from '../preview.ts';
-import { loadProject, scheduleSave } from '../persist.ts';
+import { listSnaps, loadProject, restoreSnap, scheduleSave, snapshot, type Snap } from '../persist.ts';
 import { loadManual, loadTrack, search, setMode } from '../load.ts';
 import { selectWord } from '../sync.ts';
 import { LANGS, applyPaste, autoTranslate, clearTr, copyPrompt, llmTranslate } from '../translate.ts';
 import { copyTTML, download, gotoQa, runQa, saveLRC, saveProjectFile, saveSRT, toggleCode } from '../exporting.ts';
 import { drawWave } from '../waveform/wave.ts';
 import { agentOf, cycleAgent, pickLine } from '../agents.ts';
-import { useRef } from 'react';
-import { addBg, addBgHere, addLineAfter, addLineHere, applyFull, bracketsToBg, delBg, delLine, editText, findOpts, focusLine, fullRows, replaceEverywhere, resetFull } from '../lineEdit.ts';
+import { useEffect, useRef, useState } from 'react';
+import { addBg, addBgHere, addLineAfter, addLineHere, applyFull, bracketsToBg, delBg, delLine, editText, fillRepeats, findOpts, focusLine, fullRows, replaceEverywhere, resetFull } from '../lineEdit.ts';
 import { setPage } from '../hotkeys.ts';
 import { loadAudioFile } from '../load.ts';
 import { W } from '../waveform/wave.ts';
@@ -64,7 +64,7 @@ function LineRow({ i }: { i: number }) {
     </div>
     <div className="txt">
       <input className="o" type="text" title="Оригинал — можно править" placeholder="(без основной строки — только бэк)" value={l.text} onFocus={() => focusLine(i, 'orig')} onChange={e => editText(i, 'orig', e.target.value)} />
-      <input className="tr" type="text" placeholder="перевод…" value={l.tr || ''} onFocus={() => focusLine(i, 'tr')} onChange={e => editText(i, 'tr', e.target.value)} />
+      <input className="tr" type="text" placeholder="перевод…" value={l.tr || ''} onFocus={() => focusLine(i, 'tr')} onChange={e => editText(i, 'tr', e.target.value)} onBlur={() => fillRepeats(i)} />
       {l.bg
         ? <div className="bgrow">
             <span className="bglab" title="Фоновый вокал: в Spicy мелкой строкой под основной">бэк</span>
@@ -95,6 +95,7 @@ export function TranslateCard() {
       <button id="btnPrompt" title="Скопирует промпт со строками — вставь в Claude/ChatGPT для художественного перевода" onClick={copyPrompt}>Промпт для LLM</button>
       <button id="btnPaste" onClick={() => { set(() => S.paste = S.paste ?? ''); setTimeout(() => document.getElementById('pasteTa')?.focus()); }}>Вставить перевод списком</button>
       <button id="btnClear" onClick={clearTr}>Очистить</button>
+      <button id="btnRepeats" title="Повторы строк (припев) получают уже сделанный перевод, если у них его нет" disabled={!S.lines.length} onClick={() => fillRepeats()}>↻ Перевод на повторы</button>
       <button id="btnFind" title="Найти и заменить по всей песне" disabled={!S.lines.length} onClick={() => set(() => S.find = S.find ? null : { q: '', r: '', where: 'all', cs: false, word: true })}>🔎 Заменить</button>
     </div>
     <details className="llm" id="llmBox">
@@ -146,6 +147,7 @@ export function ExportCard() {
       ? 'Экспериментально: оригинал — основная строка, перевод — мелким фоновым вокалом под ней. Пословный режим включается сам; слои синхронизируются отдельно (переключатель в панели синхры).'
       : 'Переведённый текст становится основной лирикой — самый безопасный вариант для Spicy Lyrics.'}</p>
     <label className="chk"><input type="checkbox" id="spread" checked={S.exp.spread} disabled={bi} onChange={e => set(() => S.exp.spread = e.target.checked)} /><span>Пословная подсветка (караоке)<small>Слова равномерно размазываются по длительности строки. Тайминг приблизительный, но выглядит живо.</small></span></label>
+    <label className="chk"><input type="checkbox" id="roman" checked={S.exp.roman} onChange={e => set(() => S.exp.roman = e.target.checked)} /><span>Транслитерация латиницей<small>Spicy покажет под строкой кириллицы, как читается: «ty moya» — для тех, кто не читает по-русски.</small></span></label>
     <div className="grid2">
       <div><small style={{ color: 'var(--mut)' }}>Сдвиг, мс</small><input type="number" id="offset" step="50" value={S.exp.offset} onChange={e => set(() => S.exp.offset = e.target.value)} /></div>
       <div><small style={{ color: 'var(--mut)' }}>Авторы текста (через запятую)</small><input type="text" id="writers" placeholder="необязательно" value={S.exp.writers} onChange={e => set(() => S.exp.writers = e.target.value)} /></div>
@@ -238,4 +240,25 @@ export function AudioCard() {
 /** big "next step" button at the bottom of a tab */
 export function Next({ to, label }: { to: Page; label: string }) {
   return <button className="next" id={'next-' + to} onClick={() => setPage(to)}>{label} →</button>;
+}
+
+/** history: every project version kept in this browser (auto every 3 min and before anything replaces it) */
+export function HistoryCard() {
+  const [list, setList] = useState<Snap[] | null>(null), [q, setQ] = useState('');
+  const load = () => listSnaps().then(setList);
+  useEffect(() => { load(); }, []);
+  const f = q.trim().toLowerCase(), shown = (list || []).filter(s => !f || (s.artist + ' ' + s.title).toLowerCase().includes(f));
+  return <section className="card">
+    <h2>Проекты и история <small>снимки в этом браузере</small></h2>
+    <div className="row">
+      <input type="text" placeholder="найти по названию…" value={q} onChange={e => setQ(e.target.value)} />
+      <button className="sm" id="btnSnapNow" disabled={!S.lines.length} onClick={() => snapshot('вручную').then(load)}>📸 Снимок</button>
+      <button className="sm" title="Обновить список" onClick={load}>↻</button>
+    </div>
+    <div className="snaps" id="snaps">{list == null ? <p className="hint">Загружаю…</p> : !shown.length ? <p className="hint">Снимков пока нет — они появятся сами через пару минут работы.</p>
+      : shown.slice(0, 40).map(s => <div className="item" key={s.id}>
+        <div><b>{s.title || 'без названия'}</b><small>{`${s.artist || '—'} · ${new Date(s.at).toLocaleString()} · строк ${s.n}, перевод ${s.tr}/${s.n} · ${s.reason}`}</small></div>
+        <button className="sm" onClick={() => restoreSnap(s).then(load)}>Вернуть</button>
+      </div>)}</div>
+  </section>;
 }

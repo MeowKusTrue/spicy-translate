@@ -12,7 +12,7 @@ const fileBase = () => (S.meta.artist + ' - ' + S.meta.title).replace(/[\\/:*?"<
 const baseName = () => fileBase() + ` (${S.meta.lang})`;
 export function opts(): ExportOpts {
   return { lines: S.lines, mode: S.meta.mode, wordSpread: S.exp.spread, lang: S.meta.lang,
-    offset: parseInt(S.exp.offset, 10) || 0, songwriters: S.exp.writers.split(',').map(s => s.trim()) };
+    offset: parseInt(S.exp.offset, 10) || 0, songwriters: S.exp.writers.split(',').map(s => s.trim()), roman: S.exp.roman };
 }
 function checkExport() {
   if (!S.lines.length) { status('st2', 'Нечего экспортировать — загрузи текст.', 'err'); return null; }
@@ -33,5 +33,5 @@ export function saveLRC() { if (!S.lines.length) return; saveText(baseName() + '
 export function saveSRT() { if (!S.lines.length) return; saveText(baseName() + '.srt', buildSRT(opts())); }
 export function saveProjectFile() { if (!S.lines.length) return; saveText(baseName() + '.spicy.json', projectJSON(), 'application/json'); }
 
-export function runQa() { S.qa = qaCheck(S.lines, S.meta.mode); emit(); }
+export function runQa() { S.qa = qaCheck(S.lines, S.meta.mode, { wordSpread: S.exp.spread }); emit(); }
 export function gotoQa(i: number) { S.layer = mainLayerFor(i); seekTo(S.lines[i].t); if (!S.dock) toggleDock(true); selectWord(i, 0); centerOnSel(); }

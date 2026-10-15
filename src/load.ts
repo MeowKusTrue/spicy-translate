@@ -3,7 +3,7 @@ import { entriesToLines, mmss, parseLRC, parsePlain, type Line, type Mode, impor
 import { S, emit, status, type LrclibHit } from './state.ts';
 import { audio, pause, seekTo } from './audio.ts';
 import { buildPreview } from './preview.ts';
-import { idbGet, idbPut, restoreProject, trackKey } from './persist.ts';
+import { idbGet, idbPut, restoreProject, snapshot, trackKey } from './persist.ts';
 import { CH, selectWord } from './sync.ts';
 import { W, buildPeaks, drawWave } from './waveform/wave.ts';
 
@@ -42,6 +42,7 @@ export function loadManual(text: string, fileName = '') {
   status('st1', `${kind.toUpperCase()}: строк ${S.lines.length}${extra ? ' · ' + extra : ''}${kind === 'text' ? (dur ? ' · без таймингов: строки разложены по треку, точную синхру задай F/G' : ' · без таймингов: по 3.5 с на строку; с аудио разложу по длине трека') : ''}`, kind === 'text' ? 'err' : 'ok');
 }
 export function setLines(lines: Line[], dur: number) {
+  if (S.lines.length) snapshot('перед загрузкой нового текста'); // the replaced project stays in the snapshots
   S.lines = lines; S.undo = []; S.redo = []; S.sel = null; CH.last = -1;
   S.layer = lines.some(l => l.tr && l.tr.trim()) ? 'tr' : 'orig'; S.picked.clear(); S.pickAnchor = -1;
   S.duration = Math.max(dur || 0, lines.length ? lines[lines.length - 1].end + 2 : 0, S.hasAudio ? audio.duration || 0 : 0);

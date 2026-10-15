@@ -1,7 +1,7 @@
 // Панель редактора поверх Spotify. Логика разметки — порт reference/index.html (секция app), часы — плеер Spotify вместо <audio>.
 import css from './style.css';
 import { importLyrics, liveLines } from './core.ts';
-import { alignRows, buildTTML, entriesToLines, fitBgOnly, fmtTime, getWords, insertLine, lineFromWords, lineRow, parensToBg, parseRow, shiftLine, parseLRC, parsePlain, plainW, qaCheck, remapSync, replaceUnit, splitWords, syllabify, syncComplete, units, unitsText, wordList,
+import { JOIN, bandRows as coreBandRows, fitAndSort, lineAt as coreLineAt, moveEdge, moveWord, nearest, seqWords as coreSeq, snapSpan, startEdge, startMove, alignRows, buildTTML, entriesToLines, fitBgOnly, fmtTime, getWords, insertLine, lineFromWords, lineRow, parensToBg, parseRow, shiftLine, parseLRC, parsePlain, plainW, qaCheck, remapSync, replaceUnit, splitWords, syllabify, syncComplete, units, unitsText, wordList,
   type Line, type Mode, type Span, type TTMLOpts, type Word } from './core.ts';
 import { findLyrics, type TrackInfo } from './lrclib.ts';
 import { agentsByTime, readSpicyCache, spicyToLines } from './spicyCache.ts';
@@ -543,11 +543,8 @@ function doUndo() { if (!S.undo.length) return; S.redo.push(stateJSON()); restor
 function doRedo() { if (!S.redo.length) return; S.undo.push(stateJSON()); restore(S.redo.pop()!); }
 /** background-only lines span exactly their words; lines stay ordered by start, the selection follows its line */
 function fitLines() {
-  const sl = S.sel ? S.lines[S.sel.i] : null; let moved = false;
-  S.lines.forEach(l => { const t = l.t; fitBgOnly(l); if (l.t !== t) moved = true; });
-  if (!moved) return false;
-  S.lines.sort((x, y) => x.t - y.t); if (sl && S.sel) S.sel.i = S.lines.indexOf(sl); S.picked.clear(); renderEditor(); buildPreview(true);
-  return true;
+  const r = fitAndSort(S.lines, S.sel ? S.lines[S.sel.i] : null); if (!r.moved) return false;
+  if (S.sel) S.sel.i = r.at; S.picked.clear(); renderEditor(); buildPreview(true); return true;
 }
 function afterSyncChange(all: boolean, i = 0) {
   if (fitLines()) all = true;
@@ -683,7 +680,6 @@ function updateGuide() {
 /* ---------- timeline (word blocks instead of a waveform — the stream is DRM) ---------- */
 const W = { px: 140, start: 0, drag: null as any, pend: null as any, boxes: [] as any[], flash: null as any, snapAt: null as number | null, ctrl: false, rows: [] as number[], nr: 1,
   G: { mY: 3, mH: 46, bY: 52, bH: 34, lY: 90, lH: 40 } };
-const JOIN = 0.0015;
 type Lane = 'main' | 'bg';
 /* three stacked lanes: main track words, background vocals words, source lines (+ ruler under them) */
 function geo(h: number) {
@@ -692,12 +688,8 @@ function geo(h: number) {
 }
 const laneLayer = (lane: Lane) => mkLayer(lane === 'bg', isTr(S.layer));
 const laneY = (lane: Lane) => lane === 'bg' ? [W.G.bY, W.G.bH] : [W.G.mY, W.G.mH];
-function lineAt(t: number) { let r = -1; S.lines.forEach((l, i) => { if (t >= l.t && t <= l.end && (r < 0 || l.text.trim() || !S.lines[r].text.trim())) r = i; }); return r; }
-/** overlapping lines (duets, background-only lines) get their own rows in the band, up to 3 */
-function bandRows() {
-  const ends: number[] = [];
-  return S.lines.map(l => { let r = ends.findIndex(e => e <= l.t + 0.01); if (r < 0) { r = Math.min(2, ends.length); if (r === ends.length) ends.push(0); } ends[r] = Math.max(ends[r], l.end); return r; });
-}
+const lineAt = (t: number) => coreLineAt(S.lines, t);
+const bandRows = () => coreBandRows(S.lines);
 function drawWave() {
   const cv = $('wave') as HTMLCanvasElement;
   const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
@@ -792,25 +784,13 @@ function waveHit(mx: number, my: number): any {
   return { type: 'lane', t, lane };
 }
 /* DaVinci-style editing: magnet snapping, roll (joined edges move together), Alt = detach, no overlaps */
-function seqWords(layer = S.layer) {
-  const out: { i: number; k: number; x: { a: number; b: number; g?: 1 } }[] = [];
-  S.lines.forEach((l, i) => {
-    const sy = l.sync && l.sync[layer]; if (!sy || sy.length !== wordsOf(i, layer).length) return;
-    sy.forEach((x, k) => { if (x.a != null && x.b != null) out.push({ i, k, x: x as any }); });
-  });
-  return out;
-}
+const seqWords = (layer: Layer = S.layer) => coreSeq(S.lines, layer);
 // magnet targets: other words of this track, words of the other track (align backing to lead), line starts
 function buildCands(excl: Set<any>) {
   const out: number[] = [], other = mkLayer(!isBg(S.layer), isTr(S.layer));
   seqWords().concat(seqWords(other)).forEach(e => { if (!excl.has(e.x)) out.push(e.x.a, e.x.b); }); S.lines.forEach(l => out.push(l.t)); return out;
 }
-function nearestCand(t: number, cands: number[]) {
-  if (!S.snap || W.ctrl) return null;
-  const tol = 10 / W.px; let best: { d: number; c: number } | null = null;
-  for (const c of cands.concat([now()])) { const d = Math.abs(c - t); if (d <= tol && (!best || d < best.d)) best = { d, c }; }
-  return best;
-}
+function nearestCand(t: number, cands: number[]) { return S.snap && !W.ctrl ? nearest(t, cands.concat([now()]), 10 / W.px) : null; }
 function snapOne(t: number, cands: number[]) { const n = nearestCand(t, cands); W.snapAt = n ? n.c : null; return n ? n.c : t; }
 function setupWave() {
   const cv = $('wave') as HTMLCanvasElement;
@@ -825,17 +805,10 @@ function setupWave() {
     if (switched) setLayer(laneLayer(h.lane));
     if (h.type === 'edge') {
       const sq = seqWords(), idx = sq.findIndex(q => q.i === h.b.i && q.k === h.b.k); if (idx < 0) return;
-      const me = sq[idx], x = me.x; let partner = null;
-      if (h.edge === 'b') { const n = sq[idx + 1]; if (n && Math.abs(n.x.a - x.b) <= JOIN) partner = n; }
-      else { const p = sq[idx - 1]; if (p && Math.abs(p.x.b - x.a) <= JOIN) partner = p; }
-      let target = { e: me, edge: h.edge };
-      if (partner && e.altKey) { // detach: trim only the side the cursor is on
-        const bt = h.edge === 'b' ? x.b : x.a, leftWord = h.edge === 'b' ? me : partner, rightWord = h.edge === 'b' ? partner : me;
-        target = h.t < bt ? { e: leftWord, edge: 'b' } : { e: rightWord, edge: 'a' };
-      }
+      const ed = startEdge(sq, idx, h.edge, e.altKey, h.t);
       snap(); selectWord(h.b.i, h.b.k);
-      const excl = new Set([x]); if (partner) excl.add(partner.x);
-      W.drag = { type: 'edge', roll: !!partner && !e.altKey, me, partner, target, sq, edge: h.edge, cands: buildCands(excl), i: h.b.i };
+      const excl = new Set([ed.me.x]); if (ed.partner) excl.add(ed.partner.x);
+      W.drag = { type: 'edge', ...ed, edge: h.edge, cands: buildCands(excl), i: h.b.i };
     }
     else if (h.type === 'word') { selectWord(h.b.i, h.b.k); W.pend = { type: 'move', i: h.b.i, k: h.b.k, x0: mx, off: h.t - h.b.a, ghost: !h.b.real, alt: e.altKey, a: h.b.a, len: h.b.b - h.b.a, lane: h.lane }; }
     else if (h.type === 'lane' && !switched && S.sel && wordsOf(S.sel.i, S.layer).length) W.pend = { type: 'paint', x0: mx, t0: h.t };
@@ -854,10 +827,8 @@ function setupWave() {
         snap(); if (p.ghost) spreadLine(p.i, S.layer);
         const sq = seqWords(), idx = sq.findIndex(q => q.i === p.i && q.k === p.k);
         if (idx >= 0) {
-          const me = sq[idx], pv = sq[idx - 1], nx = sq[idx + 1];
-          const jp = !!(pv && Math.abs(pv.x.b - me.x.a) <= JOIN), jn = !!(nx && Math.abs(nx.x.a - me.x.b) <= JOIN);
-          const excl = new Set([me.x]); if (jp) excl.add(pv.x); if (jn) excl.add(nx.x);
-          W.drag = { type: 'move', i: p.i, me, pv, nx, jp, jn, off: p.off, len: me.x.b - me.x.a, cands: buildCands(excl) };
+          const md = startMove(sq, idx), excl = new Set([md.me.x]); if (md.jp) excl.add(md.pv!.x); if (md.jn) excl.add(md.nx!.x);
+          W.drag = { type: 'move', i: p.i, ...md, off: p.off, cands: buildCands(excl) };
         }
       }
       else if (p.type === 'line') {
@@ -883,27 +854,10 @@ function setupWave() {
       if (d.type === 'paint') {
         const t = snapOne(traw, d.cands), w = S.lines[d.i].sync![S.layer]![d.k]; w.a = Math.min(d.t0, t); w.b = Math.max(d.t0, t, w.a + 0.02); conf(w);
       } else if (d.type === 'edge') {
-        const t0 = snapOne(traw, d.cands), sq = d.sq;
-        if (d.roll) {
-          const L = d.edge === 'b' ? d.me : d.partner, R = d.edge === 'b' ? d.partner : d.me;
-          const T = clamp(t0, L.x.a + 0.02, R.x.b - 0.02); if (T !== t0) W.snapAt = null;
-          L.x.b = T; R.x.a = T; conf(L.x, R.x);
-        } else {
-          const te = d.target.e, ti = sq.indexOf(te), pv = sq[ti - 1], nx = sq[ti + 1];
-          if (d.target.edge === 'a') { const T = clamp(t0, pv ? pv.x.b : 0, te.x.b - 0.02); if (T !== t0) W.snapAt = null; te.x.a = T; conf(te.x); }
-          else { const T = clamp(t0, te.x.a + 0.02, nx ? nx.x.a : 1e9); if (T !== t0) W.snapAt = null; te.x.b = T; conf(te.x); }
-        }
+        const t0 = snapOne(traw, d.cands); if (!moveEdge(d, t0)) W.snapAt = null;
       } else if (d.type === 'move') {
-        const w = d.me.x, len = d.len, follow = !e.shiftKey; // Shift = move alone (glued neighbours stay)
-        let a = Math.max(0, traw - d.off);
-        const na = nearestCand(a, d.cands), nb = nearestCand(a + len, d.cands);
-        if (na && (!nb || na.d <= nb.d)) { a = na.c; W.snapAt = na.c; } else if (nb) { a = nb.c - len; W.snapAt = nb.c; } else W.snapAt = null;
-        const pv = d.pv, nx = d.nx;
-        const lo = follow && d.jp ? pv.x.a + 0.02 : (pv ? pv.x.b : 0);
-        const hi = follow && d.jn ? nx.x.b - 0.02 - len : (nx ? nx.x.a - len : 1e9);
-        const a2 = clamp(a, lo, hi); if (a2 !== a) W.snapAt = null;
-        w.a = r3(a2); w.b = r3(a2 + len); conf(w, follow && d.jp ? pv.x : null, follow && d.jn ? nx.x : null);
-        if (follow && d.jp) pv.x.b = w.a; if (follow && d.jn) nx.x.a = w.b;
+        const s = S.snap && !W.ctrl ? snapSpan(Math.max(0, traw - d.off), d.len, d.cands.concat([now()]), 10 / W.px) : { a: Math.max(0, traw - d.off), at: null };
+        W.snapAt = s.at; if (!moveWord(d, s.a, e.shiftKey)) W.snapAt = null; // Shift = move alone (glued neighbours stay)
       }
       refreshPreviewLine(d.i); return;
     }
@@ -1073,7 +1027,7 @@ async function copyText(text: string) {
 }
 function opts(): TTMLOpts {
   return { lines: S.lines, mode: mode(), wordSpread: $('spread').checked, lang: $('lang').value,
-    offset: parseInt($('offset').value, 10) || 0, songwriters: $('writers').value.split(',').map((s: string) => s.trim()) };
+    offset: parseInt($('offset').value, 10) || 0, songwriters: $('writers').value.split(',').map((s: string) => s.trim()), roman: $('roman').checked };
 }
 function ttml() {
   if (!S.lines.length) { msg('Нечего экспортировать — нет строк.', 'err'); return null; }
@@ -1094,7 +1048,7 @@ function download() {
   msg('Файл отдан на скачивание. Не появился — жми «Копировать TTML».', 'ok');
 }
 function runQa() {
-  const r = qaCheck(S.lines, mode()), box = $('qaOut'); box.innerHTML = '';
+  const r = qaCheck(S.lines, mode(), { wordSpread: $('spread').checked }), box = $('qaOut'); box.innerHTML = '';
   const e = r.filter(x => x.sev === 'err').length;
   msg(S.lines.length ? (r.length ? `QA: ошибок ${e}, замечаний ${r.length - e}` : 'QA: всё чисто ✓') : '', e ? 'err' : 'ok');
   r.slice(0, 80).forEach(x => {
@@ -1181,6 +1135,7 @@ const HTML = `
     <label class="st-opt"><span>Только перевод<small>перевод = основная лирика (надёжно)</small></span><input type="radio" name="st-mode" value="translation" checked></label>
     <label class="st-opt"><span>Оригинал + перевод<small>перевод фоновым вокалом (x-bg), экспериментально</small></span><input type="radio" name="st-mode" value="bilingual"></label>
     <label class="st-opt"><span>Пословная подсветка<small>неразмеченные слова — равномерно</small></span><input type="checkbox" id="st-spread" checked></label>
+    <label class="st-opt"><span>Транслитерация<small>латиница под кириллицей в Spicy</small></span><input type="checkbox" id="st-roman"></label>
     <label class="st-opt"><span>Сдвиг, мс</span><input type="number" id="st-offset" value="0" step="50"></label>
     <input type="text" id="st-writers" placeholder="Авторы текста через запятую (необязательно)">
     <button class="pri" id="st-toSpicy">⇪ Залить в Spicy Lyrics</button>

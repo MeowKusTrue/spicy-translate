@@ -38,7 +38,38 @@ export function restoreProject() {
 }
 
 function idb() {
-  return new Promise<IDBDatabase>((res, rej) => { const r = indexedDB.open('spicy-translate', 1); r.onupgradeneeded = () => r.result.createObjectStore('audio'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+  return new Promise<IDBDatabase>((res, rej) => {
+    const r = indexedDB.open('spicy-translate', 2);
+    r.onupgradeneeded = () => { const db = r.result; if (!db.objectStoreNames.contains('audio')) db.createObjectStore('audio'); if (!db.objectStoreNames.contains('snaps')) db.createObjectStore('snaps', { keyPath: 'id', autoIncrement: true }); };
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+
+/* ---------- snapshots: the project as it was, kept in IndexedDB (auto every 3 min, before anything replaces it) ---------- */
+export interface Snap { id?: number; at: number; key: string; title: string; artist: string; n: number; tr: number; reason: string; json: string }
+const SNAP_MAX = 80;
+let lastSnap = '';
+/** save the current project (or a given project JSON); identical consecutive snapshots are skipped */
+export async function snapshot(reason: string, json?: string) {
+  const body = json ?? (S.lines.length ? projectJSON() : ''); if (!body || body === lastSnap) return;
+  lastSnap = body;
+  try {
+    const p = JSON.parse(body), lines: { tr?: string }[] = p.lines || []; if (!lines.length) return;
+    const rec: Snap = { at: Date.now(), key: norm((p.meta?.artist || '') + ' - ' + (p.meta?.title || '')), title: p.meta?.title || '', artist: p.meta?.artist || '', n: lines.length, tr: lines.filter(l => l.tr && l.tr.trim()).length, reason, json: body };
+    const db = await idb(), st = db.transaction('snaps', 'readwrite').objectStore('snaps');
+    st.add(rec);
+    const keys: IDBValidKey[] = await new Promise(r => { const q = st.getAllKeys(); q.onsuccess = () => r(q.result); q.onerror = () => r([]); });
+    keys.slice(0, Math.max(0, keys.length - SNAP_MAX)).forEach(k => st.delete(k));
+  } catch {}
+}
+export async function listSnaps(): Promise<Snap[]> {
+  try { const db = await idb(); return await new Promise(res => { const q = db.transaction('snaps').objectStore('snaps').getAll(); q.onsuccess = () => res((q.result as Snap[]).sort((a, b) => b.at - a.at)); q.onerror = () => res([]); }); } catch { return []; }
+}
+/** open a snapshot (the current project is snapshotted first, so this can be undone the same way) */
+export async function restoreSnap(s: Snap) {
+  await snapshot('перед возвратом снимка');
+  loadProject(s.json); scheduleSave();
+  status('st1', `Вернул снимок «${s.title || 'без названия'}» от ${new Date(s.at).toLocaleString()}. Предыдущее состояние тоже в снимках.`, 'ok');
 }
 export async function idbPut(k: string, blob: Blob | null) { if (!k || !blob || blob.size > 120e6) return; try { const db = await idb(); db.transaction('audio', 'readwrite').objectStore('audio').put(blob, k); } catch {} }
 export async function idbGet(k: string): Promise<Blob | null> { if (!k) return null; try { const db = await idb(); return await new Promise(res => { const r = db.transaction('audio').objectStore('audio').get(k); r.onsuccess = () => res(r.result || null); r.onerror = () => res(null); }); } catch { return null; } }

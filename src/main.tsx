@@ -4,7 +4,7 @@ import './styles.css';
 import { S, emit, ls, toast, type Page } from './state.ts';
 import { setVolume } from './audio.ts';
 import { buildPreview } from './preview.ts';
-import { idbGet, loadProject, saveProject, trackKey } from './persist.ts';
+import { idbGet, loadProject, saveProject, snapshot, trackKey } from './persist.ts';
 import { LIVE, liveInit } from './live.ts';
 import { loadAudioFile } from './load.ts';
 import { installHotkeys, setPage } from './hotkeys.ts';
@@ -15,6 +15,7 @@ import { initTheme } from './theme.ts';
 // prefs
 S.snap = ls.get('snap', '1') !== '0';
 S.fx = ls.get('fx', '1') !== '0';
+S.onsetSnap = ls.get('onsetSnap', '1') !== '0';
 S.lat = +(ls.get('lat', '100') || 0) || 0;
 S.voff = +(ls.get('voff', '0') || 0) || 0;
 try { const c = JSON.parse(ls.get('llm', 'null')!); if (c) S.llm = { prov: c.prov, model: c.model, key: c.key || '', url: c.url || '', style: c.style || '' }; } catch {}
@@ -42,3 +43,4 @@ try {
 } catch { LIVE.applying = false; }
 setPage(S.lines.length ? (ls.get('page', 'tr') as Page) : 'track');
 liveInit();
+setInterval(() => snapshot('авто'), 180000); // ponytail: fixed 3 min, 80 kept; a setting if anyone wants more

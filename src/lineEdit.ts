@@ -1,6 +1,6 @@
 // Editing texts and lines: the list inputs, the inline editor on the wave (double click / E), adding and removing
 // lines (own words, background vocals with no lead line), "(…)" -> background vocals. bg = bg translation, bgo = bg original.
-import { alignRows, findAll, fmtTime, insertLine, lineFromWords, lineRow, parensToBg, parseRow, plainW, remapSync, repeatTiming, replaceUnit, sameLines, shiftLine, type Layer, type Line } from './core/index.ts';
+import { alignRows, findAll, fmtTime, insertLine, lineFromWords, lineRow, pasteTiming, repeatTranslations, timingOf, transferTiming, parensToBg, parseRow, plainW, remapSync, repeatTiming, replaceUnit, sameLines, shiftLine, type Layer, type Line } from './core/index.ts';
 import { S, clamp, emit, fillLine, isBg, isTr, layerText, lineState, r3, setText, toast, viewWords, wordsOf } from './state.ts';
 import { now } from './audio.ts';
 import { buildPreview } from './preview.ts';
@@ -221,4 +221,68 @@ export function repeatChorus() {
   if (!n) { S.undo.pop(); return toast('Переносить нечего: строка размечена не до конца, или повторы уже размечены вручную.', 'err'); }
   afterSyncChange(true);
   toast(`Тайминг перенесён на строк: ${n} из ${same.length}. Пунктир = авто, проверь на слух (G/H или мышью). Ctrl+Z — отмена.`, 'ok');
+}
+
+/* ---------- copy one line's word timing onto other lines (Ctrl+Shift+C / Ctrl+Shift+V) ---------- */
+let TCLIP: { rel: { a: number; b: number }[]; from: number } | null = null;
+export function copyTiming() {
+  if (!S.sel) return toast('Выбери слово в размеченной строке.', 'err');
+  const rel = timingOf(S.lines[S.sel.i], S.layer);
+  if (!rel) return toast('Эта строка размечена не до конца — сначала разметь все её слова.', 'err');
+  TCLIP = { rel, from: S.sel.i };
+  toast(`Тайминг строки ${S.sel.i + 1} скопирован (${rel.length} слов). Выдели строки в списке (клик / Shift / Ctrl) или кликни слово другой строки → Ctrl+Shift+V.`, 'ok');
+}
+/** onto the picked lines (or the line of the selected word), current track; anchored at its first hand-marked word or the line start */
+export function pasteTimingHere() {
+  if (!TCLIP) return toast('Сначала скопируй тайминг строки: Ctrl+Shift+C на размеченной строке.', 'err');
+  const ids = S.picked.size ? [...S.picked] : S.sel ? [S.sel.i] : [];
+  if (!ids.length) return toast('Выдели строки, куда вставить тайминг.', 'err');
+  snap(); let n = 0;
+  for (const i of ids) {
+    const l = S.lines[i], k = wordsOf(i, S.layer).length; if (!l || !k) continue;
+    const first = l.sync?.[S.layer]?.[0], t0 = first && first.a != null && !first.g ? first.a - TCLIP.rel[0].a : l.t;
+    (l.sync = l.sync || {})[S.layer] = pasteTiming(TCLIP.rel, k, t0); n++;
+  }
+  if (!n) { S.undo.pop(); return toast('В выделенных строках нет слов на этой дорожке.', 'err'); }
+  afterSyncChange(true);
+  toast(`Тайминг вставлен в строк: ${n}. Пунктир = авто, проверь на слух. Разное число слов — ритм растянут под них. Ctrl+Z — отмена.`, 'ok');
+}
+
+/* ---------- shift every line after the playhead (or the whole song) — LRC from another version of the track ---------- */
+export function shiftLines(ms: number, all = false) {
+  if (!ms || !S.lines.length) return;
+  const from = all ? -1 : now() - 0.01; let n = 0;
+  snap();
+  for (const l of S.lines) if (l.t >= from) { shiftLine(l, clone(l), ms / 1000); n++; }
+  if (!n) { S.undo.pop(); return toast('После курсора строк нет.', 'err'); }
+  S.lines.sort((x, y) => x.t - y.t); afterLines();
+  toast(`${ms > 0 ? '+' : ''}${ms} мс: сдвинуто строк ${n}${all ? ' (вся песня)' : ' после курсора'}, со всеми словами. Ctrl+Z — отмена.`, 'ok');
+}
+
+/** clear every word timing of a line (all tracks) — room to paste a timing into */
+export function clearTiming(i: number) {
+  const l = S.lines[i]; if (!l?.sync) return toast('У строки и так нет разметки.', 'err');
+  snap(); delete l.sync; afterSyncChange(false, i);
+  toast(`Разметка строки ${i + 1} очищена — слова снова равномерные (пунктир). Ctrl+Z — отмена.`, 'ok');
+}
+export function duplicateLine(i: number) {
+  const l = S.lines[i]; if (!l) return;
+  snap(); const c = clone(l); shiftLine(c, l, Math.max(0.5, l.end - l.t)); S.lines.push(c); S.lines.sort((x, y) => x.t - y.t);
+  S.sel = { i: S.lines.indexOf(c), k: 0 }; afterLines(); S.picked.add(S.sel.i); emit();
+  toast('Копия строки поставлена сразу за ней — тащи её за полосу строк куда нужно.', 'ok');
+}
+/** Alt+drag of a line dropped onto another line: that line gets the dragged rhythm (its own words stay) */
+export function dropTimingOnto(src: Line, dst: number, t0: number) {
+  const d = S.lines[dst]; if (!d) return;
+  const n = transferTiming(src, d, t0);
+  if (!n) return toast('Нечего переносить: у перетащенной строки нет полностью размеченных дорожек, общих с этой.', 'err');
+  S.lines.sort((x, y) => x.t - y.t); S.sel = { i: S.lines.indexOf(d), k: 0 }; afterLines();
+  toast(`Тайминг перенесён на строку «${plainW(d.text || d.bg?.text || '')}» (дорожек: ${n}). Пунктир — проверь на слух. Ctrl+Z — отмена.`, 'ok');
+}
+
+/** a translation typed on a line goes to its repeats (same original) that have none yet */
+export function fillRepeats(from?: number) {
+  if (!repeatTranslations(JSON.parse(JSON.stringify(S.lines)), from).length) { if (from == null) toast('Повторов без перевода нет.', 'err'); return; } // dry run: blur must not clear redo
+  snap(); const n = repeatTranslations(S.lines, from).length;
+  after(); toast(`Перевод подставлен в повторы той же строки: ${n}. Ctrl+Z — отмена.`, 'ok');
 }

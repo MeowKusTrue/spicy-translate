@@ -30,6 +30,7 @@ export interface ExportOpts {
   lang?: string;
   offset?: number;
   songwriters?: string[];
+  roman?: boolean; // add a Latin romanization of Cyrillic lyrics (Spicy shows it under the line)
 }
 
 export interface Project {

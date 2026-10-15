@@ -4,11 +4,18 @@ import { getWords, plainW, syncComplete, wordList } from './words.ts';
 export interface QaItem { i: number; sev: 'err' | 'warn'; msg: string }
 
 // pre-export checks (shared with the MCP server)
-export function qaCheck(lines: Line[], mode: Mode = 'translation'): QaItem[] {
+export function qaCheck(lines: Line[], mode: Mode = 'translation', o: { wordSpread?: boolean } = {}): QaItem[] {
+  const words = mode === 'bilingual' || o.wordSpread !== false;
   const out: QaItem[] = [], bil = mode === 'bilingual'; let prevEnd: number | null = null, prevI = -1;
   lines.forEach((l, i) => {
     const hasTr = l.tr && l.tr.trim(), layer = bil ? 'orig' : (hasTr ? 'tr' : 'orig');
     const text = layer === 'tr' ? l.tr.trim() : l.text;
+    // what Spicy Lyrics would drop or show badly
+    if (l.bg && (l.bg.text.trim() || l.bg.tr.trim())) {
+      if (!words) out.push({ i, sev: 'warn', msg: 'бэк не попадёт в файл: без пословной подсветки Spicy не показывает бэки' });
+      else if (mode !== 'bilingual' && wordList(l.bg.tr.trim() ? l.bg.tr : l.bg.text).some(w => !w.replace(/[()]/g, '').trim())) out.push({ i, sev: 'warn', msg: 'в бэке отдельные скобки — Spicy их уберёт, лучше удалить из текста' });
+    }
+    if (plainW(text || '').length > 70) out.push({ i, sev: 'warn', msg: `длинная строка (${plainW(text).length} символов) — в Spicy займёт 2–3 ряда, может, разбить?` });
     if (!text || !text.trim()) { if (!(l.bg && (l.bg.text.trim() || l.bg.tr.trim()))) out.push({ i, sev: 'err', msg: 'пустая строка — Spicy не загрузит файл' }); return; } // bg-only line is fine
     if (!hasTr) out.push({ i, sev: 'warn', msg: 'нет перевода — пойдёт оригинал' });
     const ww = wordList(text), sy = l.sync && l.sync[layer];

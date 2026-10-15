@@ -1,10 +1,11 @@
 import { S, lineState, mainLayerFor, useS } from '../state.ts';
 import { PAGES, setPage } from '../hotkeys.ts';
-import { AudioCard, ExportCard, LinesCard, Next, SearchCard, TextCard, TranslateCard } from './Cards.tsx';
+import { AudioCard, ExportCard, HistoryCard, LinesCard, Next, SearchCard, TextCard, TranslateCard } from './Cards.tsx';
 import { Stage } from './Stage.tsx';
 import { SyncDock } from './SyncDock.tsx';
 import { HelpModal } from './HelpModal.tsx';
 import { Drop } from './Drop.tsx';
+import { Palette, openPalette } from './Palette.tsx';
 
 export function stepInfo() {
   const n = S.lines.length, tr = S.lines.filter(l => l.tr && l.tr.trim()).length;
@@ -33,7 +34,7 @@ function Nav() {
 
 function Page() {
   switch (S.page) {
-    case 'track': return <><SearchCard /><AudioCard />{S.lines.length > 0 && <Next to="text" label="Дальше: текст" />}</>;
+    case 'track': return <><SearchCard /><AudioCard />{S.lines.length > 0 && <Next to="text" label="Дальше: текст" />}<HistoryCard /></>;
     case 'text': return <><TextCard />{S.lines.length > 0 && <Next to="tr" label="Дальше: перевод" />}</>;
     case 'tr': return <><TranslateCard /><LinesCard /><Next to="sync" label="Дальше: синхра по словам" /></>;
     case 'sync': return <LinesCard />;
@@ -49,6 +50,7 @@ export function App() {
       <div className="brand"><h1>Spicy Translate</h1><span>синхронный перевод для Spicy Lyrics · TTML</span></div>
       <Nav />
       <div style={{ flex: 1 }}></div>
+      <button className="sm palbtn" id="btnPalette" title="Все действия с поиском" onClick={openPalette}>⌘ <kbd>Ctrl+K</kbd></button>
       <span className={'pill ' + (S.live?.cls || '')} id="liveLink" title="Связь с локальным сервером / MCP" hidden={!S.live}>{S.live?.msg}</span>
       <span className={'pill ' + S.save.cls} id="saveInd" title="Проект сохраняется автоматически в браузере">{S.save.msg}</span>
     </header>
@@ -58,6 +60,7 @@ export function App() {
     </main>
     <SyncDock />
     <HelpModal />
+    <Palette />
     <Drop />
   </>;
 }

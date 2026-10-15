@@ -1,5 +1,6 @@
 import type { Agent, ExportOpts, TimedWord } from './types.ts';
 import { getWords, plainW, syncComplete, units } from './words.ts';
+import { hasCyr, translit } from './roman.ts';
 
 const p2 = (n: number) => String(n).padStart(2, '0');
 const p3 = (n: number) => String(n).padStart(3, '0');
@@ -20,7 +21,7 @@ export function esc(s: unknown) {
 type Item = { a: number; b: number; mainText: string; main: TimedWord[] | null; bg: TimedWord[] | null; agent: Agent };
 
 export function buildTTML(o: ExportOpts) {
-  const { lines, mode = 'translation', wordSpread = true, lang = 'ru', offset = 0, songwriters = [] } = o;
+  const { lines, mode = 'translation', wordSpread = true, lang = 'ru', offset = 0, songwriters = [], roman = false } = o;
   const shift = (offset || 0) / 1000;
   const bilingual = mode === 'bilingual';
   const wordTiming = bilingual || wordSpread;
@@ -54,14 +55,20 @@ export function buildTTML(o: ExportOpts) {
   }
   const dur = items.length ? Math.max(...items.map(i => i.b)) : 0;
   // syllables (sp:false): no space between spans
-  const spans = (ws: TimedWord[]) => ws.map((w, k) => `<span begin="${fmtTime(w.a)}" end="${fmtTime(w.b)}">${esc(plainW(w.word))}</span>` + (k < ws.length - 1 && w.sp !== false ? ' ' : '')).join('');
-  let body = '';
+  const spans = (ws: TimedWord[], f = (s: string) => s) => ws.map((w, k) => `<span begin="${fmtTime(w.a)}" end="${fmtTime(w.b)}">${esc(f(plainW(w.word)))}</span>` + (k < ws.length - 1 && w.sp !== false ? ' ' : '')).join('');
+  let body = '', roms = '';
   items.forEach((l, i) => {
     let inner;
     if (wordTiming) {
       inner = spans(l.main!);
       if (l.bg) inner += `<span ttm:role="x-bg">${spans(l.bg)}</span>`;
-    } else inner = esc(plainW(l.mainText));
+      // word mode: Spicy reads romanization from <head>, matched to each span by its exact begin/end
+      if (roman && (l.main!.concat(l.bg || [])).some(w => hasCyr(w.word)))
+        roms += `<text for="L${i + 1}">${spans(l.main!, translit)}${l.bg ? `<span ttm:role="x-bg">${spans(l.bg, translit)}</span>` : ''}</text>`;
+    } else {
+      inner = esc(plainW(l.mainText));
+      if (roman && hasCyr(l.mainText)) inner += `<span ttm:role="x-roman">${esc(translit(plainW(l.mainText)))}</span>`;
+    }
     body += `      <p begin="${fmtTime(l.a)}" end="${fmtTime(l.b)}" ttm:agent="${l.agent}" itunes:key="L${i + 1}">${inner}</p>\n`;
   });
   const used = ['v1', 'v2', 'v1000'].filter(id => id === 'v1' || items.some(i => i.agent === id));
@@ -72,7 +79,7 @@ export function buildTTML(o: ExportOpts) {
   <head>
     <metadata>
 ${agents}
-      <iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal"><songwriters>${sw}</songwriters></iTunesMetadata>
+      <iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal"><songwriters>${sw}</songwriters>${roms ? `<transliterations><transliteration xml:lang="${esc(lang)}-Latn">${roms}</transliteration></transliterations>` : ''}</iTunesMetadata>
     </metadata>
   </head>
   <body dur="${fmtTime(dur)}">

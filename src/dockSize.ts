@@ -3,9 +3,9 @@ import { clamp, ls } from './state.ts';
 import { drawWave } from './waveform/wave.ts';
 const DEF = 400;
 export function setDockH(h: number) {
-  h = clamp(Math.round(h), 260, Math.max(300, innerHeight - 220));
+  h = clamp(Math.round(h), 300, Math.max(320, innerHeight - 120));
   const r = document.documentElement.style;
-  r.setProperty('--dockH', h + 'px'); r.setProperty('--waveH', Math.round(clamp(h * 0.42, 140, 380)) + 'px');
+  r.setProperty('--dockH', h + 'px'); // the wave takes all the height the bar, chips and buttons leave
   ls.set('dockH', String(h)); drawWave();
 }
 export function setupGrip(g: HTMLElement) {

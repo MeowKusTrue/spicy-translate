@@ -23,17 +23,19 @@ export const S = {
   // word sync
   picked: new Set<number>(), pickAnchor: -1,
   layer: 'tr' as Layer, sel: null as { i: number; k: number } | null, undo: [] as string[], redo: [] as string[],
-  dock: false, fx: true, snap: true, loop: false, voff: 0, lat: 100,
+  dock: false, fx: true, snap: true, onsetSnap: true, waveVoice: false, loop: false, voff: 0, lat: 100,
+  align: null as null | { stage: string; done: number; total: number }, // auto-timing in progress
   ver: 0, // bumps whenever preview timings change
   // form fields
   q: '', manual: '', results: [] as LrclibHit[],
-  exp: { spread: true, offset: '0', writers: '' },
+  exp: { spread: true, offset: '0', writers: '', roman: false }, shiftMs: 100,
   llm: { prov: 'openai', model: '', url: '', key: '', style: '' },
   // ui
   st1: { msg: '', cls: '' } as Msg, st2: { msg: '', cls: '' } as Msg, toast: { msg: '', cls: '' } as Msg,
   save: { msg: '💾 —', cls: '' } as Msg, live: null as Msg | null,
   qa: null as QaItem[] | null, paste: null as string | null, out: null as string | null,
   help: false, typing: false, busyAuto: false, busyLlm: false,
+  palette: null as null | { q: string; i: number }, // Ctrl+K
   page: 'track' as Page, prevPage: 'tr' as Page, // the tab shown; the sync tab opens the dock
   full: null as null | { o: string; t: string; dirty: boolean }, // «Текст» tab draft
   find: null as null | { q: string; r: string; where: 'tr' | 'orig' | 'all'; cs: boolean; word: boolean },

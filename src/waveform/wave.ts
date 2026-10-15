@@ -1,9 +1,9 @@
 // Waveform canvas: state W, peaks, drawing, zoom.
 import { mmss, plainW } from '../core/index.ts';
-import type { Layer } from '../core/index.ts';
-import { S, clamp, isBg, isTr, lineState, mainLayerFor, mkLayer, status, viewWords } from '../state.ts';
+import { JOIN, bandRows as coreBandRows, lineAt as coreLineAt, type Layer } from '../core/index.ts';
+import { S, clamp, isBg, isTr, lineState, ls, mainLayerFor, mkLayer, status, viewWords } from '../state.ts';
 import { now } from '../audio.ts';
-import { computePeaks } from './peaks.ts';
+import { computePeaks, onsets } from './peaks.ts';
 import PeaksWorker from './peaks.worker.ts?worker&inline';
 
 export type Lane = 'main' | 'bg';
@@ -12,10 +12,12 @@ export const W = {
   peaks: null as Float32Array | null, pps: 200, px: 140, start: 0,
   G: { mY: 3, mH: 44, bY: 50, bH: 32, wY: 85, lY: 140, lH: 24 }, rows: [] as number[], nr: 1,
   multi: [] as { i: number; k: number; layer: Layer }[], // words picked with a Shift+drag box / Shift+click
+  onsets: [] as number[], // note attacks found in the waveform (magnet targets)
+  vpeaks: null as Float32Array | null, vonsets: [] as number[], // the same for the separated voice
   drag: null as any, pend: null as any, boxes: [] as Box[], ctrl: false,
   snapAt: null as number | null, flash: null as { t: number; kind: 'F' | 'G' | 'H'; at: number } | null,
 };
-export const JOIN = 0.0015; // edges closer than this are "glued" and roll together
+export { JOIN };
 
 function peaksInWorker(ch: Float32Array, per: number) {
   return new Promise<Float32Array>((res, rej) => {
@@ -24,17 +26,28 @@ function peaksInWorker(ch: Float32Array, per: number) {
     wk.postMessage({ ch, per }, [ch.buffer]);
   });
 }
-export async function buildPeaks(file: Blob) {
-  W.peaks = null;
+async function peaksOf(file: Blob) {
+  const AC = window.AudioContext || (window as any).webkitAudioContext; if (!AC) return null;
+  const ctx = new AC();
   try {
-    const AC = window.AudioContext || (window as any).webkitAudioContext; if (!AC) return;
-    const ctx = new AC(); const buf = await ctx.decodeAudioData(await file.arrayBuffer());
+    const buf = await ctx.decodeAudioData(await file.arrayBuffer());
     const per = Math.max(1, Math.floor(buf.sampleRate / W.pps)), ch = buf.getChannelData(0).slice();
-    try { W.peaks = await peaksInWorker(ch, per); }
-    catch { W.peaks = computePeaks(buf.getChannelData(0), per); } // no workers -> same scan on the main thread
-    ctx.close && ctx.close();
-  } catch (e) { status('st1', 'Волну построить не удалось (' + (e as Error).message + '), но аудио играет.', 'err'); }
+    try { return await peaksInWorker(ch, per); }
+    catch { return computePeaks(buf.getChannelData(0), per); } // no workers -> same scan on the main thread
+  } finally { ctx.close && ctx.close(); }
 }
+export async function buildPeaks(file: Blob) {
+  W.peaks = null; W.vpeaks = null; W.vonsets = []; S.waveVoice = false;
+  try { W.peaks = await peaksOf(file); if (W.peaks) W.onsets = onsets(W.peaks, W.pps); }
+  catch (e) { status('st1', 'Волну построить не удалось (' + (e as Error).message + '), но аудио играет.', 'err'); }
+}
+/** the separated voice (from auto-timing): a much clearer waveform and attacks for the magnet */
+export async function buildVoicePeaks(file: Blob) {
+  W.vpeaks = await peaksOf(file); if (!W.vpeaks) return false;
+  W.vonsets = onsets(W.vpeaks, W.pps); S.waveVoice = true; return true;
+}
+export const wavePeaks = () => S.waveVoice && W.vpeaks ? W.vpeaks : W.peaks;
+export const waveOnsets = () => S.waveVoice && W.vpeaks ? W.vonsets : W.onsets;
 
 const canvas = () => document.getElementById('wave') as HTMLCanvasElement | null;
 /* theme colors ("r,g,b") for the canvas, read from CSS tokens on theme change */
@@ -45,20 +58,22 @@ export function readTheme() {
   TH.t = rgb('--txt') || TH.t; TH.a = rgb('--acc') || TH.a; TH.a2 = rgb('--acc2') || TH.a2; pr.remove();
 }
 /* stacked: main-track words, background-vocals words, the waveform, source lines; ruler at the bottom */
+/** lane heights set by dragging the borders between them (remembered); the waveform gets whatever is left */
+export const LANES_DEF = { m: 44, b: 34, l: 26 };
+export const LANES: typeof LANES_DEF = (() => { try { return { ...LANES_DEF, ...JSON.parse(ls.get('lanes', '{}') || '{}') }; } catch { return { ...LANES_DEF }; } })();
 function geo(h: number) {
-  const mH = Math.round(clamp(h * 0.2, 30, 46)), bH = Math.round(clamp(h * 0.15, 22, 36)), lH = Math.round(clamp(h * 0.13, 18, 30));
+  let mH = clamp(LANES.m, 22, 200), bH = clamp(LANES.b, 16, 160), lH = clamp(LANES.l, 16, 90);
+  const room = h - 17 - 9 - 40, sum = mH + bH + lH; // 40 px of waveform at least
+  if (sum > room) { const k = Math.max(0.3, room / sum); mH *= k; bH *= k; lH *= k; }
+  mH = Math.round(mH); bH = Math.round(bH); lH = Math.round(lH);
   const mY = 3, bY = mY + mH + 3, wY = bY + bH + 3, lY = h - 17 - lH;
   return { mY, mH, bY, bH, wY, lY, lH };
 }
+const laneFont = (hh: number, w = 600) => `${w} ${Math.round(clamp(hh * 0.36, 11, 24))}px system-ui`;
 export const laneLayer = (lane: Lane): Layer => mkLayer(lane === 'bg', isTr(S.layer));
 export const laneY = (lane: Lane) => lane === 'bg' ? [W.G.bY, W.G.bH] : [W.G.mY, W.G.mH];
-/** the line at time t (lead lines win over background-only ones); -1 = none */
-export function lineAt(t: number) { let r = -1; S.lines.forEach((l, i) => { if (t >= l.t && t <= l.end && (r < 0 || l.text.trim() || !S.lines[r].text.trim())) r = i; }); return r; }
-/** overlapping lines (duets, background-only lines) get their own rows in the band, up to 3 */
-export function bandRows() {
-  const ends: number[] = [];
-  return S.lines.map(l => { let r = ends.findIndex(e => e <= l.t + 0.01); if (r < 0) { r = Math.min(2, ends.length); if (r === ends.length) ends.push(0); } ends[r] = Math.max(ends[r], l.end); return r; });
-}
+export const lineAt = (t: number) => coreLineAt(S.lines, t);
+export const bandRows = () => coreBandRows(S.lines);
 export function drawWave() {
   const cv = canvas(); if (!cv || !S.dock) return;
   const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
@@ -74,14 +89,16 @@ export function drawWave() {
   const step = W.px > 400 ? 0.5 : W.px > 150 ? 1 : W.px > 60 ? 2 : 5;
   for (let s = Math.ceil(t0 / step) * step; s < t1; s += step) { const x = X(s); g.fillRect(x, h - 6, 1, 6); g.fillText(mmss(s) + (step < 1 ? '.' + Math.round((s % 1) * 10) : ''), x + 3, h - 15); }
   // waveform
-  if (W.peaks) {
-    g.fillStyle = `rgba(${TH.a},.55)`;
+  const PK = wavePeaks();
+  if (PK) {
+    g.fillStyle = S.waveVoice && W.vpeaks ? `rgba(${TH.a2},.6)` : `rgba(${TH.a},.55)`;
     for (let x = 0; x < w; x++) {
       const a = Math.floor((t0 + x / W.px) * W.pps), b = Math.max(a + 1, Math.floor((t0 + (x + 1) / W.px) * W.pps));
-      let m = 0; for (let i = Math.max(0, a); i < b && i < W.peaks.length; i++) if (W.peaks[i] > m) m = W.peaks[i];
+      let m = 0; for (let i = Math.max(0, a); i < b && i < PK.length; i++) if (PK[i] > m) m = PK[i];
       const hh = Math.max(1, m * amp); g.fillRect(x, mid - hh, 1, hh * 2);
     }
   } else { g.fillStyle = `rgba(${TH.t},.25)`; g.font = '12px system-ui'; g.textBaseline = 'middle'; g.fillText('Загрузи аудио (♪ аудио) — тут появится волна', 14, mid); }
+  if (S.onsetSnap && W.px > 50) { g.fillStyle = `rgba(${TH.t},.35)`; for (const o of waveOnsets()) if (o >= t0 && o <= t1) g.fillRect(X(o), G.lY - 7, 1, 5); } // attacks: magnet ticks
   // lanes: the active track is tinted and has a stripe on the left
   const act: Lane = isBg(S.layer) ? 'bg' : 'main';
   for (const lane of ['main', 'bg'] as const) {
@@ -100,6 +117,7 @@ export function drawWave() {
     const x1 = X(l.t), x2 = X(l.end), ac = l.agent === 'v2' ? TH.a2 : l.agent === 'v1000' ? TH.a : TH.t, other = !!l.agent && l.agent !== 'v1';
     g.fillStyle = `rgba(${ac},${other ? .2 : .08})`; g.fillRect(x1, y + .5, Math.max(2, x2 - x1 - 2), hh - 1);
     g.fillStyle = `rgba(${ac},${other ? .9 : .35})`; g.fillRect(x1, y, other ? 3 : 1, hh);
+    if (W.drag?.type === 'line' && W.drag.onto === li) { g.fillStyle = 'rgba(255,209,102,.25)'; g.fillRect(x1, y, Math.max(2, x2 - x1 - 2), hh); g.strokeStyle = '#ffd166'; g.lineWidth = 2; g.strokeRect(x1 + 1, y + 1, Math.max(2, x2 - x1 - 4), hh - 2); g.lineWidth = 1; }
     if (S.picked.has(li) || S.sel?.i === li) { g.strokeStyle = S.picked.has(li) ? `rgb(${TH.a})` : `rgba(${TH.t},.4)`; g.lineWidth = 1.5; g.strokeRect(x1 + .75, y + .75, Math.max(2, x2 - x1 - 3.5), hh - 1.5); g.lineWidth = 1; }
     const main = l.text.trim();
     g.fillStyle = main ? `rgba(${TH.t},.65)` : `rgba(${TH.a2},.85)`;
@@ -109,7 +127,7 @@ export function drawWave() {
   W.boxes = [];
   for (const lane of ['main', 'bg'] as const) {
     const layer = laneLayer(lane), on = layer === S.layer, [y, hh] = laneY(lane), col = lane === 'bg' ? TH.a2 : TH.a;
-    g.font = lane === 'bg' ? '600 13px system-ui' : '600 15px system-ui'; g.textBaseline = 'middle'; g.globalAlpha = on ? 1 : .5;
+    g.font = laneFont(lane === 'bg' ? hh * 0.92 : hh); g.textBaseline = 'middle'; g.globalAlpha = on ? 1 : .5;
     for (let i = 0; i < S.lines.length; i++) {
       const l = S.lines[i]; if (l.end + 8 < t0 || l.t - 8 > t1) continue;
       viewWords(i, layer).forEach((wd, k) => {

@@ -229,3 +229,56 @@ export function lineFromWords(ws: { layer: Layer; w: string; a: number; b: numbe
   l.t = r3(Math.max(0, Math.min(...all))); l.end = r3(Math.max(l.t + 0.3, ...all));
   return l;
 }
+
+/* ---------- copy a line's timing onto other lines ---------- */
+/** the timing of a line track as offsets from the line start (null unless every word is timed) */
+export function timingOf(l: Line, layer: Layer) {
+  const sy = l.sync?.[layer], n = wordList(txt(l, layer)).length;
+  return syncComplete(sy, n) ? sy.map(x => ({ a: x.a - l.t, b: x.b - l.t })) : null;
+}
+/**
+ * Put a copied timing onto n words starting at line start t0. Same word count = exact copy; otherwise the
+ * rhythm is resampled (word j sits where position j·m/n falls in the source). Flagged auto (g) for a check.
+ */
+export function pasteTiming(rel: { a: number; b: number }[], n: number, t0: number): WordSync[] {
+  const m = rel.length; if (!m || !n) return [];
+  if (m === n) return rel.map(x => ({ a: r3(t0 + x.a), b: r3(t0 + x.b), g: 1 as const }));
+  const at = (x: number) => { const k = Math.min(m - 1, Math.floor(x)), f = x - k; const s = rel[k].a, e = k + 1 < m ? rel[k + 1].a : rel[m - 1].b; return s + f * (e - s); };
+  return Array.from({ length: n }, (_, j) => {
+    const a = at(j * m / n), b = j + 1 < n ? at((j + 1) * m / n) : rel[m - 1].b;
+    return { a: r3(t0 + a), b: r3(t0 + Math.max(a + 0.02, b)), g: 1 as const };
+  });
+}
+
+/**
+ * Give line `dst` the word timing of `src` on every track both have words on (Alt+drag a line onto another):
+ * dst keeps its texts, the rhythm starts at t0 (where src was dropped). Returns the number of tracks changed.
+ */
+export function transferTiming(src: Line, dst: Line, t0: number) {
+  let n = 0;
+  for (const k of ['orig', 'tr', 'bgo', 'bg'] as Layer[]) {
+    const rel = timingOf(src, k), w = wordList(txt(dst, k)).length;
+    if (!rel || !w) continue;
+    (dst.sync = dst.sync || {})[k] = pasteTiming(rel, w, t0); n++;
+  }
+  if (n) { const all = Object.values(dst.sync || {}).flat().filter(timed); dst.t = r3(Math.min(t0, ...all.map(x => x.a!))); dst.end = r3(Math.max(dst.t + 0.3, ...all.map(x => x.b!))); }
+  return n;
+}
+
+/**
+ * Translation memory for repeats: lines that read the same in the original (a chorus) and have no translation yet
+ * get the translation of a translated one (and of its background vocals, when those read the same too).
+ * `from` = only spread this line's translation. Returns the changed line indexes.
+ */
+export function repeatTranslations(lines: Line[], from?: number) {
+  const changed = new Set<number>();
+  for (const i of from != null ? [from] : lines.map((_, k) => k)) {
+    const s = lines[i]; if (!s || !(s.tr || '').trim()) continue;
+    for (const j of sameLines(lines, i)) {
+      const d = lines[j];
+      if (!(d.tr || '').trim()) { d.tr = s.tr; changed.add(j); }
+      if (s.bg?.tr.trim() && d.bg && !d.bg.tr.trim() && norm(d.bg.text) === norm(s.bg.text)) { d.bg.tr = s.bg.tr; changed.add(j); }
+    }
+  }
+  return [...changed];
+}

@@ -8,6 +8,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 import * as C from '../src/core/index.ts';
 import type { Layer, Mode, Project } from '../src/core/index.ts';
 
@@ -30,6 +31,64 @@ async function putProject(project: Project, by: string) {
   state = { rev: state.rev + 1, by, project }; fs.writeFileSync(FILE, JSON.stringify(state)); return { rev: state.rev };
 }
 
+/* ---------- auto-timing: runs the experiments/auto-align prototype (Python) on the uploaded audio ---------- */
+// Where the prototype and its venv live: SPICY_ALIGN_DIR / SPICY_ALIGN_PY, else experiments/auto-align of this repo,
+// else a worktree copy that has a venv (the prototype is developed in .claude/worktrees/*).
+function alignEnv(): { dir: string; py: string } | null {
+  const pyIn = (d: string) => [path.join(d, '.venv', 'Scripts', 'python.exe'), path.join(d, '.venv', 'bin', 'python')].find(f => fs.existsSync(f));
+  const dirs = [process.env.SPICY_ALIGN_DIR, path.join(root, 'experiments', 'auto-align')];
+  try { const wt = path.join(root, '.claude', 'worktrees'); for (const w of fs.readdirSync(wt)) dirs.push(path.join(wt, w, 'experiments', 'auto-align')); } catch {}
+  for (const d of dirs) {
+    if (!d || !fs.existsSync(path.join(d, 'align.py'))) continue;
+    const py = process.env.SPICY_ALIGN_PY || pyIn(d); if (py) return { dir: d, py };
+  }
+  return null;
+}
+const AL = { running: false, stage: '', done: 0, total: 0, error: '', out: '', vocals: '', audio: '', log: [] as string[] };
+const alDir = () => { const d = path.join(DATA, 'align'); fs.mkdirSync(d, { recursive: true }); return d; };
+function readBody(req: http.IncomingMessage): Promise<Buffer> { return new Promise((res, rej) => { const ch: Buffer[] = []; req.on('data', c => ch.push(c)); req.on('end', () => res(Buffer.concat(ch))); req.on('error', rej); }); }
+const json = (res: http.ServerResponse, o: unknown, code = 200) => { res.statusCode = code; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(o)); };
+async function alignRoute(req: http.IncomingMessage, res: http.ServerResponse, u: URL) {
+  if (u.pathname === '/api/align/audio' && req.method === 'POST') { // the page uploads its audio once per track
+    const ext = (u.searchParams.get('ext') || 'mp3').replace(/[^a-z0-9]/gi, '').slice(0, 5) || 'mp3';
+    AL.audio = path.join(alDir(), 'audio.' + ext); fs.writeFileSync(AL.audio, await readBody(req));
+    fs.rmSync(path.join(alDir(), 'out.spicy.stems'), { recursive: true, force: true }); // the prototype caches stems next to its output (OUT minus .json + .stems): new audio = new stems
+    AL.vocals = '';
+    return json(res, { ok: true, bytes: fs.statSync(AL.audio).size });
+  }
+  if (u.pathname === '/api/align' && req.method === 'POST') {
+    if (AL.running) return json(res, { error: 'уже идёт' }, 409);
+    const env = alignEnv();
+    if (!env) return json(res, { error: 'не найден прототип автоподгонки с Python-окружением (experiments/auto-align/.venv). Поставь по experiments/auto-align/README.md или задай SPICY_ALIGN_DIR / SPICY_ALIGN_PY.' }, 501);
+    if (!AL.audio || !fs.existsSync(AL.audio)) return json(res, { error: 'сначала загрузи аудио' }, 400);
+    const inp = path.join(alDir(), 'in.spicy.json'), out = path.join(alDir(), 'out.spicy.json');
+    fs.writeFileSync(inp, await readBody(req)); try { fs.unlinkSync(out); } catch {}
+    Object.assign(AL, { running: true, stage: 'start', done: 0, total: 0, error: '', out: '', vocals: '', log: [] });
+    const p = spawn(env.py, [path.join(env.dir, 'align.py'), AL.audio, inp, '-o', out, '--json-progress'], { cwd: env.dir, env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
+    let buf = '';
+    p.stdout.on('data', d => {
+      buf += d; let k;
+      while ((k = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, k).trim(); buf = buf.slice(k + 1); if (!line.startsWith('{')) continue;
+        try { const m = JSON.parse(line); if (m.error) AL.error = m.error; if (m.stage) Object.assign(AL, { stage: m.stage, done: m.done || 0, total: m.total || 0 }); if (m.done === true) Object.assign(AL, { out: m.out || out, vocals: m.vocals || '' }); } catch {}
+      }
+    });
+    p.stderr.on('data', d => { AL.log.push(String(d)); if (AL.log.length > 40) AL.log.shift(); });
+    p.on('error', e => { AL.running = false; AL.error = e.message; });
+    p.on('close', code => { AL.running = false; if (code && !AL.error) AL.error = `align.py завершился с кодом ${code}: ${AL.log.join('').slice(-400)}`; if (!AL.out && fs.existsSync(out)) AL.out = out; });
+    return json(res, { ok: true });
+  }
+  if (u.pathname === '/api/align' && req.method === 'GET') {
+    const env = alignEnv(), result = !AL.running && AL.out && fs.existsSync(AL.out) ? JSON.parse(fs.readFileSync(AL.out, 'utf8')) : null;
+    return json(res, { available: !!env, running: AL.running, stage: AL.stage, done: AL.done, total: AL.total, error: AL.error, hasAudio: !!AL.audio, vocals: !!AL.vocals && fs.existsSync(AL.vocals), result });
+  }
+  if (u.pathname === '/api/align/vocals' && req.method === 'GET') { // the separated voice, for a clearer waveform
+    if (!AL.vocals || !fs.existsSync(AL.vocals)) return json(res, { error: 'нет' }, 404);
+    res.setHeader('content-type', 'audio/wav'); return fs.createReadStream(AL.vocals).pipe(res);
+  }
+  json(res, { error: 'not found' }, 404);
+}
+
 /* ---------- http (editor + api) ---------- */
 const server = http.createServer((req, res) => {
   const u = new URL(req.url || '/', 'http://x');
@@ -42,6 +101,7 @@ const server = http.createServer((req, res) => {
       }); return;
     }
   }
+  if (u.pathname.startsWith('/api/align')) { alignRoute(req, res, u).catch(e => json(res, { error: String(e?.message || e) }, 500)); return; }
   if (u.pathname === '/' || u.pathname === '/index.html') {
     if (!fs.existsSync(htmlPath)) { res.statusCode = 503; res.setHeader('content-type', 'text/plain; charset=utf-8'); return res.end('Редактор не собран: запусти `npm run build` в ' + root); }
     res.setHeader('content-type', 'text/html; charset=utf-8'); return res.end(fs.readFileSync(htmlPath));

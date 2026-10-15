@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignRows, buildTTML, findAll, insertLine, insertWord, lineFromWords, shiftLine, lineRow, parensToBg, parseRow, parseTTML, qaCheck, remapSync, repeatTiming, replaceUnit, type Line } from '../src/core/index.ts';
+import { alignRows, buildTTML, findAll, insertLine, insertWord, lineFromWords, pasteTiming, shiftLine, timingOf, transferTiming, lineRow, parensToBg, parseRow, parseTTML, qaCheck, remapSync, repeatTiming, replaceUnit, type Line } from '../src/core/index.ts';
 
 describe('whole-text rows', () => {
   it('alignRows keeps unchanged and edited rows on their lines, marks new ones', () => {
@@ -114,5 +114,27 @@ describe('lineFromWords', () => {
     expect([l.text, l.bg!.text, l.t, l.sync!.bgo]).toEqual(['', 'эй', 5, [{ a: 5, b: 5.4 }]]);
     const m = lineFromWords([{ layer: 'orig', w: 'два', a: 2, b: 3 }, { layer: 'orig', w: 'раз', a: 1, b: 2 }, { layer: 'bgo', w: 'ой', a: 1.5, b: 2 }])!;
     expect([m.text, m.bg!.text, m.t, m.end]).toEqual(['раз два', 'ой', 1, 3]);
+  });
+});
+
+describe('copy line timing', () => {
+  it('same word count: exact rhythm moved to the target line start; otherwise resampled', () => {
+    const src: Line = { t: 10, end: 13, text: 'раз два три', tr: '', sync: { orig: [{ a: 10, b: 10.5 }, { a: 10.5, b: 12 }, { a: 12, b: 13 }] } };
+    const rel = timingOf(src, 'orig')!;
+    expect(pasteTiming(rel, 3, 20)).toEqual([{ a: 20, b: 20.5, g: 1 }, { a: 20.5, b: 22, g: 1 }, { a: 22, b: 23, g: 1 }]);
+    const six = pasteTiming(rel, 6, 0);
+    expect(six.length).toBe(6);
+    expect([six[0].a, six[5].b]).toEqual([0, 3]);
+    expect(six.every((x, k) => !k || x.a! >= six[k - 1].a!)).toBe(true);
+    expect(timingOf({ ...src, sync: {} }, 'orig')).toBeNull();
+  });
+});
+
+describe('transferTiming', () => {
+  it('copies the rhythm of every shared track onto another line, keeping its words', () => {
+    const src: Line = { t: 1, end: 3, text: 'раз два', tr: 'one two', sync: { orig: [{ a: 1, b: 2 }, { a: 2, b: 3 }], tr: [{ a: 1, b: 1.5 }, { a: 1.5, b: 3 }] } };
+    const dst: Line = { t: 10, end: 12, text: 'три четыре', tr: '' };
+    expect(transferTiming(src, dst, 20)).toBe(1); // tr of dst is empty
+    expect([dst.text, dst.sync!.orig, dst.t, dst.end]).toEqual(['три четыре', [{ a: 20, b: 21, g: 1 }, { a: 21, b: 22, g: 1 }], 20, 22]);
   });
 });

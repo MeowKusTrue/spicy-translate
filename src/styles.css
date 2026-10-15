@@ -288,3 +288,21 @@ button.next{align-self:flex-end;background:color-mix(in srgb,var(--acc) 14%,tran
 button.next:hover{background:var(--acc);color:var(--acc-txt)}
 .hint.okc{color:var(--ok)}
 label.btn.pri{background:var(--acc);color:var(--acc-txt);border:0}
+/* the dock: the wave grows with the dock, chips keep a few rows */
+#wave{flex:1 1 0;min-height:150px;height:auto}
+.dock .sync-lines{flex:none;max-height:min(30vh,170px)}
+.snaps{margin-top:10px;display:flex;flex-direction:column;gap:6px;max-height:340px;overflow:auto}
+.snaps .item{cursor:default}
+.card h2 small{text-transform:none;letter-spacing:0;font-weight:500;color:var(--mut)}
+.pop.ctx{position:fixed;z-index:46;min-width:240px;right:auto;top:auto;width:max-content}
+.pop.ctx small{color:var(--mut);font-size:11px;padding:0 4px 4px;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* command palette */
+.modal.pal{place-items:start center;padding-top:12vh}
+.palbox{width:min(620px,100%);background:var(--pop);border:1px solid var(--line);border-radius:16px;box-shadow:0 30px 80px rgba(0,0,0,.6);overflow:hidden}
+.palbox input{border:0;border-bottom:1px solid var(--line);border-radius:0;padding:16px 18px;font-size:16px;background:transparent;box-shadow:none!important}
+.pallist{max-height:52vh;overflow:auto;padding:6px;display:flex;flex-direction:column;gap:2px}
+.pallist button{display:flex;justify-content:space-between;align-items:center;gap:12px;text-align:left;border:0;background:transparent;padding:9px 12px;font-weight:600;border-radius:9px}
+.pallist button.on{background:color-mix(in srgb,var(--acc) 18%,transparent)}
+.pallist kbd,.palbtn kbd{font:11px ui-monospace,monospace;padding:1px 6px;border-radius:5px;border:1px solid var(--line);border-bottom-width:2px;color:var(--mut);background:color-mix(in srgb,var(--txt) 7%,transparent)}
+.palbtn{display:flex;gap:8px;align-items:center;color:var(--mut)}
+button.busy{opacity:1!important;background:color-mix(in srgb,var(--acc2) 20%,transparent);color:var(--txt)}

@@ -3,7 +3,7 @@ import { S, emit, isBg, isTr, ls, mkLayer, toast, viewWords, wordsOf, type Page 
 import { now, pause, play, seekTo, setRate } from './audio.ts';
 import { PV } from './preview.ts';
 import { doRedo, doUndo, joinWords, mark, nudgeWord, resetWord, setLayer, splitWord, stepWord } from './sync.ts';
-import { copyLines, fullDraft, openEdit, pasteLines, repeatChorus } from './lineEdit.ts';
+import { copyLines, copyTiming, fullDraft, openEdit, pasteLines, pasteTimingHere, repeatChorus } from './lineEdit.ts';
 import { W, drawWave } from './waveform/wave.ts';
 import { cycleAgent, setAgent } from './agents.ts';
 
@@ -34,12 +34,16 @@ const blurActive = () => { const a = document.activeElement; if (a instanceof HT
 
 const KEYS = new Set(['KeyC', 'KeyB', 'KeyT', 'KeyE', 'Digit1', 'Digit2', 'Digit3', 'KeyV', 'KeyM', 'KeyU', 'KeyN', 'KeyL', 'KeyR', 'Comma', 'Period', 'Space', 'KeyF', 'KeyG', 'KeyH', 'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'BracketLeft', 'BracketRight', 'Quote', 'Delete', 'Backspace']);
 function onKey(e: KeyboardEvent) {
-  if (!S.dock || S.help) return;
+  if (!S.dock || S.help || S.palette) return;
   const tg = e.target as HTMLInputElement, tag = tg.tagName;
   if (tag === 'TEXTAREA' || tag === 'SELECT' || (tag === 'INPUT' && tg.type !== 'range' && tg.type !== 'checkbox' && tg.type !== 'radio' && tg.type !== 'file')) return;
   const c = e.code;
   if ((e.ctrlKey || e.metaKey) && c === 'KeyZ') { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); return; }
-  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (c === 'KeyC' || c === 'KeyV')) { e.preventDefault(); return c === 'KeyC' ? copyLines() : pasteLines(); }
+  if ((e.ctrlKey || e.metaKey) && (c === 'KeyC' || c === 'KeyV')) { // Ctrl: whole lines · Ctrl+Shift: only the word timing of a line
+    e.preventDefault();
+    if (e.shiftKey) return c === 'KeyC' ? copyTiming() : pasteTimingHere();
+    return c === 'KeyC' ? copyLines() : pasteLines();
+  }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (!KEYS.has(c)) return;
   e.preventDefault();
@@ -73,6 +77,9 @@ function onKey(e: KeyboardEvent) {
 /** global listeners (installed once) */
 export function installHotkeys() {
   document.addEventListener('keydown', onKey);
+  document.addEventListener('keydown', e => { // Ctrl+K = command palette, from anywhere
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyK') { e.preventDefault(); if (S.palette) { S.palette = null; emit(); } else import('./ui/Palette.tsx').then(m => m.openPalette()); }
+  });
   document.addEventListener('keydown', e => { // Alt+1..5 = tabs
     const n = /^Digit([1-5])$/.exec(e.code); if (!n || !e.altKey || e.ctrlKey || e.metaKey) return;
     e.preventDefault(); setPage(PAGES[+n[1] - 1][0]);
