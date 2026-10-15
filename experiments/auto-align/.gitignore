@@ -1,4 +1,6 @@
 .venv/
-sample/*.stems/
+*.stems/
 sample/*.wav
 __pycache__/
+# real-song runs: copyrighted lyrics + big stems, keep local
+palma.*
