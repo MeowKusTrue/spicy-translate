@@ -26,9 +26,13 @@ let state: State = { rev: 0, by: 'init', project: null };
 try { state = JSON.parse(fs.readFileSync(FILE, 'utf8')); } catch {}
 let remote = false; // true when another instance already owns the port -> proxy to it
 const base = `http://127.0.0.1:${PORT}/api/project`;
-async function getState(): Promise<State> { return remote ? (await fetch(base)).json() : state; }
+async function getState(): Promise<State> {
+  if (!remote) return state;
+  try { return await (await fetch(base)).json(); }
+  catch { if (await takeOver()) return state; throw new Error('редактор (сервер на порту ' + PORT + ') закрыт'); } // the owner left: take the port
+}
 async function putProject(project: Project, by: string) {
-  if (remote) return (await fetch(base + '?by=' + by, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(project) })).json();
+  if (remote) { try { return await (await fetch(base + '?by=' + by, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(project) })).json(); } catch { if (!await takeOver()) throw new Error('сервер редактора недоступен'); } }
   state = { rev: state.rev + 1, by, project }; fs.writeFileSync(FILE, JSON.stringify(state)); return { rev: state.rev };
 }
 
@@ -125,6 +129,8 @@ async function setupAlign(want?: Backend) {
   fs.writeFileSync(path.join(pyHome(), '.ready'), JSON.stringify({ backend, at: new Date().toISOString(), gpu: gpu.why }));
   step('готово', 100); SETUP.done = true;
 }
+/** bump when the editor needs new server endpoints (3: auto-timing install / GPU / open folder) */
+const API = 4; // 4: /api/yield, --auto-exit, /api/bye
 const AL = { running: false, stage: '', done: 0, total: 0, error: '', out: '', vocals: '', audio: '', device: '', log: [] as string[] };
 const alDir = () => { const d = path.join(DATA, 'align'); fs.mkdirSync(d, { recursive: true }); return d; };
 function readBody(req: http.IncomingMessage): Promise<Buffer> { return new Promise((res, rej) => { const ch: Buffer[] = []; req.on('data', c => ch.push(c)); req.on('end', () => res(Buffer.concat(ch))); req.on('error', rej); }); }
@@ -198,6 +204,14 @@ async function alignRoute(req: http.IncomingMessage, res: http.ServerResponse, u
 /* ---------- http (editor + api) ---------- */
 const server = http.createServer((req, res) => {
   const u = new URL(req.url || '/', 'http://x');
+  if (u.pathname !== '/api/bye') lastSeen = Date.now();
+  if (u.pathname === '/api/version') return json(res, { api: API, pid: process.pid, autoExit: AUTO_EXIT }); // launchers and the editor check it
+  if (u.pathname === '/api/yield' && req.method === 'POST') { // a newer server wants this port: hand it over, keep serving MCP through it
+    json(res, { ok: true }); setTimeout(() => server.close(() => { remote = true; log('port handed over to a newer server -> proxying'); }), 50); return;
+  }
+  if (u.pathname === '/api/bye') { // the editor tab is closing: with --auto-exit, go away soon unless another tab still polls
+    if (AUTO_EXIT) lastSeen = Math.min(lastSeen, Date.now() - IDLE_MS + 8000); res.statusCode = 204; return res.end();
+  }
   if (u.pathname === '/api/project') {
     if (req.method === 'GET') { res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify(state)); }
     if (req.method === 'PUT') {
@@ -216,6 +230,18 @@ const server = http.createServer((req, res) => {
 });
 server.on('error', (e: NodeJS.ErrnoException) => { if (e.code === 'EADDRINUSE') { remote = true; log(`port ${PORT} busy -> proxying to the running instance`); } else log('http error: ' + e.message); });
 server.listen(PORT, '127.0.0.1', () => log(`editor: http://127.0.0.1:${PORT}`));
+/** the instance we proxied to is gone (closed editor): serve the port ourselves again */
+function takeOver() {
+  return new Promise<boolean>(r => {
+    const fail = () => r(false);
+    server.once('error', fail);
+    server.listen(PORT, '127.0.0.1', () => { server.off('error', fail); remote = false; log('took the port over'); r(true); });
+  });
+}
+// --auto-exit (the launcher): no editor tab for a while -> stop. Background tabs poll at least once a minute.
+const AUTO_EXIT = process.argv.includes('--auto-exit'), IDLE_MS = 180_000;
+let lastSeen = Date.now();
+if (AUTO_EXIT) setInterval(() => { if (Date.now() - lastSeen > IDLE_MS && !AL.running && !SETUP.running) { log('no editor open -> exit'); process.exit(0); } }, 5000).unref();
 function log(m: string) { process.stderr.write('[spicy] ' + m + '\n'); }
 
 /* ---------- tools ---------- */

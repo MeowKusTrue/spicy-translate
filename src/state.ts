@@ -23,9 +23,11 @@ export const S = {
   // word sync
   picked: new Set<number>(), pickAnchor: -1,
   layer: 'tr' as Layer, sel: null as { i: number; k: number } | null, undo: [] as string[], redo: [] as string[],
+  cover: '', coverBg: true, blur: true, // preview: cover picture (object URL) behind the lyrics, blur of the other lines
+  chips: 'big' as 'big' | 'small' | 'off', // word chips under the wave
   dock: false, fx: true, snap: true, onsetSnap: true, waveVoice: false, autoFit: false, fitPad: { a: 0, b: 0 }, loop: false, voff: 0, lat: 100, // autoFit: line ends follow their words (+fitPad ms of slack)
   align: null as null | { stage: string; done: number; total: number; device: string }, // auto-timing in progress
-  alignPanel: null as null | { gpu: import('./autoAlign.ts').Gpu | null; st: import('./autoAlign.ts').SetupState | null; pick: string },
+  alignPanel: null as null | { gpu: import('./autoAlign.ts').Gpu | null; st: import('./autoAlign.ts').SetupState | null; pick: string; err: string },
   setup: null as null | { step: string; pct: number }, // auto-timing install in progress
   ver: 0, // bumps whenever preview timings change
   // form fields

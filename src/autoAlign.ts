@@ -1,6 +1,7 @@
 // «Авто-тайминг»: the local server runs the experiments/auto-align prototype (Demucs + wav2vec2) on the track's audio;
 // word timings come back flagged auto (dashed), hand-marked words are never touched. Also brings the separated voice.
 import { S, emit, lineState, toast } from './state.ts';
+import { checkServer } from './live.ts';
 import { projectJSON, scheduleSave, snapshot } from './persist.ts';
 import { afterSyncChange, snap } from './sync.ts';
 import { buildVoicePeaks, drawWave } from './waveform/wave.ts';
@@ -68,12 +69,14 @@ async function refresh(withSize = false) {
   p.st = await api('/api/align/setup' + (withSize ? '?size=1' : '')); emit();
 }
 export async function openAlignPanel() {
-  S.alignPanel = { gpu: null, st: null, pick: 'auto' }; emit();
-  try {
-    await refresh(true);
-    S.alignPanel && (S.alignPanel.gpu = await api('/api/align/gpu')); emit();
-    if (S.alignPanel?.st?.running) poll();
-  } catch (e) { toast('Авто-тайминг: нужен локальный сервер (приложение, батник или npm run serve). ' + (e as Error).message, 'err'); S.alignPanel = null; emit(); }
+  S.alignPanel = { gpu: null, st: null, pick: 'auto', err: '' }; emit();
+  const fail = (m: string) => { if (S.alignPanel) { S.alignPanel.err = m; emit(); } };
+  try { await refresh(true); }
+  catch { return fail(await checkServer().catch(() => false)
+    ? 'Сервер не ответил на запрос установки — попробуй ещё раз.'
+    : 'Сервер старой версии или недоступен. Перезапусти его: в Claude Code /mcp → spicy-translate → Reconnect (или закрой Claude Code), либо открой редактор приложением / батником.'); }
+  api('/api/align/gpu').then(g => { if (S.alignPanel) { S.alignPanel.gpu = g; emit(); } }).catch(() => { if (S.alignPanel) { S.alignPanel.gpu = { names: [], backend: 'cpu', why: 'не удалось определить видеокарту' }; emit(); } });
+  if (S.alignPanel?.st?.running) poll();
 }
 export const closeAlignPanel = () => { S.alignPanel = null; emit(); };
 async function poll() {

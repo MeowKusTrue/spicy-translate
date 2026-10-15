@@ -1,21 +1,41 @@
 // Spicy Translate desktop: a WebView2 window onto the editor served by the bundled server (spicy-server.exe,
-// the same server/index.ts as a single Node executable). If a server already listens on the port (the MCP server
-// started by Claude), the window just uses it, so the app and the agent share one project.
+// the same server/index.ts as a single Node executable). A current server already on the port (the MCP server
+// started by Claude, a browser launch) is reused, so they share one project. An outdated one is asked to hand the
+// port over (/api/yield); one too old for that is left alone and the app takes the next free port.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use std::{
-    net::{SocketAddr, TcpStream},
+    io::{Read, Write},
+    net::{SocketAddr, TcpListener, TcpStream},
     process::{Child, Command},
     sync::Mutex,
     time::{Duration, Instant},
 };
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
+/// server API the editor in this build needs (server/index.ts `API`)
+const API: u32 = 4;
 struct Server(Mutex<Option<Child>>);
 
-/// 8787 like the MCP server, so both share one project; SPICY_PORT overrides (a second, separate editor)
-fn port() -> u16 { std::env::var("SPICY_PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(8787) }
-fn up() -> bool {
-    TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], port())), Duration::from_millis(150)).is_ok()
+/// 8787 like the MCP server, so both share one project; SPICY_PORT overrides
+fn base_port() -> u16 { std::env::var("SPICY_PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(8787) }
+fn addr(port: u16) -> SocketAddr { SocketAddr::from(([127, 0, 0, 1], port)) }
+fn up(port: u16) -> bool { TcpStream::connect_timeout(&addr(port), Duration::from_millis(150)).is_ok() }
+fn free(port: u16) -> bool { TcpListener::bind(addr(port)).is_ok() }
+
+/// a tiny HTTP/1.0 request; None = nothing listens on the port
+fn http(port: u16, method: &str, path: &str) -> Option<String> {
+    let mut s = TcpStream::connect_timeout(&addr(port), Duration::from_millis(300)).ok()?;
+    let _ = s.set_read_timeout(Some(Duration::from_millis(1500)));
+    let _ = write!(s, "{method} {path} HTTP/1.0\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\n\r\n");
+    let mut out = String::new();
+    let _ = s.read_to_string(&mut out);
+    Some(out)
+}
+/// Some(0) = something old or unknown holds the port
+fn api_version(port: u16) -> Option<u32> {
+    let r = http(port, "GET", "/api/version")?;
+    let v = r.split("\"api\":").nth(1).map(|t| t.chars().take_while(|c| c.is_ascii_digit()).collect::<String>());
+    Some(v.and_then(|d| d.parse().ok()).unwrap_or(0))
 }
 
 fn main() {
@@ -30,13 +50,29 @@ fn main() {
         .plugin(tauri_plugin_window_state::Builder::default().build()) // size / position remembered between launches
         .manage(Server(Mutex::new(None)))
         .setup(|app| {
-            if !up() {
+            let mut port = base_port();
+            let reuse = match api_version(port) {
+                Some(v) if v >= API => true,
+                Some(_) => {
+                    let _ = http(port, "POST", "/api/yield"); // newer servers hand the port over
+                    let t = Instant::now();
+                    while !free(port) && t.elapsed() < Duration::from_secs(3) {
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
+                    while !free(port) {
+                        port += 1; // too old to hand over: run next to it
+                    }
+                    false
+                }
+                None => false,
+            };
+            if !reuse {
                 let res = app.path().resource_dir()?;
                 let data = app.path().app_local_data_dir()?; // %LOCALAPPDATA%: project + the auto-timing Python (GBs; not the roaming profile)
                 std::fs::create_dir_all(&data)?;
                 let mut cmd = Command::new(std::env::current_exe()?.with_file_name("spicy-server.exe"));
                 cmd.arg("--http")
-                    .env("SPICY_PORT", port().to_string())
+                    .env("SPICY_PORT", port.to_string())
                     .env("SPICY_PARENT_PID", std::process::id().to_string()) // the server quits if this app dies
                     .env("SPICY_DIR", &data)
                     .env("SPICY_ROOT", &res)
@@ -49,11 +85,11 @@ fn main() {
                 }
                 app.state::<Server>().0.lock().unwrap().replace(cmd.spawn()?);
                 let t = Instant::now();
-                while !up() && t.elapsed() < Duration::from_secs(20) {
+                while !up(port) && t.elapsed() < Duration::from_secs(20) {
                     std::thread::sleep(Duration::from_millis(100));
                 }
             }
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::External(format!("http://127.0.0.1:{}/", port()).parse()?))
+            WebviewWindowBuilder::new(app, "main", WebviewUrl::External(format!("http://127.0.0.1:{port}/").parse()?))
                 .title("Spicy Translate")
                 .inner_size(1440.0, 920.0)
                 .min_inner_size(900.0, 600.0)
@@ -67,7 +103,7 @@ fn main() {
     app.run(|app, ev| {
         if let RunEvent::Exit = ev {
             if let Some(mut c) = app.state::<Server>().0.lock().unwrap().take() {
-                let _ = c.kill(); // our server only; a reused MCP server keeps running
+                let _ = c.kill(); // our server only; a reused one keeps running
             }
         }
     });

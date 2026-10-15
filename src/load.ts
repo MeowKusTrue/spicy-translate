@@ -3,6 +3,7 @@ import { entriesToLines, mmss, parseLRC, parsePlain, type Line, type Mode, impor
 import { S, emit, status, type LrclibHit } from './state.ts';
 import { audio, pause, seekTo } from './audio.ts';
 import { buildPreview } from './preview.ts';
+import { restoreCover } from './cover.ts';
 import { idbGet, idbPut, restoreProject, snapshot, trackKey } from './persist.ts';
 import { CH, selectWord } from './sync.ts';
 import { W, buildPeaks, drawWave } from './waveform/wave.ts';
@@ -70,6 +71,7 @@ export async function loadAudioFile(file: Blob & { name?: string }, fromCache?: 
   a.onended = pause;
   status('st1', fromCache ? 'Подтянул сохранённое аудио этого трека. Строю волну…' : 'Аудио подключено. Строю волну…', 'ok');
   const dur = await meta;
+  restoreCover(true);
   await buildPeaks(file); drawWave();
   if (!S.lines.length && file.name) await autoFromAudio(file.name, dur);
   else if (trackKey()) idbPut(trackKey(), file);

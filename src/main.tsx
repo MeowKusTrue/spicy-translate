@@ -17,6 +17,9 @@ import { initTheme } from './theme.ts';
 S.snap = ls.get('snap', '1') !== '0';
 S.fx = ls.get('fx', '1') !== '0';
 S.onsetSnap = ls.get('onsetSnap', '1') !== '0';
+S.coverBg = ls.get('coverBg', '1') !== '0';
+S.blur = ls.get('blur', '1') !== '0';
+S.chips = (['big', 'small', 'off'] as const).find(x => x === ls.get('chips', 'big')) || 'big';
 S.autoFit = ls.get('autoFit', '0') === '1';
 try { S.fitPad = { a: 0, b: 0, ...JSON.parse(ls.get('fitPad', '{}') || '{}') }; } catch {}
 S.lat = +(ls.get('lat', '100') || 0) || 0;

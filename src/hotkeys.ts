@@ -3,6 +3,8 @@ import { S, emit, isBg, isTr, ls, mkLayer, toast, viewWords, wordsOf, type Page 
 import { now, pause, play, seekTo, setRate } from './audio.ts';
 import { PV } from './preview.ts';
 import { doRedo, doUndo, joinWords, mark, nudgeWord, resetWord, setLayer, splitWord, stepWord } from './sync.ts';
+import { isApp, appZoom } from './desktop.ts';
+import { snapshot } from './persist.ts';
 import { copyLines, copyTiming, fullDraft, openEdit, pasteLines, pasteTimingHere, repeatChorus } from './lineEdit.ts';
 import { W, drawWave } from './waveform/wave.ts';
 import { cycleAgent, setAgent } from './agents.ts';
@@ -77,6 +79,20 @@ function onKey(e: KeyboardEvent) {
 /** global listeners (installed once) */
 export function installHotkeys() {
   document.addEventListener('keydown', onKey);
+  // browser actions that collide with the editor are switched off
+  addEventListener('wheel', e => { if (e.ctrlKey) e.preventDefault(); }, { passive: false }); // page zoom by Ctrl+wheel (the wave zooms itself)
+  document.addEventListener('keydown', e => {
+    const c = e.code, ctrl = e.ctrlKey || e.metaKey;
+    if (e.key === 'Alt') e.preventDefault(); // releasing Alt after an Alt+drag copy would focus the browser menu
+    if (ctrl && !e.shiftKey && c === 'KeyS') { e.preventDefault(); if (S.lines.length) snapshot('вручную').then(() => toast('Сохранено: снимок проекта (Трек → Проекты и история). Автосохранение тоже работает.', 'ok')); }
+    if (ctrl && !e.shiftKey && c === 'KeyF') { e.preventDefault(); setPage('tr'); if (!S.find) S.find = { q: '', r: '', where: 'all', cs: false, word: true }; emit(); setTimeout(() => document.getElementById('findQ')?.focus(), 50); }
+    if (isApp && (c === 'F5' || (ctrl && (c === 'KeyR' || c === 'KeyP' || c === 'KeyU' || c === 'KeyJ')))) e.preventDefault(); // no reload / print / source / downloads in the app
+    if (isApp && ctrl && (c === 'Equal' || c === 'NumpadAdd' || c === 'Minus' || c === 'NumpadSubtract' || c === 'Digit0' || c === 'Numpad0')) {
+      e.preventDefault(); const z = appZoom(c === 'Digit0' || c === 'Numpad0' ? 0 : c === 'Minus' || c === 'NumpadSubtract' ? -0.1 : 0.1); toast(`Масштаб интерфейса: ${Math.round(z * 100)}% (Ctrl+0 — 100%)`, 'ok');
+    }
+  }, true);
+  document.addEventListener('keyup', e => { if (e.key === 'Alt') e.preventDefault(); }, true);
+  document.addEventListener('mousedown', e => { if (e.button === 1 && (e.target as Element).closest?.('canvas')) e.preventDefault(); }); // no autoscroll on the wave
   document.addEventListener('keydown', e => { // Ctrl+K = command palette, from anywhere
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyK') { e.preventDefault(); if (S.palette) { S.palette = null; emit(); } else import('./ui/Palette.tsx').then(m => m.openPalette()); }
   });

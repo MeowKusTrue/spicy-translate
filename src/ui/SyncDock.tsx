@@ -30,10 +30,14 @@ function wordInfo() {
   return q && q.a != null && q.b != null ? `${fmtTime(q.a)} → ${fmtTime(q.b)} (${Math.round((q.b - q.a) * 1000)} мс)${q.g ? ' · авто' : ''}${q.b - q.a >= 1 ? ' · ✦ долгое' : ''}` : '';
 }
 
+const CHIPS = [['big', 'Aa', 'Слова крупно: текущая строка и соседние'], ['small', 'a', 'Слова мелко: только текущая строка'], ['off', '✕', 'Скрыть слова — волне больше места']] as const;
+export function setChips(m: typeof S.chips) { S.chips = m; ls.set('chips', m); emit(); requestAnimationFrame(() => drawWave()); }
+const ChipsMode = () => <span className="tseg chipsm" title="Слова под волной">{CHIPS.map(([m, t, h]) => <button key={m} className={S.chips === m ? 'on' : ''} title={h} onClick={() => setChips(m)}>{t}</button>)}</span>;
+
 function Chips() {
   if (!S.lines.length) return <div className="keys">Загрузи трек и аудио (♪), затем жми F / G / H в такт слову.</div>;
-  const ci = S.sel ? S.sel.i : 0, rows = [];
-  for (let i = Math.max(0, ci - 1); i <= Math.min(S.lines.length - 1, ci + 2); i++) {
+  const ci = S.sel ? S.sel.i : 0, rows = [], few = S.chips === 'small';
+  for (let i = few ? ci : Math.max(0, ci - 1); i <= Math.min(S.lines.length - 1, few ? ci : ci + 2); i++) {
     const ws = wordsOf(i, S.layer), us = units(layerText(S.lines[i], S.layer)), vw = viewWords(i, S.layer), sy = S.lines[i].sync && S.lines[i].sync![S.layer];
     rows.push(<div key={i} className={'sl' + (i === ci ? ' cur' : '')}>
       <span className="lab">{mmss(S.lines[i].t)}</span>
@@ -103,7 +107,7 @@ export function SyncDock() {
     <canvas id="mini" ref={mini} title="Вся песня: клик/тяни — показать это место, 2× — играть отсюда. Зелёное — размечено, жёлтое — частично, розовое — отдельные бэки"></canvas>
     <canvas id="wave" ref={cv}></canvas>
     <div id="waveTip" className="wtip" hidden></div>
-    <div className="sync-lines" id="syncLines"><Chips /></div>
+    <div className={'sync-lines ' + S.chips} id="syncLines">{S.chips !== 'off' && <Chips />}<ChipsMode /></div>
     <div className="actions" id="wordBar">
       <span className="grp"><button className="sm ic" id="wbPrev" title="Предыдущее слово (A)" onClick={() => stepWord(-1)}>‹</button><button className="sm ic" id="wbNext" title="Следующее слово (D)" onClick={() => stepWord(1)}>›</button></span>
       <span className="grp marks">

@@ -72,6 +72,7 @@ export async function restoreSnap(s: Snap) {
   status('st1', `Вернул снимок «${s.title || 'без названия'}» от ${new Date(s.at).toLocaleString()}. Предыдущее состояние тоже в снимках.`, 'ok');
 }
 export async function idbPut(k: string, blob: Blob | null) { if (!k || !blob || blob.size > 120e6) return; try { const db = await idb(); db.transaction('audio', 'readwrite').objectStore('audio').put(blob, k); } catch {} }
+export async function idbDel(k: string) { try { const db = await idb(); db.transaction('audio', 'readwrite').objectStore('audio').delete(k); } catch {} }
 export async function idbGet(k: string): Promise<Blob | null> { if (!k) return null; try { const db = await idb(); return await new Promise(res => { const r = db.transaction('audio').objectStore('audio').get(k); r.onsuccess = () => res(r.result || null); r.onerror = () => res(null); }); } catch { return null; } }
 
 export function projectJSON() {
