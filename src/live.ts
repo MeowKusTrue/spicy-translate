@@ -1,14 +1,17 @@
 // Live link to the local server / MCP: GET/PUT /api/project, poll every 1.5 s.
 import { S, emit, toast } from './state.ts';
+import { isApp } from './desktop.ts';
 import { W } from './waveform/wave.ts';
 import { idbGet, loadProject, projectJSON, snapshot, trackKey } from './persist.ts';
 import { loadAudioFile } from './load.ts';
 
+// in the desktop app the server is the app's own (or a running MCP server it found): say «сервер», not «MCP»
+const OK = isApp ? 'сервер ✓' : 'MCP: связь ✓', BAD = isApp ? 'нет связи с сервером' : 'MCP: нет связи';
 export const LIVE = { on: false, rev: -1, applying: false };
 function livePill(ok: boolean, msg: string) { S.live = { msg, cls: ok ? 'ok' : 'warn' }; emit(); }
 export function pushLive() {
   if (!LIVE.on || LIVE.applying) return;
-  fetch('/api/project', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: projectJSON() }).then(r => r.json()).then(j => { LIVE.rev = j.rev; livePill(true, 'MCP: связь ✓'); }).catch(() => livePill(false, 'MCP: нет связи'));
+  fetch('/api/project', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: projectJSON() }).then(r => r.json()).then(j => { LIVE.rev = j.rev; livePill(true, OK); }).catch(() => livePill(false, BAD));
 }
 type Proj = { meta?: { title?: string; artist?: string }; lines?: { text: string }[] } | null;
 const name = (p: Proj) => [p?.meta?.artist, p?.meta?.title].filter(Boolean).join(' — ') || 'без названия';
@@ -31,8 +34,8 @@ async function livePoll() {
         if (otherSong(j.project) && !confirm(`Агент (MCP) открыл другой проект: «${name(j.project)}». Заменить им «${name({ meta: S.meta })}»? (текущий сохранится в снимках)`)) { snapshot('проект агента (не открыт)', JSON.stringify(j.project)); return; }
         applyLive(j); toast('Агент (MCP) обновил проект. Прошлое состояние — в снимках («Трек» → История).', 'ok');
       } }
-    livePill(true, 'MCP: связь ✓');
-  } catch { if (LIVE.on) livePill(false, 'MCP: нет связи'); }
+    livePill(true, OK);
+  } catch { if (LIVE.on) livePill(false, BAD); }
 }
 export async function liveInit() {
   if (!/^https?:$/.test(location.protocol)) return;
@@ -43,6 +46,6 @@ export async function liveInit() {
         snapshot('проект с сервера (не открыт)', JSON.stringify(j.project)); pushLive();
       } else applyLive(j);
     } else if (S.lines.length) pushLive();
-    livePill(true, 'MCP: связь ✓'); setInterval(livePoll, 1500);
+    livePill(true, OK); setInterval(livePoll, 1500);
   } catch {}
 }

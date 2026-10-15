@@ -21,7 +21,7 @@ export function doUndo() { if (!S.undo.length) return; S.redo.push(stateJSON());
 export function doRedo() { if (!S.redo.length) return; S.undo.push(stateJSON()); restore(S.redo.pop()!); }
 /** background-only lines follow their words; lines stay ordered by start, the selection follows its line */
 export function fitLines() {
-  const r = fitAndSort(S.lines, S.sel ? S.lines[S.sel.i] : null); if (!r.moved) return false;
+  const r = fitAndSort(S.lines, S.sel ? S.lines[S.sel.i] : null, S.autoFit ? { a: S.fitPad.a / 1000, b: S.fitPad.b / 1000 } : null); if (!r.moved) return false;
   if (S.sel) S.sel.i = r.at; S.picked.clear(); buildPreview(true); return true;
 }
 export function afterSyncChange(all: boolean, i = 0) {

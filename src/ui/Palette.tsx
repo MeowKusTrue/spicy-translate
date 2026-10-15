@@ -2,12 +2,12 @@
 import { S, emit, isBg, isTr, mkLayer } from '../state.ts';
 import { PAGES, setLoop, setPage, setSnap } from '../hotkeys.ts';
 import { doRedo, doUndo, resetLine, setLayer, spreadAll, spreadSelLine, syllabifyLine } from '../sync.ts';
-import { addBgHere, addLineHere, bracketsToBg, copyLines, copyTiming, fillRepeats, pasteLines, pasteTimingHere, repeatChorus, shiftLines } from '../lineEdit.ts';
+import { addBgHere, addLineHere, bracketsToBg, copyLines, copyTiming, fillRepeats, fitLines, setAutoFit, pasteLines, pasteTimingHere, repeatChorus, shiftLines } from '../lineEdit.ts';
 import { autoTranslate, copyPrompt, llmTranslate } from '../translate.ts';
 import { copyTTML, download, runQa, saveLRC, saveProjectFile, saveSRT } from '../exporting.ts';
 import { snapshot } from '../persist.ts';
 import { centerOnSel } from '../waveform/wave.ts';
-import { autoAlign } from '../autoAlign.ts';
+import { autoAlign, openAlignPanel } from '../autoAlign.ts';
 
 type Cmd = [title: string, keys: string, run: () => unknown];
 const cmds = (): Cmd[] => [
@@ -28,12 +28,16 @@ const cmds = (): Cmd[] => [
   ['Вставить тайминг в выделенные строки', 'Ctrl+Shift+V', pasteTimingHere],
   ['Тайминг строки → на повторы (припев)', 'C', repeatChorus],
   ['Авто-тайминг нейросетью (черновик)', '', autoAlign],
+  ['Авто-тайминг: установка, видеокарта, удаление', '', openAlignPanel],
   ['Дорожка: основа ↔ бэк', 'B', () => setLayer(mkLayer(!isBg(S.layer), isTr(S.layer)))],
   ['Размечать: перевод ↔ оригинал', 'T', () => setLayer(mkLayer(isBg(S.layer), !isTr(S.layer)))],
   ['Раскидать слова строки ровно', '', spreadSelLine],
   ['Раскидать все неразмеченные строки', '', spreadAll],
   ['Разбить строку на слоги', '', syllabifyLine],
   ['Сбросить разметку строки', '', resetLine],
+  ['Подогнать начало и конец строки под слова', '', () => fitLines(S.sel?.i)],
+  ['Подогнать все строки под их слова', '', () => fitLines()],
+  [S.autoFit ? 'Строки сами по словам: выключить' : 'Строки сами по словам: включить', '', () => setAutoFit(!S.autoFit)],
   [`Сдвинуть строки после курсора на +${S.shiftMs} мс`, '', () => shiftLines(S.shiftMs)],
   [`Сдвинуть строки после курсора на −${S.shiftMs} мс`, '', () => shiftLines(-S.shiftMs)],
   ['Вписать строку в волну', '', centerOnSel],

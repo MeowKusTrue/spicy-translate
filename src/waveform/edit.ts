@@ -3,17 +3,17 @@
 // Two word lanes (main track, background vocals): clicking the other lane switches to it. The lines band at the
 // bottom drags a whole line (all its words on every track). Double click edits text in place.
 import { S, clamp, conf, emit, ensureSync, isBg, isTr, ls, mkLayer, r3, spreadLine, wordsOf } from '../state.ts';
-import { moveEdge, moveWord, nearest, seqWords as coreSeq, shiftLine, snapSpan, startEdge, startMove, type Layer, type Seq, type WordSync } from '../core/index.ts';
+import { lineEdgeAt, moveEdge, moveLineEdge, moveWord, nearest, seqWords as coreSeq, shiftLine, snapSpan, startEdge, startMove, type Layer, type Seq, type WordSync } from '../core/index.ts';
 import { now, playWord, seekTo } from '../audio.ts';
 import { buildPreview, refreshPreviewLine } from '../preview.ts';
 import { scheduleSave } from '../persist.ts';
 import { fitLines, selectWord, setLayer, snap, stepSel } from '../sync.ts';
-import { clearTiming, closeEdit, copyTiming, delLine, dropCopies, dropTimingOnto, duplicateLine, editing, focusRow, newLineEdit, openEdit, pasteTimingHere } from '../lineEdit.ts';
+import { clearTiming, fitLines as fitToWords, closeEdit, copyTiming, delLine, dropCopies, dropTimingOnto, duplicateLine, editing, focusRow, newLineEdit, openEdit, pasteTimingHere } from '../lineEdit.ts';
 import { JOIN, LANES, LANES_DEF, W, drawWave, waveOnsets, laneLayer, laneY, lineAt, songLen, zoomAt, type Box, type Lane } from './wave.ts';
 import { fmtTime, plainW } from '../core/index.ts';
 
 type Hit = { type: 'edge'; t: number; lane: Lane; d: number; b: Box; edge: 'a' | 'b' } | { type: 'word'; t: number; lane: Lane; b: Box }
-  | { type: 'lane'; t: number; lane: Lane; b?: undefined } | { type: 'split'; t: number; which: 'm' | 'b' | 'l'; lane?: undefined; b?: undefined } | { type: 'wave'; t: number; lane?: undefined; b?: undefined } | { type: 'band'; t: number; i: number; lane?: undefined; b?: undefined };
+  | { type: 'lane'; t: number; lane: Lane; b?: undefined } | { type: 'split'; t: number; which: 'm' | 'b' | 'l'; lane?: undefined; b?: undefined } | { type: 'wave'; t: number; lane?: undefined; b?: undefined } | { type: 'band'; t: number; i: number; lane?: undefined; b?: undefined } | { type: 'ledge'; t: number; i: number; edge: 'a' | 'b'; lane?: undefined; b?: undefined };
 
 function waveHit(mx: number, my: number): Hit {
   const t = W.start + mx / W.px, tol = 9 / W.px, G = W.G;
@@ -23,6 +23,7 @@ function waveHit(mx: number, my: number): Hit {
   if (Math.abs(my - (G.lY - 1)) <= 3) return { type: 'split', t, which: 'l' };
   if (my >= G.lY - 1 && my <= G.lY + G.lH + 1) { // the line in that band row
     const row = clamp(Math.floor((my - G.lY) / (G.lH / W.nr)), 0, W.nr - 1);
+    const le = lineEdgeAt(S.lines, t, 6 / W.px, W.rows, row); if (le) return { type: 'ledge', t, i: le.i, edge: le.edge }; // an end of a line: drag = longer / shorter
     let i = -1; S.lines.forEach((l, k) => { if (W.rows[k] === row && t >= l.t && t <= l.end) i = k; });
     return { type: 'band', t, i };
   }
@@ -60,7 +61,8 @@ function tip(e: MouseEvent, h: Hit | null) {
     } else if (h.type === 'band' && h.i >= 0) {
       const l = S.lines[h.i];
       html = `<b>${esc(plainW(l.text) || '♪ ' + plainW(l.bg?.text || l.bg?.tr || 'бэк'))}</b> ${fmtTime(l.t)}–${fmtTime(l.end)}<br><small>тащи — сдвинуть · Alt+тащи — копия, а на другую строку — её тайминг · ПКМ — меню · 2× — в список</small>`;
-    } else if (h.type === 'split') html = '<small>тяни — выше / ниже · 2× — как было</small>';
+    } else if (h.type === 'ledge') { const l = S.lines[h.i]; html = `<b>${h.edge === 'a' ? 'начало' : 'конец'} строки</b> ${fmtTime(h.edge === 'a' ? l.t : l.end)}<br><small>тяни — длиннее / короче (липнет к словам) · 2× — подогнать под слова</small>`; }
+    else if (h.type === 'split') html = '<small>тяни — выше / ниже · 2× — как было</small>';
     else if (h.type === 'lane') html = `<small>2× — ${lineAt(h.t) >= 0 ? 'вписать текст строки' : 'новая строка'} на дорожке «${h.lane === 'bg' ? 'бэк' : 'основа'}» · Shift+тащи — выбрать рамкой</small>`;
   }
   el.hidden = !html; if (!html) return;
@@ -77,6 +79,7 @@ function lineMenu(e: MouseEvent, i: number) {
   const h = document.createElement('small'); h.textContent = `строка ${i + 1}: ${plainW(S.lines[i].text || S.lines[i].bg?.text || 'бэк')}`; m.appendChild(h);
   item('⧉ Копировать тайминг строки', () => { sel(); copyTiming(); });
   item('⧉ Вставить тайминг сюда', () => { sel(); pasteTimingHere(); });
+  item('⇔ Подогнать строку под слова', () => fitToWords(i), !S.lines[i].sync);
   item('⌫ Очистить тайминг (освободить)', () => clearTiming(i), !S.lines[i].sync);
   item('⎘ Дублировать строку', () => duplicateLine(i));
   item('✎ К строке в списке', () => focusRow(i, isTr(S.layer) ? 'input.tr' : 'input.o'));
@@ -101,10 +104,11 @@ export function setupWave(cv: HTMLCanvasElement) {
   cv.onmousedown = e => {
     const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top, h = waveHit(mx, my);
     W.ctrl = e.ctrlKey || e.metaKey;
-    if (e.button === 2) { if (h.b) playWord({ a: h.b.a, b: h.b.b }); else if (h.type === 'band' && h.i >= 0) lineMenu(e, h.i); return; }
+    if (e.button === 2) { if (h.b) playWord({ a: h.b.a, b: h.b.b }); else if ((h.type === 'band' || h.type === 'ledge') && h.i >= 0) lineMenu(e, h.i); return; }
     lineMenu(e, -1);
     if (editing()) closeEdit(true);
     if (h.type === 'split') { W.drag = { type: 'split', which: h.which, y0: my, v0: { m: W.G.mH, b: W.G.bH, l: W.G.lH }[h.which] }; return; }
+    if (h.type === 'ledge' && !e.altKey) { snap(); S.sel = { i: h.i, k: 0 }; W.drag = { type: 'ledge', l: S.lines[h.i], i: h.i, edge: h.edge, cands: buildCands(new Set()) }; return; }
     // Shift: click a word = add/remove it from the pick, drag on empty space = pick words with a box
     if (e.shiftKey && h.b) { const m = W.multi, x = m.findIndex(q => q.i === h.b!.i && q.k === h.b!.k && q.layer === h.b!.layer); if (x >= 0) m.splice(x, 1); else m.push({ i: h.b.i, k: h.b.k, layer: h.b.layer }); drawWave(); return; }
     if (e.shiftKey && !h.b && h.type !== 'band') { W.pend = { type: 'box', x0: mx, y0: my }; return; }
@@ -164,6 +168,7 @@ export function setupWave(cv: HTMLCanvasElement) {
     if (d) {
       if (d.type === 'pan') { W.start = Math.max(0, d.start0 - (mx - d.x0) / W.px); cv.style.cursor = 'grabbing'; return; }
       const traw = tAt(mx);
+      if (d.type === 'ledge') { moveLineEdge(d.l, d.edge, snapOne(traw, d.cands.filter((c: number) => c !== (d.edge === 'a' ? d.l.t : d.l.end)))); cv.style.cursor = 'ew-resize'; refreshPreviewLine(S.lines.indexOf(d.l)); drawWave(); return; }
       if (d.type === 'split') { LANES[d.which as 'm'] = Math.round(d.v0 + (d.which === 'l' ? -1 : 1) * (my - d.y0)); cv.style.cursor = 'row-resize'; drawWave(); return; }
       if (d.type === 'box') { d.x1 = mx; d.y1 = my; drawWave(); return; }
       if (d.type === 'mmove' || d.type === 'mcopy') { // the first word of the pick snaps, the rest keep their spacing
@@ -197,7 +202,7 @@ export function setupWave(cv: HTMLCanvasElement) {
       refreshPreviewLine(d.i); return;
     }
     if (mx >= 0 && mx <= r.width && my >= 0 && my <= r.height) {
-      const h = waveHit(mx, my); cv.style.cursor = h.type === 'split' ? 'row-resize' : e.altKey && (h.b || (h.type === 'band' && h.i >= 0)) ? 'copy' : h.type === 'edge' ? 'ew-resize' : h.type === 'word' ? 'grab' : h.type === 'lane' && laneLayer(h.lane) === S.layer && S.sel ? 'crosshair' : h.type === 'band' && h.i >= 0 ? 'move' : 'default';
+      const h = waveHit(mx, my); cv.style.cursor = h.type === 'split' ? 'row-resize' : h.type === 'ledge' ? 'ew-resize' : e.altKey && (h.b || (h.type === 'band' && h.i >= 0)) ? 'copy' : h.type === 'edge' ? 'ew-resize' : h.type === 'word' ? 'grab' : h.type === 'lane' && laneLayer(h.lane) === S.layer && S.sel ? 'crosshair' : h.type === 'band' && h.i >= 0 ? 'move' : 'default';
       tip(e, h);
     } else tip(e, null);
   };
@@ -224,6 +229,7 @@ export function setupWave(cv: HTMLCanvasElement) {
         const onto = S.lines[d.onto]; S.lines.splice(S.lines.indexOf(d.l), 1);
         return dropTimingOnto(d.l, S.lines.indexOf(onto), d.l.t);
       }
+      if (d.type === 'ledge') { const sl = S.sel ? S.lines[S.sel.i] : null; S.lines.sort((x, y) => x.t - y.t); if (sl && S.sel) S.sel.i = S.lines.indexOf(sl); buildPreview(true); }
       if (d.type === 'line') { // keep lines ordered by start; the selection follows its line
         const sl = S.sel ? S.lines[S.sel.i] : null; S.lines.sort((x, y) => x.t - y.t);
         if (sl && S.sel) S.sel.i = S.lines.indexOf(sl); S.picked.clear(); buildPreview(true);
@@ -243,6 +249,7 @@ export function setupWave(cv: HTMLCanvasElement) {
     if (h.b) { setLayer(h.b.layer); S.sel = { i: h.b.i, k: h.b.k }; return openEdit(h.b.i, h.b.layer, h.b.k); }
     if (h.type === 'band') return h.i >= 0 ? focusRow(h.i, isTr(S.layer) ? 'input.tr' : 'input.o') : newLineEdit(h.t, mkLayer(false, isTr(S.layer)));
     if (h.type === 'wave') return;
+    if (h.type === 'ledge') return fitToWords(h.i); // double click on an end of a line = fit it to its words
     const layer = laneLayer(h.lane), i = lineAt(h.t);
     if (i < 0) return newLineEdit(h.t, layer);
     setLayer(layer); selectWord(i, 0); openEdit(i, layer);

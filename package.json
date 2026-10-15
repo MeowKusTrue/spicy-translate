@@ -10,7 +10,10 @@
     "mcp": "node server/index.ts",
     "test": "vitest run",
     "e2e": "vite build && playwright test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "desktop:server": "node desktop/build-server.mjs",
+    "desktop:dev": "npm run build && npm run desktop:server && cd desktop && tauri dev",
+    "desktop:build": "npm run build && npm run desktop:server && cd desktop && tauri build"
   },
   "dependencies": {
     "react": "^19.3.0",
@@ -18,9 +21,12 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",
+    "@tauri-apps/cli": "^2.12.3",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "esbuild": "^0.28.2",
+    "postject": "^1.0.0-alpha.6",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
     "vite-plugin-singlefile": "^2.3.3",

@@ -6,8 +6,8 @@ import { playWord } from '../audio.ts';
 import { dockMouseDown, setLoop, setSnap, toggleDock } from '../hotkeys.ts';
 import { setupGrip } from '../dockSize.ts';
 import { setAgent } from '../agents.ts';
-import { copyTiming, pasteTimingHere, repeatChorus, shiftLines } from '../lineEdit.ts';
-import { alignLabel, autoAlign } from '../autoAlign.ts';
+import { copyTiming, fitLines, pasteTimingHere, repeatChorus, setAutoFit, setFitPad, shiftLines } from '../lineEdit.ts';
+import { DEVICES, alignLabel, alignPct, autoAlign, openAlignPanel, setupLabel } from '../autoAlign.ts';
 import { W } from '../waveform/wave.ts';
 import {
   clearLayer, doRedo, doUndo, joinWords, mark, nudgeWord, playSel, resetLine, resetWord, selectWord, setLayer,
@@ -76,7 +76,8 @@ export function SyncDock() {
         <button className={isBg(S.layer) ? '' : 'on'} id="segMain" onClick={() => setLayer(mkLayer(false, isTr(S.layer)))}>Основа</button>
         <button className={isBg(S.layer) ? 'on bg' : ''} id="segBg" onClick={() => setLayer(mkLayer(true, isTr(S.layer)))}>Бэк</button>
       </span>
-      <button className={'sm' + (S.align ? ' busy' : '')} id="btnAutoAlign" disabled={!!S.align} title="Нейросеть расставит слова оригинала и бэка по аудио (черновик пунктиром; размеченное вручную не трогает). Нужен локальный сервер и Python-прототип." onClick={autoAlign}>{S.align ? '⏳ ' + alignLabel() : '✨ Авто-тайминг'}</button>
+      <button className={'sm' + (S.align || S.setup ? ' busy' : '')} id="btnAutoAlign" disabled={!!S.align || !!S.setup} title="Нейросеть расставит слова оригинала и бэка по аудио (черновик пунктиром; размеченное вручную не трогает). Нужен локальный сервер и Python-прототип." onClick={autoAlign}>{S.setup ? '⬇ ' + setupLabel() : S.align ? '⏳ ' + alignLabel() : '✨ Авто-тайминг'}</button>
+      <button className="sm ic" id="btnAlignPanel" title="Авто-тайминг: видеокарта, установка, удаление" onClick={openAlignPanel}>⋯</button>
       {W.vpeaks && <span className="tseg" title="Волна по всему миксу или по вырезанному голосу"><button className={S.waveVoice ? '' : 'on'} onClick={() => { S.waveVoice = false; emit(); drawWave(); }}>микс</button><button className={S.waveVoice ? 'on' : ''} onClick={() => { S.waveVoice = true; emit(); drawWave(); }}>голос</button></span>}
       <span className="hint-line" id="guideTxt"><Guide /></span>
       <small id="dockMsg" className={S.toast.cls}>{S.toast.msg}</small><span className={'kbd' + (S.typing ? ' warn' : '')} id="kbd">{S.typing ? '⌨ клавиши выключены — кликни по волне' : ''}</span>
@@ -87,6 +88,8 @@ export function SyncDock() {
           <label className="opt"><span>Реакция, мс<small>вычитается из момента нажатия</small></span><input type="number" id="lat" defaultValue={S.lat} step="10" min="0" max="500" onChange={e => { S.lat = +e.target.value || 0; ls.set('lat', e.target.value); }} /></label>
           <label className="opt"><span>Магнит <kbd>N</kbd><small>края прилипают при перетаскивании</small></span><input type="checkbox" id="snapChk" checked={S.snap} onChange={e => setSnap(e.target.checked)} /></label>
           <label className="opt"><span>…и к атакам звука<small>начала нот на волне (метки внизу волны)</small></span><input type="checkbox" id="onsetChk" checked={S.onsetSnap} onChange={e => { S.onsetSnap = e.target.checked; ls.set('onsetSnap', S.onsetSnap ? '1' : '0'); emit(); }} /></label>
+          <label className="opt"><span>Строки сами по словам<small>начало и конец строки следуют за её размеченными словами</small></span><input type="checkbox" id="autoFitChk" checked={S.autoFit} onChange={e => setAutoFit(e.target.checked)} /></label>
+          <div className="opt"><span>Запас строки, мс<small>до первого / после последнего слова; минус — короче слов</small></span><span className="row"><input type="number" id="padA" step="50" value={S.fitPad.a} onChange={e => setFitPad('a', +e.target.value || 0)} style={{ width: 70 }} /><input type="number" id="padB" step="50" value={S.fitPad.b} onChange={e => setFitPad('b', +e.target.value || 0)} style={{ width: 70 }} /></span></div>
           <div className="opt"><span>Сдвиг строк<small>со всеми словами; LRC от другой версии трека</small></span><span className="row"><input type="number" id="shiftMs" step="50" value={S.shiftMs} onChange={e => { S.shiftMs = +e.target.value || 0; emit(); }} style={{ width: 76 }} /><small>мс</small></span></div>
           <span className="row"><button className="sm" id="btnShiftAfter" title="Строки, начинающиеся после курсора воспроизведения" onClick={() => shiftLines(S.shiftMs)}>→ после курсора</button><button className="sm" id="btnShiftAll" onClick={() => shiftLines(S.shiftMs, true)}>→ вся песня</button></span>
           <button className={'sm' + (S.loop ? ' pri' : '')} id="btnLoop" title="L" onClick={() => setLoop(!S.loop)}>{S.loop ? '🔁 Кручу строку (L)' : '🔁 Крутить строку по кругу (L)'}</button>
@@ -96,6 +99,7 @@ export function SyncDock() {
       <button className="sm" id="btnHelp" title="Как размечать" onClick={() => { S.help = !S.help; emit(); }}>?</button>
       <button className="sm" id="btnDockClose" title="Закрыть" onClick={() => toggleDock(false)}>✕</button>
     </div>
+    {(S.align || S.setup) && <div className="runbar" title={S.align ? `Авто-тайминг: ${alignLabel()}${S.align.device ? ' · ' + (DEVICES[S.align.device] || S.align.device) : ''}` : 'Установка авто-тайминга: ' + setupLabel()}><i style={{ width: (S.align ? alignPct() : S.setup!.pct) + '%' }} /></div>}
     <canvas id="mini" ref={mini} title="Вся песня: клик/тяни — показать это место, 2× — играть отсюда. Зелёное — размечено, жёлтое — частично, розовое — отдельные бэки"></canvas>
     <canvas id="wave" ref={cv}></canvas>
     <div id="waveTip" className="wtip" hidden></div>
@@ -127,6 +131,8 @@ export function SyncDock() {
             <button className="sm" id="btnCopyTiming" title="Ctrl+Shift+C — запомнить, как размечены слова этой строки" onClick={copyTiming}>⧉ Копировать тайминг строки</button>
             <button className="sm" id="btnPasteTiming" title="Ctrl+Shift+V — на выделенные строки (или строку выбранного слова); разное число слов — ритм растягивается" onClick={pasteTimingHere}>⧉ Вставить тайминг в строку</button>
             <button className="sm" id="btnChorus" title="C — та же разметка слов на все строки с таким же текстом (припев), со сдвигом по началу строки" onClick={repeatChorus}>⧉ Тайминг строки → на повторы (C)</button>
+            <button className="sm" id="btnFitLine" title="Начало и конец строки = её размеченные слова (полоса строк под волной). Края строки можно и тянуть мышью." onClick={() => fitLines(S.sel?.i)}>⇔ Подогнать строку под слова</button>
+            <button className="sm" id="btnFitAll" onClick={() => fitLines()}>⇔ Подогнать все строки под слова</button>
             <button className="sm" id="btnLineSpread" onClick={spreadSelLine}>↔ Раскидать слова строки ровно</button>
             <button className="sm" id="btnAllSpread" onClick={spreadAll}>↔ Раскидать все неразмеченные строки</button>
             <button className="sm" id="btnLineReset" onClick={resetLine}>⌫ Сбросить строку</button>

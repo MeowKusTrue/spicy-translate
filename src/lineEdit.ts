@@ -1,7 +1,7 @@
 // Editing texts and lines: the list inputs, the inline editor on the wave (double click / E), adding and removing
 // lines (own words, background vocals with no lead line), "(…)" -> background vocals. bg = bg translation, bgo = bg original.
-import { alignRows, findAll, fmtTime, insertLine, lineFromWords, lineRow, pasteTiming, repeatTranslations, timingOf, transferTiming, parensToBg, parseRow, plainW, remapSync, repeatTiming, replaceUnit, sameLines, shiftLine, type Layer, type Line } from './core/index.ts';
-import { S, clamp, emit, fillLine, isBg, isTr, layerText, lineState, r3, setText, toast, viewWords, wordsOf } from './state.ts';
+import { alignRows, findAll, fmtTime, insertLine, lineFromWords, lineRow, fitLineToWords, fitsWords, pasteTiming, repeatTranslations, timingOf, transferTiming, parensToBg, parseRow, plainW, remapSync, repeatTiming, replaceUnit, sameLines, shiftLine, type Layer, type Line } from './core/index.ts';
+import { S, clamp, emit, ls, fillLine, isBg, isTr, layerText, lineState, r3, setText, toast, viewWords, wordsOf } from './state.ts';
 import { now } from './audio.ts';
 import { buildPreview } from './preview.ts';
 import { scheduleSave } from './persist.ts';
@@ -286,3 +286,21 @@ export function fillRepeats(from?: number) {
   snap(); const n = repeatTranslations(S.lines, from).length;
   after(); toast(`Перевод подставлен в повторы той же строки: ${n}. Ctrl+Z — отмена.`, 'ok');
 }
+
+/** a line's start / end = its timed words (one line, or every line when i is omitted) */
+export function fitLines(i?: number) {
+  const ids = i != null ? [i] : S.lines.map((_, k) => k);
+  snap(); let n = 0;
+  for (const k of ids) { const l = S.lines[k], t = l.t, e = l.end; if (fitLineToWords(l, { a: S.fitPad.a / 1000, b: S.fitPad.b / 1000 }) && (l.t !== t || l.end !== e)) n++; }
+  if (!n) { S.undo.pop(); return toast(i != null ? 'Строка уже по словам (или в ней нет размеченных слов).' : 'Все строки уже по словам.', 'ok'); }
+  const sl = S.sel ? S.lines[S.sel.i] : null; S.lines.sort((x, y) => x.t - y.t); if (sl && S.sel) S.sel.i = S.lines.indexOf(sl);
+  afterLines(); toast(`Строк подогнано под слова: ${n}. Ctrl+Z — отмена.`, 'ok');
+}
+
+/** «Строки сами по словам»: from now on every line with a fully timed track follows its words (with the slack) */
+export function setAutoFit(on: boolean) {
+  S.autoFit = on; ls.set('autoFit', on ? '1' : '0');
+  if (on) { snap(); const n = S.lines.filter(fitsWords).length; afterSyncChange(true); afterLines(); toast(`Строки следуют за своими словами (сейчас размечено строк: ${n}). Ctrl+Z — отменить подгонку.`, 'ok'); }
+  else { emit(); toast('Автоподгонка строк выключена — края строк остаются, где их оставили.', 'ok'); }
+}
+export function setFitPad(k: 'a' | 'b', ms: number) { S.fitPad = { ...S.fitPad, [k]: ms }; ls.set('fitPad', JSON.stringify(S.fitPad)); if (S.autoFit) afterSyncChange(true); else emit(); }

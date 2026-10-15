@@ -6,6 +6,8 @@ import { SyncDock } from './SyncDock.tsx';
 import { HelpModal } from './HelpModal.tsx';
 import { Drop } from './Drop.tsx';
 import { Palette, openPalette } from './Palette.tsx';
+import { AlignPanel } from './AlignPanel.tsx';
+import { isApp, winClose, winMax, winMin } from '../desktop.ts';
 
 export function stepInfo() {
   const n = S.lines.length, tr = S.lines.filter(l => l.tr && l.tr.trim()).length;
@@ -45,14 +47,15 @@ function Page() {
 export function App() {
   useS();
   return <>
-    <header>
-      <div className="logo">S</div>
-      <div className="brand"><h1>Spicy Translate</h1><span>синхронный перевод для Spicy Lyrics · TTML</span></div>
+    <header data-tauri-drag-region={isApp || undefined}>
+      <div className="logo" data-tauri-drag-region={isApp || undefined}>S</div>
+      <div className="brand" data-tauri-drag-region={isApp || undefined}><h1 data-tauri-drag-region={isApp || undefined}>Spicy Translate</h1><span data-tauri-drag-region={isApp || undefined}>синхронный перевод для Spicy Lyrics · TTML</span></div>
       <Nav />
-      <div style={{ flex: 1 }}></div>
+      <div style={{ flex: 1, alignSelf: 'stretch' }} data-tauri-drag-region={isApp || undefined}></div>
       <button className="sm palbtn" id="btnPalette" title="Все действия с поиском" onClick={openPalette}>⌘ <kbd>Ctrl+K</kbd></button>
       <span className={'pill ' + (S.live?.cls || '')} id="liveLink" title="Связь с локальным сервером / MCP" hidden={!S.live}>{S.live?.msg}</span>
       <span className={'pill ' + S.save.cls} id="saveInd" title="Проект сохраняется автоматически в браузере">{S.save.msg}</span>
+      {isApp && <WinButtons />}
     </header>
     <main className={'page-' + S.page}>
       <div className="col" key={S.page}><Page /></div>
@@ -61,6 +64,17 @@ export function App() {
     <SyncDock />
     <HelpModal />
     <Palette />
+    <AlignPanel />
     <Drop />
   </>;
+}
+
+/** the desktop app has no system frame: minimize / maximize / close live in our title bar */
+function WinButtons() {
+  const ico = (d: string) => <svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d={d} fill="none" stroke="currentColor" strokeWidth="1" /></svg>;
+  return <div className="winctl">
+    <button title="Свернуть" onClick={winMin}>{ico('M0 5.5h10')}</button>
+    <button title={S.maxed ? 'Восстановить' : 'Развернуть'} onClick={winMax}>{S.maxed ? ico('M2.5 .5h7v7M.5 2.5h7v7h-7z') : ico('M.5 .5h9v9h-9z')}</button>
+    <button className="x" title="Закрыть" onClick={winClose}>{ico('M0 0l10 10M10 0L0 10')}</button>
+  </div>;
 }

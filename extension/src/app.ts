@@ -1,7 +1,7 @@
 // Панель редактора поверх Spotify. Логика разметки — порт reference/index.html (секция app), часы — плеер Spotify вместо <audio>.
 import css from './style.css';
 import { importLyrics, liveLines } from './core.ts';
-import { JOIN, bandRows as coreBandRows, fitAndSort, lineAt as coreLineAt, moveEdge, moveWord, nearest, seqWords as coreSeq, snapSpan, startEdge, startMove, alignRows, buildTTML, entriesToLines, fitBgOnly, fmtTime, getWords, insertLine, lineFromWords, lineRow, parensToBg, parseRow, shiftLine, parseLRC, parsePlain, plainW, qaCheck, remapSync, replaceUnit, splitWords, syllabify, syncComplete, units, unitsText, wordList,
+import { JOIN, bandRows as coreBandRows, fitAndSort, fitLineToWords, lineEdgeAt, moveLineEdge, lineAt as coreLineAt, moveEdge, moveWord, nearest, seqWords as coreSeq, snapSpan, startEdge, startMove, alignRows, buildTTML, entriesToLines, fitBgOnly, fmtTime, getWords, insertLine, lineFromWords, lineRow, parensToBg, parseRow, shiftLine, parseLRC, parsePlain, plainW, qaCheck, remapSync, replaceUnit, splitWords, syllabify, syncComplete, units, unitsText, wordList,
   type Line, type Mode, type Span, type TTMLOpts, type Word } from './core.ts';
 import { findLyrics, type TrackInfo } from './lrclib.ts';
 import { agentsByTime, readSpicyCache, spicyToLines } from './spicyCache.ts';
@@ -770,6 +770,7 @@ function waveHit(mx: number, my: number): any {
   const t = W.start + mx / W.px, tol = 9 / W.px, G = W.G;
   if (my >= G.lY - 2) { // the line in that band row
     const row = clamp(Math.floor((my - G.lY) / (G.lH / W.nr)), 0, W.nr - 1);
+    const le = lineEdgeAt(S.lines, t, 6 / W.px, W.rows, row); if (le) return { type: 'ledge', t, i: le.i, edge: le.edge };
     let i = -1; S.lines.forEach((l, k) => { if (W.rows[k] === row && t >= l.t && t <= l.end) i = k; });
     return { type: 'band', t, i };
   }
@@ -800,6 +801,7 @@ function setupWave() {
     W.ctrl = e.ctrlKey || e.metaKey;
     if (e.button === 2) { if (h.b) playWord({ a: h.b.a, b: h.b.b }); return; }
     if (WE.el) closeEdit(true);
+    if (h.type === 'ledge' && !e.altKey) { snap(); S.sel = { i: h.i, k: 0 }; W.drag = { type: 'ledge', l: S.lines[h.i], i: h.i, edge: h.edge, cands: buildCands(new Set()) }; return; }
     // clicking the other track switches to it (main <-> background vocals)
     const switched = !!h.lane && laneLayer(h.lane) !== S.layer;
     if (switched) setLayer(laneLayer(h.lane));
@@ -850,6 +852,7 @@ function setupWave() {
         d.a = r3(a); if (my < W.G.bY - 1) d.lane = 'main'; else if (my < W.G.lY - 2) d.lane = 'bg';
         cv.style.cursor = 'copy'; return;
       }
+      if (d.type === 'ledge') { moveLineEdge(d.l, d.edge, snapOne(traw, d.cands.filter((c: number) => c !== (d.edge === 'a' ? d.l.t : d.l.end)))); cv.style.cursor = 'ew-resize'; refreshPreviewLine(S.lines.indexOf(d.l)); return; }
       if (d.type === 'line') { const a = snapOne(d.o.t + traw - d.t0, d.cands); shiftLine(d.l, d.o, a - d.o.t); refreshPreviewLine(S.lines.indexOf(d.l)); return; }
       if (d.type === 'paint') {
         const t = snapOne(traw, d.cands), w = S.lines[d.i].sync![S.layer]![d.k]; w.a = Math.min(d.t0, t); w.b = Math.max(d.t0, t, w.a + 0.02); conf(w);
@@ -861,7 +864,7 @@ function setupWave() {
       }
       refreshPreviewLine(d.i); return;
     }
-    if (mx >= 0 && mx <= r.width && my >= 0 && my <= r.height) { const h = waveHit(mx, my); cv.style.cursor = e.altKey && (h.b || (h.type === 'band' && h.i >= 0)) ? 'copy' : h.type === 'edge' ? 'ew-resize' : h.type === 'word' ? 'grab' : h.type === 'lane' && laneLayer(h.lane) === S.layer && S.sel ? 'crosshair' : h.type === 'band' && h.i >= 0 ? 'move' : 'default'; }
+    if (mx >= 0 && mx <= r.width && my >= 0 && my <= r.height) { const h = waveHit(mx, my); cv.style.cursor = h.type === 'ledge' ? 'ew-resize' : e.altKey && (h.b || (h.type === 'band' && h.i >= 0)) ? 'copy' : h.type === 'edge' ? 'ew-resize' : h.type === 'word' ? 'grab' : h.type === 'lane' && laneLayer(h.lane) === S.layer && S.sel ? 'crosshair' : h.type === 'band' && h.i >= 0 ? 'move' : 'default'; }
   });
   window.addEventListener('mouseup', () => {
     if (W.pend) { if (W.pend.type === 'pan' || W.pend.type === 'paint' || W.pend.type === 'line') seekTo(W.pend.t0); W.pend = null; return; }
@@ -869,6 +872,7 @@ function setupWave() {
       const d = W.drag; W.drag = null; W.snapAt = null;
       if (d.type === 'wcopy') return dropCopy(laneLayer(d.lane), d.w, d.a, d.a + d.len);
       if (d.type === 'paint') { const n = stepSel(1); if (n) S.sel = { i: n.i, k: n.k }; }
+      if (d.type === 'ledge') { const sl = S.sel ? S.lines[S.sel.i] : null; S.lines.sort((x, y) => x.t - y.t); if (sl && S.sel) S.sel.i = S.lines.indexOf(sl); renderEditor(); buildPreview(true); }
       if (d.type === 'line') { // keep lines ordered by start; the selection follows its line
         const sl = S.sel ? S.lines[S.sel.i] : null; S.lines.sort((x, y) => x.t - y.t);
         if (sl && S.sel) S.sel.i = S.lines.indexOf(sl); S.picked.clear(); renderEditor(); buildPreview(true);
@@ -1198,6 +1202,7 @@ const HTML = `
         <button id="st-lineSpread">↔ Раскидать слова строки ровно</button>
         <button id="st-allSpread">↔ Раскидать все неразмеченные строки</button>
         <button id="st-lineReset">⌫ Сбросить строку</button>
+        <button id="st-lineFit" title="Начало и конец строки = её размеченные слова. Края строки в полосе внизу можно и тянуть мышью.">⇔ Подогнать строку под слова</button>
       </div></details>
     </span>
     <span class="st-grp"><button id="st-undo" title="Ctrl+Z">↶</button><button id="st-redo" title="Ctrl+Shift+Z">↷</button></span>
@@ -1247,6 +1252,7 @@ function mount() {
   on('join', joinWords); on('split', splitWord); on('sylLine', syllabifyLine); on('undo', doUndo); on('redo', doRedo);
   on('lineSpread', () => { if (!S.sel) return msg('Сначала выбери слово.', 'err'); snap(); spreadLine(S.sel.i, S.layer); afterSyncChange(false, S.sel.i); });
   on('allSpread', () => { snap(); S.lines.forEach((_, i) => { if (lineState(i, S.layer) !== 'done') spreadLine(i, S.layer); }); afterSyncChange(true); });
+  on('lineFit', () => { if (!S.sel) return msg('Сначала выбери слово.', 'err'); snap(); if (!fitLineToWords(S.lines[S.sel.i])) { S.undo.pop(); return msg('В строке нет размеченных слов.', 'err'); } const sl = S.lines[S.sel.i]; S.lines.sort((x, y) => x.t - y.t); S.sel.i = S.lines.indexOf(sl); afterLines(); });
   on('lineReset', () => { if (!S.sel) return; snap(); const l = S.lines[S.sel.i]; if (l.sync) delete l.sync[S.layer]; afterSyncChange(false, S.sel.i); });
   root.querySelectorAll<HTMLElement>('#st-seg button').forEach(b => b.onclick = () => setLayer(mkLayer(isBg(S.layer), b.dataset.v === 'tr')));
   root.querySelectorAll<HTMLElement>('#st-trk button').forEach(b => b.onclick = () => setLayer(mkLayer(b.dataset.v === 'bg', isTr(S.layer))));

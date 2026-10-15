@@ -8,6 +8,7 @@ import { idbGet, loadProject, saveProject, snapshot, trackKey } from './persist.
 import { LIVE, liveInit } from './live.ts';
 import { loadAudioFile } from './load.ts';
 import { installHotkeys, setPage } from './hotkeys.ts';
+import { initDesktop } from './desktop.ts';
 import { startLoop } from './loop.ts';
 import { App } from './ui/App.tsx';
 import { initTheme } from './theme.ts';
@@ -16,6 +17,8 @@ import { initTheme } from './theme.ts';
 S.snap = ls.get('snap', '1') !== '0';
 S.fx = ls.get('fx', '1') !== '0';
 S.onsetSnap = ls.get('onsetSnap', '1') !== '0';
+S.autoFit = ls.get('autoFit', '0') === '1';
+try { S.fitPad = { a: 0, b: 0, ...JSON.parse(ls.get('fitPad', '{}') || '{}') }; } catch {}
 S.lat = +(ls.get('lat', '100') || 0) || 0;
 S.voff = +(ls.get('voff', '0') || 0) || 0;
 try { const c = JSON.parse(ls.get('llm', 'null')!); if (c) S.llm = { prov: c.prov, model: c.model, key: c.key || '', url: c.url || '', style: c.style || '' }; } catch {}
@@ -28,6 +31,7 @@ window.addEventListener('unhandledrejection', e => toast('Ошибка: ' + (e.r
 window.addEventListener('beforeunload', saveProject);
 document.addEventListener('visibilitychange', () => { if (document.hidden) saveProject(); });
 installHotkeys();
+initDesktop();
 initTheme();
 setVolume(Math.min(1, Math.max(0, parseFloat(ls.get('vol', '0.3')!) || 0.3)));
 buildPreview();

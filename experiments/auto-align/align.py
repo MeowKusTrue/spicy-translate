@@ -1,6 +1,6 @@
 """Approximate word timings for a Spicy Translate project (prototype).
 
-python align.py song.mp3 project.spicy.json -o out.spicy.json [--device cuda|cpu] [--lang ru|en]
+python align.py song.mp3 project.spicy.json -o out.spicy.json [--device auto|cuda|xpu|dml|cpu] [--lang ru|en]
 
 Demucs (htdemucs) -> vocals; optional UVR karaoke model (audio-separator) -> backing;
 then CTC forced alignment (wav2vec2) of the KNOWN text of each line inside [t-pad, end+pad].
@@ -135,6 +135,37 @@ def write_wav(path, x, sr):
         w.writeframes((x.T * 32767).astype('<i2').tobytes())
 
 
+# ---- devices: any GPU, CPU when a stage can't run there ----
+def pick_device(want=None):
+    """auto: NVIDIA (cuda) > Intel Arc (xpu) > AMD / other via DirectML (torch-directml) > CPU"""
+    import torch
+    if want and want != 'auto':
+        if want == 'dml':
+            import torch_directml
+            return torch_directml.device()
+        return want
+    if torch.cuda.is_available(): return 'cuda'
+    if hasattr(torch, 'xpu') and torch.xpu.is_available(): return 'xpu'
+    try:
+        import torch_directml
+        return torch_directml.device()
+    except Exception:
+        return 'cpu'
+
+
+def dev_name(d): return 'dml' if str(d).startswith('privateuseone') else str(d)
+
+
+def on_device(device, fn, what):
+    """run fn(device); if the GPU backend can't do it (missing op, out of memory), run it on the CPU instead"""
+    try:
+        return fn(device)
+    except Exception as e:
+        if str(device) == 'cpu': raise
+        print(f'{what}: {type(e).__name__} on {dev_name(device)} ({e}); running on CPU', file=sys.stderr)
+        return fn('cpu')
+
+
 def separate(song, work, device, karaoke=True, emit=lambda **k: None):
     """-> (vocals_16k, backing_16k or None); stems cached in `work`"""
     os.makedirs(work, exist_ok=True)
@@ -144,13 +175,16 @@ def separate(song, work, device, karaoke=True, emit=lambda **k: None):
         import torch
         from demucs.pretrained import get_model
         from demucs.apply import apply_model
-        m = get_model('htdemucs').to(device).eval()
-        wav = torch.from_numpy(decode(song, m.samplerate, m.audio_channels))
-        ref = wav.mean(0); mu, sd = ref.mean(), ref.std() + 1e-8
-        with torch.no_grad():
-            out = apply_model(m, ((wav - mu) / sd)[None], device=device, split=True, overlap=0.25, progress=True)[0]
-        write_wav(voc, (out[m.sources.index('vocals')] * sd + mu).cpu().numpy(), m.samplerate)
-        del m; torch.cuda.empty_cache() if device == 'cuda' else None
+        def demucs(dev):
+            m = get_model('htdemucs').to(dev).eval()
+            wav = torch.from_numpy(decode(song, m.samplerate, m.audio_channels))
+            ref = wav.mean(0); mu, sd = ref.mean(), ref.std() + 1e-8
+            with torch.no_grad():
+                out = apply_model(m, ((wav - mu) / sd)[None], device=dev, split=True, overlap=0.25, progress=True)[0]
+            write_wav(voc, (out[m.sources.index('vocals')] * sd + mu).cpu().numpy(), m.samplerate)
+            del m; torch.cuda.empty_cache() if str(dev) == 'cuda' else None
+        # DirectML has no complex STFT, which htdemucs needs: Demucs goes to the CPU there right away
+        on_device('cpu' if dev_name(device) == 'dml' else device, demucs, 'demucs')
     emit(stage='demucs', done=1, total=1)
     back = os.path.join(work, 'backing.wav')
     if karaoke: emit(stage='karaoke', done=0, total=1)
@@ -179,7 +213,13 @@ class Aligner:
             from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
             name = self.override or MODELS[lang]
             proc = Wav2Vec2Processor.from_pretrained(name)
-            self.m[lang] = (proc, Wav2Vec2ForCTC.from_pretrained(name).to(self.device).eval(), proc.tokenizer.get_vocab())
+            mdl = Wav2Vec2ForCTC.from_pretrained(name).eval()
+            try:
+                mdl = mdl.to(self.device)
+            except Exception as e:  # backend not usable at all (driver, missing build): stay on the CPU
+                print(f'wav2vec2: {type(e).__name__} on {dev_name(self.device)} ({e}); running on CPU', file=sys.stderr)
+                self.device = 'cpu'
+            self.m[lang] = (proc, mdl, proc.tokenizer.get_vocab())
         return self.m[lang]
 
     def tokens(self, us, vocab, lang):
@@ -203,9 +243,18 @@ class Aligner:
         ids, owner = self.tokens(us, vocab, lang)
         s0, s1 = max(0, int(t0 * SR)), min(len(audio), int(t1 * SR))
         if not ids or s1 - s0 < SR // 4: return None
-        x = proc(audio[s0:s1], sampling_rate=SR, return_tensors='pt').input_values.to(self.device)
-        with torch.no_grad():
-            lp = torch.log_softmax(model(x).logits[0].float(), -1).cpu().numpy()
+        x = proc(audio[s0:s1], sampling_rate=SR, return_tensors='pt').input_values
+        try:
+            with torch.no_grad():
+                lp = torch.log_softmax(model(x.to(self.device)).logits[0].float(), -1).cpu().numpy()
+        except Exception as e:  # this GPU backend can't run wav2vec2: move every loaded model to the CPU for good
+            if str(self.device) == 'cpu': raise
+            print(f'wav2vec2: {type(e).__name__} on {dev_name(self.device)} ({e}); running on CPU', file=sys.stderr)
+            self.device = 'cpu'
+            for k, (p_, m_, v_) in list(self.m.items()): self.m[k] = (p_, m_.to('cpu'), v_)
+            model = self.m[lang][1]
+            with torch.no_grad():
+                lp = torch.log_softmax(model(x).logits[0].float(), -1).cpu().numpy()
         fdur = (s1 - s0) / SR / len(lp)
         bias = None
         if core:
@@ -269,7 +318,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('audio'); ap.add_argument('project')
     ap.add_argument('-o', '--out', required=True)
-    ap.add_argument('--device', default=None, help='cuda | cpu (default: cuda if available)')
+    ap.add_argument('--device', default='auto', help='auto | cuda | xpu | dml | cpu (auto: NVIDIA > Intel Arc > DirectML > CPU)')
     ap.add_argument('--lang', choices=list(MODELS), help='default: per line by alphabet')
     ap.add_argument('--model', help='HF wav2vec2 CTC model instead of the per-language default')
     ap.add_argument('--pad', type=float, default=1.5, help='s of slack around LRC t..end (default 1.5)')
@@ -289,7 +338,8 @@ def main(argv=None):
 
 def run(a, emit):
     import torch
-    dev = a.device or ('cuda' if torch.cuda.is_available() else 'cpu')
+    dev = pick_device(a.device)
+    emit(stage='device', device=dev_name(dev), done=0, total=0)
     with open(a.project, encoding='utf-8') as f: proj = json.load(f)
     if not proj.get('lines'): raise ValueError('not a Spicy Translate project (no lines)')
     work = os.path.abspath(os.path.splitext(a.out)[0] + '.stems')
@@ -315,7 +365,8 @@ def run(a, emit):
     rep = report(proj)
     print('written', a.out, json.dumps(rep))
     emit(stage='align', done=total, total=total)
-    emit(done=True, out=os.path.abspath(a.out), vocals=None if a.no_separation else os.path.join(work, 'vocals.wav'), overlaps=rep['overlaps'])
+    # device: where it really ran (a GPU stage may have fallen back to the CPU)
+    emit(done=True, device=dev_name(al.device), out=os.path.abspath(a.out), vocals=None if a.no_separation else os.path.join(work, 'vocals.wav'), overlaps=rep['overlaps'])
 
 
 if __name__ == '__main__':

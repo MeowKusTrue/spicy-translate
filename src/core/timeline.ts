@@ -37,9 +37,9 @@ export function bandRows(lines: Line[]) {
   return lines.map(l => { let r = ends.findIndex(e => e <= l.t + 0.01); if (r < 0) { r = Math.min(2, ends.length); if (r === ends.length) ends.push(0); } ends[r] = Math.max(ends[r], l.end); return r; });
 }
 /** background-only lines follow their words and lines stay ordered by start; returns the new index of `keep` (or -1) */
-export function fitAndSort(lines: Line[], keep?: Line | null) {
+export function fitAndSort(lines: Line[], keep?: Line | null, auto?: Pad | null) {
   let moved = false;
-  lines.forEach(l => { const t = l.t; fitBgOnly(l); if (l.t !== t) moved = true; });
+  lines.forEach(l => { const t = l.t; if (auto && fitsWords(l)) fitLineToWords(l, auto); else fitBgOnly(l); if (l.t !== t) moved = true; }); // auto: every line follows its words
   if (moved) lines.sort((x, y) => x.t - y.t);
   return { moved, at: keep ? lines.indexOf(keep) : -1 };
 }
@@ -95,4 +95,30 @@ export function snapSpan(a: number, len: number, cands: number[], tol: number) {
   if (na && (!nb || na.d <= nb.d)) return { a: na.c, at: na.c };
   if (nb) return { a: nb.c - len, at: nb.c };
   return { a, at: null as number | null };
+}
+
+/** the line's span = its timed words on every track (false = no timed words) */
+export function fitLineToWords(l: Line, pad: Pad = NOPAD) {
+  const xs = Object.values(l.sync || {}).flat().filter((x): x is WordSync & { a: number; b: number } => !!x && x.a != null && x.b != null);
+  if (!xs.length) return false;
+  l.t = r3(Math.max(0, Math.min(...xs.map(x => x.a)) - pad.a)); l.end = r3(Math.max(l.t + 0.1, Math.max(...xs.map(x => x.b)) + pad.b));
+  return true;
+}
+/** seconds of slack before the first word / after the last one (negative = a bit shorter than the words) */
+export type Pad = { a: number; b: number };
+const NOPAD: Pad = { a: 0, b: 0 };
+/** a line whose start/end can follow its words: some track has every word timed */
+export const fitsWords = (l: Line) => (['orig', 'tr', 'bgo', 'bg'] as Layer[]).some(k => { const sy = l.sync?.[k], n = wordList(txt(l, k)).length; return n > 0 && !!sy && sy.length === n && sy.every(x => x.a != null && x.b != null); });
+/** drag one end of a line's span (the band): start stays before the end and vice versa */
+export function moveLineEdge(l: Line, edge: 'a' | 'b', t: number) {
+  if (edge === 'a') l.t = r3(clamp(t, 0, l.end - 0.1)); else l.end = r3(Math.max(t, l.t + 0.1));
+}
+/** an end of a line block within tol seconds of t (lines in band row `row`, or any row when rows is null) */
+export function lineEdgeAt(lines: Line[], t: number, tol: number, rows: number[] | null, row: number) {
+  let best: { i: number; edge: 'a' | 'b'; d: number } | null = null;
+  lines.forEach((l, i) => {
+    if (rows && rows[i] !== row) return;
+    for (const edge of ['a', 'b'] as const) { const d = Math.abs((edge === 'a' ? l.t : l.end) - t); if (d <= tol && (!best || d < best.d)) best = { i, edge, d }; }
+  });
+  return best as { i: number; edge: 'a' | 'b'; d: number } | null;
 }

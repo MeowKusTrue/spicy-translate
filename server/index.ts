@@ -12,11 +12,12 @@ import { spawn } from 'node:child_process';
 import * as C from '../src/core/index.ts';
 import type { Layer, Mode, Project } from '../src/core/index.ts';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// desktop app (single exe): the bundle runs as CommonJS, paths come from SPICY_ROOT / SPICY_HTML / SPICY_DIR
+const root = process.env.SPICY_ROOT || path.resolve(path.dirname(typeof __filename === 'string' ? __filename : fileURLToPath(import.meta.url)), '..');
 const PORT = +(process.env.SPICY_PORT || 0) || 8787;
 const DATA = process.env.SPICY_DIR || root;
 const FILE = path.join(DATA, 'spicy-project.json');
-const htmlPath = path.join(root, 'dist', 'index.html');
+const htmlPath = process.env.SPICY_HTML || path.join(root, 'dist', 'index.html');
 
 /* ---------- state ---------- */
 fs.mkdirSync(path.dirname(FILE), { recursive: true });
@@ -35,7 +36,8 @@ async function putProject(project: Project, by: string) {
 // Where the prototype and its venv live: SPICY_ALIGN_DIR / SPICY_ALIGN_PY, else experiments/auto-align of this repo,
 // else a worktree copy that has a venv (the prototype is developed in .claude/worktrees/*).
 function alignEnv(): { dir: string; py: string } | null {
-  const pyIn = (d: string) => [path.join(d, '.venv', 'Scripts', 'python.exe'), path.join(d, '.venv', 'bin', 'python')].find(f => fs.existsSync(f));
+  const pyIn = (d: string) => [path.join(d, '.venv', 'Scripts', 'python.exe'), path.join(d, '.venv', 'bin', 'python')].find(f => fs.existsSync(f))
+    || (SETUP.done || fs.existsSync(path.join(pyHome(), '.ready')) ? pyExe() : undefined); // the private Python installed from the editor
   const dirs = [process.env.SPICY_ALIGN_DIR, path.join(root, 'experiments', 'auto-align')];
   try { const wt = path.join(root, '.claude', 'worktrees'); for (const w of fs.readdirSync(wt)) dirs.push(path.join(wt, w, 'experiments', 'auto-align')); } catch {}
   for (const d of dirs) {
@@ -44,7 +46,86 @@ function alignEnv(): { dir: string; py: string } | null {
   }
   return null;
 }
-const AL = { running: false, stage: '', done: 0, total: 0, error: '', out: '', vocals: '', audio: '', log: [] as string[] };
+/* ---------- one-click install of auto-timing: a private Python in SPICY_DIR/python, nothing system-wide ---------- */
+// python-build-standalone (portable CPython) -> pip: a PyTorch build for the GPU that is there (NVIDIA: CUDA by driver
+// version, Intel Arc: XPU, AMD / other: DirectML, else CPU), the prototype's requirements, imageio-ffmpeg (its
+// ffmpeg.exe is copied next to python.exe, which goes first on PATH for align.py).
+const pyHome = () => path.join(DATA, 'python');
+const pyExe = () => path.join(pyHome(), process.platform === 'win32' ? 'python.exe' : path.join('bin', 'python3'));
+type Backend = 'cuda' | 'xpu' | 'dml' | 'cpu';
+const SETUP = { running: false, step: '', pct: 0, error: '', done: false, backend: '' as Backend | '', file: '', got: 0, size: 0, log: [] as string[], child: null as ReturnType<typeof spawn> | null, abort: null as AbortController | null, cancel: false };
+const readyInfo = (): { backend?: Backend; at?: string } | null => { try { const t = fs.readFileSync(path.join(pyHome(), '.ready'), 'utf8'); return t.trim().startsWith('{') ? JSON.parse(t) : { at: t }; } catch { return null; } };
+const run = (cmd: string, args: string[], onLine: (l: string) => void, env: NodeJS.ProcessEnv = process.env) => new Promise<void>((res, rej) => {
+  const p = spawn(cmd, args, { env, windowsHide: true }); let buf = ''; SETUP.child = p;
+  const eat = (d: Buffer) => { buf += d; const parts = buf.split(/\r?\n|\r/); buf = parts.pop() || ''; parts.forEach(l => { if (l.trim()) onLine(l.trim()); }); };
+  p.stdout!.on('data', eat); p.stderr!.on('data', eat);
+  p.on('error', rej); p.on('close', code => { SETUP.child = null; if (SETUP.cancel) rej(new Error('отменено')); else if (code) rej(new Error(`${path.basename(cmd)} ${args[0]} → код ${code}: ${SETUP.log.slice(-3).join(' | ')}`)); else res(); });
+});
+const out1 = (cmd: string, args: string[]) => new Promise<string>(r => { let o = ''; const p = spawn(cmd, args, { windowsHide: true }); p.stdout.on('data', d => o += d); p.on('error', () => r('')); p.on('close', () => r(o)); });
+/** what GPU is there and which PyTorch build fits it */
+async function detectGpu() {
+  const names = (await out1('powershell', ['-NoProfile', '-Command', '(Get-CimInstance Win32_VideoController).Name'])).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  // nvidia-smi says "CUDA Version: 12.8" (older drivers) or "CUDA UMD Version: 13.4" (newer); else infer from the driver
+  const smi = await out1('nvidia-smi', []), cv = smi.match(/CUDA (?:UMD )?Version\s*:\s*(\d+)\.(\d+)/i);
+  const drv = +((smi.match(/(?:Driver|KMD) Version\s*:\s*(\d+)/i) || [])[1] || 0);
+  const cuda = cv ? +cv[1] + +cv[2] / 10 : drv >= 572 ? 12.8 : drv >= 560 ? 12.6 : drv >= 551 ? 12.4 : drv >= 522 ? 11.8 : 0;
+  // PyTorch wheels per CUDA: cu128 needs a 12.8+ driver (and is the only one for RTX 50xx), older drivers get older builds
+  const cu = cuda >= 12.8 ? 'cu128' : cuda >= 12.6 ? 'cu126' : cuda >= 12.4 ? 'cu124' : cuda >= 11.8 ? 'cu118' : '';
+  const nv = names.find(n => /nvidia/i.test(n)), arc = names.find(n => /intel.*arc/i.test(n)), amd = names.find(n => /amd|radeon/i.test(n));
+  const pick: { backend: Backend; why: string } = nv && cu ? { backend: 'cuda', why: `${nv} → CUDA (${cu}, драйвер CUDA ${cuda.toFixed(1)})` }
+    : arc ? { backend: 'xpu', why: `${arc} → Intel XPU` }
+    : amd ? { backend: 'dml', why: `${amd} → DirectML (Demucs на процессоре)` }
+    : nv ? { backend: 'cpu', why: `${nv}: драйвер слишком старый для CUDA (обнови драйвер) → процессор` }
+    : { backend: 'cpu', why: 'подходящей видеокарты нет → процессор' };
+  return { names, cuda, cu: cu || 'cu124', ...pick };
+}
+const TORCH: Record<Backend, (cu: string) => string[]> = {
+  cuda: cu => ['torch', 'torchaudio', '--index-url', `https://download.pytorch.org/whl/${cu}`],
+  xpu: () => ['torch', 'torchaudio', '--index-url', 'https://download.pytorch.org/whl/xpu'],
+  dml: () => ['torch-directml', 'torchaudio==2.4.1'], // torch-directml pins torch 2.4.1
+  cpu: () => ['torch', 'torchaudio', '--index-url', 'https://download.pytorch.org/whl/cpu'],
+};
+function dirSize(d: string): number { let n = 0; try { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); n += e.isDirectory() ? dirSize(f) : fs.statSync(f).size; } } catch {} return n; }
+async function setupAlign(want?: Backend) {
+  if (process.platform !== 'win32') throw new Error('установка в один клик пока только для Windows — см. experiments/auto-align/README.md');
+  const step = (s: string, pct: number) => Object.assign(SETUP, { step: s, pct });
+  const log = (l: string) => { SETUP.log.push(l); if (SETUP.log.length > 60) SETUP.log.shift(); };
+  const gpu = await detectGpu(), backend = want || gpu.backend; SETUP.backend = backend;
+  fs.mkdirSync(DATA, { recursive: true });
+  if (!fs.existsSync(pyExe())) {
+    step('Python: ищу сборку', 1);
+    const rel = await (await fetch('https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest', { headers: { 'user-agent': 'spicy-translate' } })).json();
+    const asset = (rel.assets || []).find((a: { name: string }) => /^cpython-3\.12\.\d+\+\d+-x86_64-pc-windows-msvc-install_only\.tar\.gz$/.test(a.name));
+    if (!asset) throw new Error('не нашёл сборку Python 3.12 для Windows в python-build-standalone');
+    SETUP.abort = new AbortController();
+    const tgz = path.join(DATA, 'python.tar.gz'), r = await fetch(asset.browser_download_url, { signal: SETUP.abort.signal });
+    if (!r.ok || !r.body) throw new Error('скачивание Python: HTTP ' + r.status);
+    const total = +(r.headers.get('content-length') || 0), f = fs.createWriteStream(tgz); let got = 0;
+    Object.assign(SETUP, { file: asset.name, size: total, got: 0 });
+    for await (const ch of r.body as unknown as AsyncIterable<Uint8Array>) { f.write(ch); got += ch.length; SETUP.got = got; if (total) step('Python: скачиваю', 1 + Math.round(got / total * 7)); }
+    await new Promise(res => f.end(res)); SETUP.abort = null;
+    step('Python: распаковываю', 8); Object.assign(SETUP, { file: '', got: 0, size: 0 });
+    await run(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe'), ['-xzf', tgz, '-C', DATA], log); // the archive holds python/
+    fs.rmSync(tgz, { force: true });
+  }
+  const units: Record<string, number> = { kB: 1e3, MB: 1e6, GB: 1e9 };
+  const pip = (args: string[], label: string, from: number, to: number) => run(pyExe(), ['-m', 'pip', ...args, '--progress-bar', 'raw', '--disable-pip-version-check'], l => {
+    log(l);
+    const d = l.match(/^Downloading (\S+?)(?: \((\d+(?:\.\d+)?) (kB|MB|GB)\))?$/); if (d) Object.assign(SETUP, { file: d[1].split('/').pop(), size: d[2] ? +d[2] * units[d[3]] : 0, got: 0 });
+    const m = l.match(/Progress (\d+) of (\d+)/); if (m) { SETUP.got = +m[1]; SETUP.size = +m[2]; step(label, Math.round(from + (to - from) * (+m[1] / +m[2]))); }
+  });
+  step('pip', 9); await run(pyExe(), ['-m', 'pip', 'install', '--upgrade', 'pip', '--disable-pip-version-check'], log);
+  const label = { cuda: `PyTorch для NVIDIA (${gpu.cu})`, xpu: 'PyTorch для Intel Arc', dml: 'PyTorch + DirectML', cpu: 'PyTorch для процессора' }[backend];
+  step(label, 10); await pip(['install', ...TORCH[backend](gpu.cu)], label, 10, 75);
+  const req = path.join(process.env.SPICY_ALIGN_DIR || path.join(root, 'experiments', 'auto-align'), 'requirements.txt');
+  step('Demucs, wav2vec2, karaoke', 76); await pip(['install', '-r', req, 'imageio-ffmpeg'], 'Demucs, wav2vec2, karaoke', 76, 96);
+  step('ffmpeg', 97); Object.assign(SETUP, { file: '', got: 0, size: 0 });
+  let ff = ''; await run(pyExe(), ['-c', 'import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())'], l => { ff = l; });
+  if (ff && fs.existsSync(ff)) fs.copyFileSync(ff, path.join(pyHome(), 'ffmpeg.exe'));
+  fs.writeFileSync(path.join(pyHome(), '.ready'), JSON.stringify({ backend, at: new Date().toISOString(), gpu: gpu.why }));
+  step('готово', 100); SETUP.done = true;
+}
+const AL = { running: false, stage: '', done: 0, total: 0, error: '', out: '', vocals: '', audio: '', device: '', log: [] as string[] };
 const alDir = () => { const d = path.join(DATA, 'align'); fs.mkdirSync(d, { recursive: true }); return d; };
 function readBody(req: http.IncomingMessage): Promise<Buffer> { return new Promise((res, rej) => { const ch: Buffer[] = []; req.on('data', c => ch.push(c)); req.on('end', () => res(Buffer.concat(ch))); req.on('error', rej); }); }
 const json = (res: http.ServerResponse, o: unknown, code = 200) => { res.statusCode = code; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(o)); };
@@ -59,18 +140,18 @@ async function alignRoute(req: http.IncomingMessage, res: http.ServerResponse, u
   if (u.pathname === '/api/align' && req.method === 'POST') {
     if (AL.running) return json(res, { error: 'уже идёт' }, 409);
     const env = alignEnv();
-    if (!env) return json(res, { error: 'не найден прототип автоподгонки с Python-окружением (experiments/auto-align/.venv). Поставь по experiments/auto-align/README.md или задай SPICY_ALIGN_DIR / SPICY_ALIGN_PY.' }, 501);
+    if (!env) return json(res, { error: 'авто-тайминг не установлен — нажми «Установить авто-тайминг» (или поставь по experiments/auto-align/README.md, SPICY_ALIGN_DIR / SPICY_ALIGN_PY)' }, 501);
     if (!AL.audio || !fs.existsSync(AL.audio)) return json(res, { error: 'сначала загрузи аудио' }, 400);
     const inp = path.join(alDir(), 'in.spicy.json'), out = path.join(alDir(), 'out.spicy.json');
     fs.writeFileSync(inp, await readBody(req)); try { fs.unlinkSync(out); } catch {}
-    Object.assign(AL, { running: true, stage: 'start', done: 0, total: 0, error: '', out: '', vocals: '', log: [] });
-    const p = spawn(env.py, [path.join(env.dir, 'align.py'), AL.audio, inp, '-o', out, '--json-progress'], { cwd: env.dir, env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
+    Object.assign(AL, { running: true, stage: 'start', done: 0, total: 0, error: '', out: '', vocals: '', device: '', log: [] });
+    const p = spawn(env.py, [path.join(env.dir, 'align.py'), AL.audio, inp, '-o', out, '--json-progress'], { cwd: env.dir, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8', PATH: path.dirname(env.py) + path.delimiter + (process.env.PATH || '') } });
     let buf = '';
     p.stdout.on('data', d => {
       buf += d; let k;
       while ((k = buf.indexOf('\n')) >= 0) {
         const line = buf.slice(0, k).trim(); buf = buf.slice(k + 1); if (!line.startsWith('{')) continue;
-        try { const m = JSON.parse(line); if (m.error) AL.error = m.error; if (m.stage) Object.assign(AL, { stage: m.stage, done: m.done || 0, total: m.total || 0 }); if (m.done === true) Object.assign(AL, { out: m.out || out, vocals: m.vocals || '' }); } catch {}
+        try { const m = JSON.parse(line); if (m.error) AL.error = m.error; if (m.device) AL.device = m.device; if (m.stage) Object.assign(AL, { stage: m.stage, done: m.done || 0, total: m.total || 0 }); if (m.done === true) Object.assign(AL, { out: m.out || out, vocals: m.vocals || '' }); } catch {}
       }
     });
     p.stderr.on('data', d => { AL.log.push(String(d)); if (AL.log.length > 40) AL.log.shift(); });
@@ -78,9 +159,34 @@ async function alignRoute(req: http.IncomingMessage, res: http.ServerResponse, u
     p.on('close', code => { AL.running = false; if (code && !AL.error) AL.error = `align.py завершился с кодом ${code}: ${AL.log.join('').slice(-400)}`; if (!AL.out && fs.existsSync(out)) AL.out = out; });
     return json(res, { ok: true });
   }
+  if (u.pathname === '/api/align/gpu') return json(res, process.platform === 'win32' ? await detectGpu() : { names: [], backend: 'cpu', why: 'не Windows' });
+  if (u.pathname === '/api/align/setup' && req.method === 'POST') {
+    const body = JSON.parse(String(await readBody(req)) || '{}'), want = ['cuda', 'xpu', 'dml', 'cpu'].includes(body.backend) ? body.backend as Backend : undefined;
+    if (!SETUP.running && !AL.running) {
+      if (body.reinstall) fs.rmSync(pyHome(), { recursive: true, force: true }); // switch the GPU build: start clean
+      Object.assign(SETUP, { running: true, error: '', done: false, cancel: false, step: 'старт', pct: 0, log: [], file: '', got: 0, size: 0 });
+      setupAlign(want).catch(e => { SETUP.error = String(e?.message || e); }).finally(() => { SETUP.running = false; SETUP.child = null; SETUP.abort = null; });
+    }
+  }
+  if (u.pathname === '/api/align/setup' && req.method === 'DELETE') { // remove the private Python (several GB)
+    if (SETUP.running) { SETUP.cancel = true; SETUP.child?.kill(); SETUP.abort?.abort(); return json(res, { ok: true, cancelled: true }); }
+    if (AL.running) return json(res, { error: 'идёт авто-тайминг' }, 409);
+    fs.rmSync(pyHome(), { recursive: true, force: true }); SETUP.done = false; return json(res, { ok: true });
+  }
+  if (u.pathname === '/api/align/setup') {
+    const info = readyInfo(), installed = !!info || (SETUP.done && fs.existsSync(pyExe()));
+    return json(res, { running: SETUP.running, step: SETUP.step, pct: SETUP.pct, error: SETUP.error, done: SETUP.done || !!alignEnv(), installed, backend: info?.backend || SETUP.backend,
+      file: SETUP.file, got: SETUP.got, size: SETUP.size, last: SETUP.log.slice(-1)[0] || '', bytes: u.searchParams.has('size') && installed ? dirSize(pyHome()) : undefined, dir: pyHome(),
+      external: !installed && !!alignEnv() }); // a dev venv (worktree / experiments) is in use instead
+  }
+  if (u.pathname === '/api/open' && req.method === 'POST') { // open a data folder in Explorer (local server only)
+    const what = u.searchParams.get('what') === 'python' ? pyHome() : DATA; fs.mkdirSync(what, { recursive: true });
+    spawn(process.platform === 'win32' ? 'explorer' : process.platform === 'darwin' ? 'open' : 'xdg-open', [what], { detached: true, stdio: 'ignore' }).unref();
+    return json(res, { ok: true });
+  }
   if (u.pathname === '/api/align' && req.method === 'GET') {
     const env = alignEnv(), result = !AL.running && AL.out && fs.existsSync(AL.out) ? JSON.parse(fs.readFileSync(AL.out, 'utf8')) : null;
-    return json(res, { available: !!env, running: AL.running, stage: AL.stage, done: AL.done, total: AL.total, error: AL.error, hasAudio: !!AL.audio, vocals: !!AL.vocals && fs.existsSync(AL.vocals), result });
+    return json(res, { available: !!env, canSetup: process.platform === 'win32' && !!(process.env.SPICY_ALIGN_DIR || fs.existsSync(path.join(root, 'experiments', 'auto-align'))), running: AL.running, stage: AL.stage, done: AL.done, total: AL.total, device: AL.device, error: AL.error, hasAudio: !!AL.audio, vocals: !!AL.vocals && fs.existsSync(AL.vocals), result });
   }
   if (u.pathname === '/api/align/vocals' && req.method === 'GET') { // the separated voice, for a clearer waveform
     if (!AL.vocals || !fs.existsSync(AL.vocals)) return json(res, { error: 'нет' }, 404);
@@ -219,6 +325,10 @@ const tools: Record<string, Tool> = {
 };
 
 /* ---------- MCP over stdio (newline-delimited JSON-RPC 2.0) ---------- */
+// started by the desktop app: leave together with it, even if the app is killed or crashes
+const parent = +(process.env.SPICY_PARENT_PID || 0);
+if (parent) setInterval(() => { try { process.kill(parent, 0); } catch { process.exit(0); } }, 2000).unref();
+
 if (!process.argv.includes('--http')) {
   const send = (m: object) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...m }) + '\n');
   const handle = async (msg: { id?: number | string; method: string; params?: any }) => {

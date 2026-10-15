@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "editor-window",
+  "description": "The editor page (served by the local server) may only move / minimize / maximize / close its own window.",
+  "windows": ["main"],
+  "remote": { "urls": ["http://127.0.0.1:*", "http://127.0.0.1:*/*", "http://localhost:*", "http://localhost:*/*"] },
+  "permissions": [
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-internal-toggle-maximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
+}

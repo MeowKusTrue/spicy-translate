@@ -13,6 +13,7 @@ import { agentOf, cycleAgent, pickLine } from '../agents.ts';
 import { useEffect, useRef, useState } from 'react';
 import { addBg, addBgHere, addLineAfter, addLineHere, applyFull, bracketsToBg, delBg, delLine, editText, fillRepeats, findOpts, focusLine, fullRows, replaceEverywhere, resetFull } from '../lineEdit.ts';
 import { setPage } from '../hotkeys.ts';
+import { openFolder } from '../autoAlign.ts';
 import { loadAudioFile } from '../load.ts';
 import { W } from '../waveform/wave.ts';
 import type { Page } from '../state.ts';
@@ -254,6 +255,7 @@ export function HistoryCard() {
       <input type="text" placeholder="найти по названию…" value={q} onChange={e => setQ(e.target.value)} />
       <button className="sm" id="btnSnapNow" disabled={!S.lines.length} onClick={() => snapshot('вручную').then(load)}>📸 Снимок</button>
       <button className="sm" title="Обновить список" onClick={load}>↻</button>
+      <button className="sm" id="btnDataDir" title="Папка с проектом сервера, экспортом и авто-таймингом (нужен локальный сервер: приложение, батник, npm run serve)" onClick={() => openFolder('data')}>📂 Папка</button>
     </div>
     <div className="snaps" id="snaps">{list == null ? <p className="hint">Загружаю…</p> : !shown.length ? <p className="hint">Снимков пока нет — они появятся сами через пару минут работы.</p>
       : shown.slice(0, 40).map(s => <div className="item" key={s.id}>

@@ -23,8 +23,10 @@ export const S = {
   // word sync
   picked: new Set<number>(), pickAnchor: -1,
   layer: 'tr' as Layer, sel: null as { i: number; k: number } | null, undo: [] as string[], redo: [] as string[],
-  dock: false, fx: true, snap: true, onsetSnap: true, waveVoice: false, loop: false, voff: 0, lat: 100,
-  align: null as null | { stage: string; done: number; total: number }, // auto-timing in progress
+  dock: false, fx: true, snap: true, onsetSnap: true, waveVoice: false, autoFit: false, fitPad: { a: 0, b: 0 }, loop: false, voff: 0, lat: 100, // autoFit: line ends follow their words (+fitPad ms of slack)
+  align: null as null | { stage: string; done: number; total: number; device: string }, // auto-timing in progress
+  alignPanel: null as null | { gpu: import('./autoAlign.ts').Gpu | null; st: import('./autoAlign.ts').SetupState | null; pick: string },
+  setup: null as null | { step: string; pct: number }, // auto-timing install in progress
   ver: 0, // bumps whenever preview timings change
   // form fields
   q: '', manual: '', results: [] as LrclibHit[],
@@ -36,6 +38,7 @@ export const S = {
   qa: null as QaItem[] | null, paste: null as string | null, out: null as string | null,
   help: false, typing: false, busyAuto: false, busyLlm: false,
   palette: null as null | { q: string; i: number }, // Ctrl+K
+  maxed: false, // desktop app window maximized
   page: 'track' as Page, prevPage: 'tr' as Page, // the tab shown; the sync tab opens the dock
   full: null as null | { o: string; t: string; dirty: boolean }, // «Текст» tab draft
   find: null as null | { q: string; r: string; where: 'tr' | 'orig' | 'all'; cs: boolean; word: boolean },
