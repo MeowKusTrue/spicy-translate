@@ -36,7 +36,9 @@ function finish(us: TU[]): { text: string; sync: WordSync[] } | null {
 export function parseTTML(xml: string): Line[] {
   const out: Line[] = [];
   const re = /<!--[\s\S]*?-->|<(\/?)([\w:.-]+)((?:\s[^>]*?)?)(\/?)>|([^<]+)/g;
-  let p: null | { t: number; end: number; agent: string | null; main: TU[]; bg: TU[]; plain: string } = null;
+  let p: null | { t: number; end: number; agent: string | null; sec: string | null; main: TU[]; bg: TU[]; plain: string } = null;
+  // sections: amll:section ids (NaeNae's TTML tool) with labels from <amll:meta key="amll:sections">, or Apple's <div itunes:song-part>
+  const secName = new Map<string, string>(); let part = '', divN = 0, lastSec = '';
   let target: 'main' | 'bg' = 'main';
   const stack: ({ kind: 'timed'; a: number; b: number; text: string } | { kind: 'bg' } | { kind: 'other' })[] = [];
   let m: RegExpExecArray | null;
@@ -56,7 +58,7 @@ export function parseTTML(xml: string): Line[] {
     }
     const name = rawName.replace(/^.*:/, '').toLowerCase();
     if (name === 'p') {
-      if (!close) { p = { t: parseTimeExpr(attr(attrs, 'begin')), end: parseTimeExpr(attr(attrs, 'end')), agent: attr(attrs, 'ttm:agent'), main: [], bg: [], plain: '' }; target = 'main'; stack.length = 0; if (selfClose) p = null; }
+      if (!close) { p = { t: parseTimeExpr(attr(attrs, 'begin')), end: parseTimeExpr(attr(attrs, 'end')), agent: attr(attrs, 'ttm:agent'), sec: attr(attrs, 'amll:section'), main: [], bg: [], plain: '' }; target = 'main'; stack.length = 0; if (selfClose) p = null; }
       else if (p) {
         const main = finish(p.main), bg = finish(p.bg);
         const text = main ? main.text : p.plain.replace(/\s+/g, ' ').trim();
@@ -68,13 +70,20 @@ export function parseTTML(xml: string): Line[] {
           const sync: Line['sync'] = {};
           if (ok) sync!.orig = main!.sync;
           if (bgOk) sync!.bgo = bg!.sync;
+          const key = p.sec || (part ? 'd' + divN : ''), label = p.sec ? secName.get(p.sec) || p.sec : part, sec = key && key !== lastSec ? label : '';
+          lastSec = key;
           out.push({ t: r3(t), end: r3(Math.max(end, t + 0.3)), text, tr: '',
-            ...(ok || bgOk ? { sync } : {}), ...(agent ? { agent } : {}), ...(bg ? { bg: { text: bg.text, tr: '' } } : {}) });
+            ...(ok || bgOk ? { sync } : {}), ...(agent ? { agent } : {}), ...(bg ? { bg: { text: bg.text, tr: '' } } : {}), ...(sec ? { sec } : {}) });
         }
         p = null;
       }
       continue;
     }
+    if (name === 'meta' && attr(attrs, 'key') === 'amll:sections') {
+      try { for (const s of JSON.parse(attr(attrs, 'value') || '{}').sections || []) if (s && s.id) secName.set(String(s.id), String(s.label || s.category || s.id)); } catch { /* optional metadata */ }
+      continue;
+    }
+    if (name === 'div') { if (!close) { part = attr(attrs, 'itunes:song-part') || ''; divN++; } else part = ''; continue; }
     if (!p) continue;
     if (name === 'br' && p) { const list = p[target]; if (list.length) list[list.length - 1].sp = true; else p.plain += ' '; continue; }
     if (name !== 'span') continue;

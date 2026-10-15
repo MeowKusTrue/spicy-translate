@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "editor-window",
-  "description": "The editor page (served by the local server) may move / minimize / maximize / close its own window, set its zoom and save files through the Save As dialog.",
+  "description": "The editor page (served by the local server) may move / minimize / maximize / close its own window, set its zoom, save files through Save As and keep a project folder (lyrics, project and audio files only).",
   "windows": [
     "main"
   ],
@@ -23,6 +23,12 @@
     "core:event:allow-listen",
     "core:event:allow-unlisten",
     "core:webview:allow-set-webview-zoom",
-    "allow-save-file"
+    "allow-save-file",
+    "allow-pick-folder",
+    "allow-list-dir",
+    "allow-read-text",
+    "allow-read-bytes",
+    "allow-write-text",
+    "allow-write-bytes"
   ]
 }

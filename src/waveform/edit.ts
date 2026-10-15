@@ -9,11 +9,11 @@ import { buildPreview, refreshPreviewLine } from '../preview.ts';
 import { scheduleSave } from '../persist.ts';
 import { fitLines, selectWord, setLayer, snap, stepSel } from '../sync.ts';
 import { clearTiming, fitLines as fitToWords, closeEdit, copyTiming, delLine, dropCopies, dropTimingOnto, duplicateLine, editing, focusRow, newLineEdit, openEdit, pasteTimingHere } from '../lineEdit.ts';
-import { JOIN, LANES, LANES_DEF, W, drawWave, waveOnsets, laneLayer, laneY, lineAt, songLen, zoomAt, type Box, type Lane } from './wave.ts';
-import { fmtTime, plainW } from '../core/index.ts';
+import { SEC_H, SEC_Y, JOIN, LANES, LANES_DEF, W, drawWave, waveOnsets, laneLayer, laneY, lineAt, songLen, zoomAt, type Box, type Lane } from './wave.ts';
+import { fmtTime, plainW, type Section } from '../core/index.ts';
 
 type Hit = { type: 'edge'; t: number; lane: Lane; d: number; b: Box; edge: 'a' | 'b' } | { type: 'word'; t: number; lane: Lane; b: Box }
-  | { type: 'lane'; t: number; lane: Lane; b?: undefined } | { type: 'split'; t: number; which: 'm' | 'b' | 'l'; lane?: undefined; b?: undefined } | { type: 'wave'; t: number; lane?: undefined; b?: undefined } | { type: 'band'; t: number; i: number; lane?: undefined; b?: undefined } | { type: 'ledge'; t: number; i: number; edge: 'a' | 'b'; lane?: undefined; b?: undefined };
+  | { type: 'lane'; t: number; lane: Lane; b?: undefined } | { type: 'split'; t: number; which: 'm' | 'b' | 'l'; lane?: undefined; b?: undefined } | { type: 'wave'; t: number; lane?: undefined; b?: undefined } | { type: 'band'; t: number; i: number; lane?: undefined; b?: undefined } | { type: 'ledge'; t: number; i: number; edge: 'a' | 'b'; lane?: undefined; b?: undefined } | { type: 'sec'; t: number; s: Section; lane?: undefined; b?: undefined };
 
 function waveHit(mx: number, my: number): Hit {
   const t = W.start + mx / W.px, tol = 9 / W.px, G = W.G;
@@ -27,6 +27,7 @@ function waveHit(mx: number, my: number): Hit {
     let i = -1; S.lines.forEach((l, k) => { if (W.rows[k] === row && t >= l.t && t <= l.end) i = k; });
     return { type: 'band', t, i };
   }
+  if (W.secs.length && my >= G.wY + SEC_Y && my <= G.wY + SEC_Y + SEC_H) { const s = W.secs.find(q => t >= q.a && t <= q.b); if (s) return { type: 'sec', t, s }; }
   if (my >= G.wY - 1) return { type: 'wave', t };
   const lane: Lane = my < G.bY - 1 ? 'main' : 'bg', bs = W.boxes.filter(b => b.lane === lane);
   let best: { d: number; b: Box; edge: 'a' | 'b' } | null = null;
@@ -63,6 +64,7 @@ function tip(e: MouseEvent, h: Hit | null) {
       html = `<b>${esc(plainW(l.text) || '♪ ' + plainW(l.bg?.text || l.bg?.tr || 'бэк'))}</b> ${fmtTime(l.t)}–${fmtTime(l.end)}<br><small>тащи — сдвинуть · Alt+тащи — копия, а на другую строку — её тайминг · ПКМ — меню · 2× — в список</small>`;
     } else if (h.type === 'ledge') { const l = S.lines[h.i]; html = `<b>${h.edge === 'a' ? 'начало' : 'конец'} строки</b> ${fmtTime(h.edge === 'a' ? l.t : l.end)}<br><small>тяни — длиннее / короче (липнет к словам) · 2× — подогнать под слова</small>`; }
     else if (h.type === 'split') html = '<small>тяни — выше / ниже · 2× — как было</small>';
+    else if (h.type === 'sec') html = `<b>${esc(h.s.label)}</b> ${fmtTime(h.s.a)}–${fmtTime(h.s.b)} · строки ${h.s.from + 1}–${h.s.to + 1}<br><small>тащи — сдвинуть всю секцию со словами · клик — играть отсюда · ПКМ — меню</small>`;
     else if (h.type === 'lane') html = `<small>2× — ${lineAt(h.t) >= 0 ? 'вписать текст строки' : 'новая строка'} на дорожке «${h.lane === 'bg' ? 'бэк' : 'основа'}» · Shift+тащи — выбрать рамкой</small>`;
   }
   el.hidden = !html; if (!html) return;
@@ -70,24 +72,47 @@ function tip(e: MouseEvent, h: Hit | null) {
 }
 const esc = (s: string) => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!));
 
+/** a small context menu at the mouse: a title and buttons */
+function popMenu(e: MouseEvent, title: string, build: (item: (label: string, f: () => void, off?: boolean) => void) => void) {
+  document.getElementById('lineMenu')?.remove();
+  const m = document.createElement('div'); m.id = 'lineMenu'; m.className = 'pop ctx';
+  const h = document.createElement('small'); h.textContent = title; m.appendChild(h);
+  build((label, f, off = false) => { const b = document.createElement('button'); b.className = 'sm'; b.textContent = label; b.disabled = off; b.onclick = () => { m.remove(); f(); }; m.appendChild(b); });
+  document.body.appendChild(m);
+  m.style.left = Math.min(innerWidth - m.offsetWidth - 8, e.clientX) + 'px'; m.style.top = Math.max(8, e.clientY - m.offsetHeight - 6) + 'px';
+  const off = (ev: MouseEvent) => { if (!m.contains(ev.target as Node)) { m.remove(); removeEventListener('mousedown', off, true); } };
+  setTimeout(() => addEventListener('mousedown', off, true));
+}
+/** sections: name one from a line / rename / remove (undoable) */
+function setSec(i: number, label: string | null) {
+  const l = S.lines[i]; if (!l) return;
+  if (label === null) { snap(); delete l.sec; }
+  else { const v = prompt('Название секции (Припев, Куплет 1, Бридж…): строки от этой до следующей секции', label)?.trim(); if (!v) return; snap(); l.sec = v; }
+  emit(); drawWave(); scheduleSave();
+}
+function secMenu(e: MouseEvent, s: Section) {
+  popMenu(e, `${s.label}: строки ${s.from + 1}–${s.to + 1}, ${fmtTime(s.a)}–${fmtTime(s.b)}`, item => {
+    item('✎ Переименовать', () => setSec(s.from, s.label));
+    item('☰ Выделить строки секции', () => { S.picked = new Set(Array.from({ length: s.to - s.from + 1 }, (_, k) => s.from + k)); S.sel = { i: s.from, k: 0 }; emit(); drawWave(); });
+    item('▶ Играть с начала секции', () => seekTo(s.a));
+    item('✕ Убрать секцию (строки остаются)', () => setSec(s.from, null));
+  });
+}
 /** right click on a line in the band: what you can do with that line */
 function lineMenu(e: MouseEvent, i: number) {
   document.getElementById('lineMenu')?.remove(); if (i < 0) return;
-  const m = document.createElement('div'); m.id = 'lineMenu'; m.className = 'pop ctx';
-  const item = (label: string, f: () => void, off = false) => { const b = document.createElement('button'); b.className = 'sm'; b.textContent = label; b.disabled = off; b.onclick = () => { m.remove(); f(); }; m.appendChild(b); };
   const sel = () => { S.sel = { i, k: 0 }; S.picked.clear(); };
-  const h = document.createElement('small'); h.textContent = `строка ${i + 1}: ${plainW(S.lines[i].text || S.lines[i].bg?.text || 'бэк')}`; m.appendChild(h);
+  popMenu(e, `строка ${i + 1}: ${plainW(S.lines[i].text || S.lines[i].bg?.text || 'бэк')}`, item => {
   item('⧉ Копировать тайминг строки', () => { sel(); copyTiming(); });
   item('⧉ Вставить тайминг сюда', () => { sel(); pasteTimingHere(); });
   item('⇔ Подогнать строку под слова', () => fitToWords(i), !S.lines[i].sync);
   item('⌫ Очистить тайминг (освободить)', () => clearTiming(i), !S.lines[i].sync);
   item('⎘ Дублировать строку', () => duplicateLine(i));
   item('✎ К строке в списке', () => focusRow(i, isTr(S.layer) ? 'input.tr' : 'input.o'));
+  item(S.lines[i].sec ? `§ Переименовать секцию «${S.lines[i].sec}»` : '§ Секция с этой строки…', () => setSec(i, S.lines[i].sec || ''));
+  if (S.lines[i].sec) item('§ Убрать секцию', () => setSec(i, null));
   item('🗑 Удалить строку', () => delLine(i));
-  document.body.appendChild(m);
-  m.style.left = Math.min(innerWidth - m.offsetWidth - 8, e.clientX) + 'px'; m.style.top = Math.max(8, e.clientY - m.offsetHeight - 6) + 'px';
-  const off = (ev: MouseEvent) => { if (!m.contains(ev.target as Node)) { m.remove(); removeEventListener('mousedown', off, true); } };
-  setTimeout(() => addEventListener('mousedown', off, true));
+  });
 }
 
 /** the whole-song strip: click / drag = move the view there, double click = play from there */
@@ -104,7 +129,7 @@ export function setupWave(cv: HTMLCanvasElement) {
   cv.onmousedown = e => {
     const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top, h = waveHit(mx, my);
     W.ctrl = e.ctrlKey || e.metaKey;
-    if (e.button === 2) { if (h.b) playWord({ a: h.b.a, b: h.b.b }); else if ((h.type === 'band' || h.type === 'ledge') && h.i >= 0) lineMenu(e, h.i); return; }
+    if (e.button === 2) { if (h.b) playWord({ a: h.b.a, b: h.b.b }); else if ((h.type === 'band' || h.type === 'ledge') && h.i >= 0) lineMenu(e, h.i); else if (h.type === 'sec') secMenu(e, h.s); return; }
     lineMenu(e, -1);
     if (editing()) closeEdit(true);
     if (h.type === 'split') { W.drag = { type: 'split', which: h.which, y0: my, v0: { m: W.G.mH, b: W.G.bH, l: W.G.lH }[h.which] }; return; }
@@ -128,6 +153,7 @@ export function setupWave(cv: HTMLCanvasElement) {
     else if (h.type === 'word') { selectWord(h.b.i, h.b.k); W.pend = { type: 'move', i: h.b.i, k: h.b.k, x0: mx, off: h.t - h.b.a, ghost: !h.b.real, alt: e.altKey, a: h.b.a, len: h.b.b - h.b.a, lane: h.lane }; }
     else if (h.type === 'lane' && !switched && S.sel && wordsOf(S.sel.i, S.layer).length) W.pend = { type: 'paint', x0: mx, t0: h.t };
     else if (h.type === 'band' && h.i >= 0) W.pend = { type: 'line', x0: mx, t0: h.t, i: h.i, alt: e.altKey };
+    else if (h.type === 'sec') W.pend = { type: 'sec', x0: mx, t0: h.t, s: h.s };
     else W.pend = { type: 'pan', x0: mx, start0: W.start, t0: h.t };
   };
   const onMove = (e: MouseEvent) => {
@@ -161,6 +187,10 @@ export function setupWave(cv: HTMLCanvasElement) {
           if (S.sel && S.sel.i > p.i) S.sel.i++; S.picked.clear(); buildPreview(true);
         }
         W.drag = { type: 'line', i: p.i, src: p.alt ? S.lines[p.i] : null, onto: -1, t0: p.t0, o: JSON.parse(JSON.stringify(l)), l, cands: buildCands(new Set(Object.values(l.sync || {}).flat() as WordSync[])).filter(c => c !== l.t) }; }
+      else if (p.type === 'sec') { // a whole section: all its lines with every word, start sticks to magnet targets
+        snap(); const ls = S.lines.slice(p.s.from, p.s.to + 1), own = new Set(ls.flatMap(l => Object.values(l.sync || {}).flat()) as WordSync[]);
+        W.drag = { type: 'sec', from: p.s.from, t0: p.t0, a0: p.s.a, ls, o: JSON.parse(JSON.stringify(ls)), min: Math.min(...ls.map(l => l.t)), cands: buildCands(own).filter(c => !ls.some(l => l.t === c)) };
+      }
       else W.drag = { type: 'pan', x0: p.x0, start0: p.start0 };
       W.pend = null;
     }
@@ -188,6 +218,10 @@ export function setupWave(cv: HTMLCanvasElement) {
         d.onto = inBand ? S.lines.findIndex(l => l !== d.l && l !== d.src && t >= l.t && t <= l.end) : -1;
         cv.style.cursor = 'copy';
       }
+      if (d.type === 'sec') {
+        const dd = Math.max(-d.min, snapOne(d.a0 + traw - d.t0, d.cands) - d.a0);
+        d.ls.forEach((l: typeof S.lines[0], j: number) => { shiftLine(l, d.o[j], dd); refreshPreviewLine(S.lines.indexOf(l)); }); return;
+      }
       if (d.type === 'line') { // drag the line start onto a magnet target
         const a = snapOne(d.o.t + traw - d.t0, d.cands); shiftLine(d.l, d.o, a - d.o.t); refreshPreviewLine(S.lines.indexOf(d.l)); return;
       }
@@ -202,12 +236,12 @@ export function setupWave(cv: HTMLCanvasElement) {
       refreshPreviewLine(d.i); return;
     }
     if (mx >= 0 && mx <= r.width && my >= 0 && my <= r.height) {
-      const h = waveHit(mx, my); cv.style.cursor = h.type === 'split' ? 'row-resize' : h.type === 'ledge' ? 'ew-resize' : e.altKey && (h.b || (h.type === 'band' && h.i >= 0)) ? 'copy' : h.type === 'edge' ? 'ew-resize' : h.type === 'word' ? 'grab' : h.type === 'lane' && laneLayer(h.lane) === S.layer && S.sel ? 'crosshair' : h.type === 'band' && h.i >= 0 ? 'move' : 'default';
+      const h = waveHit(mx, my); cv.style.cursor = h.type === 'split' ? 'row-resize' : h.type === 'ledge' ? 'ew-resize' : e.altKey && (h.b || (h.type === 'band' && h.i >= 0)) ? 'copy' : h.type === 'edge' ? 'ew-resize' : h.type === 'word' ? 'grab' : h.type === 'lane' && laneLayer(h.lane) === S.layer && S.sel ? 'crosshair' : (h.type === 'band' && h.i >= 0) || h.type === 'sec' ? 'move' : 'default';
       tip(e, h);
     } else tip(e, null);
   };
   const onUp = () => {
-    if (W.pend) { if (W.pend.type === 'pan' || W.pend.type === 'paint' || W.pend.type === 'line') seekTo(W.pend.t0); W.pend = null; return; }
+    if (W.pend) { if (W.pend.type === 'pan' || W.pend.type === 'paint' || W.pend.type === 'line') seekTo(W.pend.t0); else if (W.pend.type === 'sec') seekTo(W.pend.s.a); W.pend = null; return; }
     if (W.drag) {
       const d = W.drag; W.drag = null; W.snapAt = null;
       if (d.type === 'split') { LANES.m = W.G.mH; LANES.b = W.G.bH; LANES.l = W.G.lH; ls.set('lanes', JSON.stringify(LANES)); return; }
@@ -230,7 +264,7 @@ export function setupWave(cv: HTMLCanvasElement) {
         return dropTimingOnto(d.l, S.lines.indexOf(onto), d.l.t);
       }
       if (d.type === 'ledge') { const sl = S.sel ? S.lines[S.sel.i] : null; S.lines.sort((x, y) => x.t - y.t); if (sl && S.sel) S.sel.i = S.lines.indexOf(sl); buildPreview(true); }
-      if (d.type === 'line') { // keep lines ordered by start; the selection follows its line
+      if (d.type === 'line' || d.type === 'sec') { // keep lines ordered by start; the selection follows its line
         const sl = S.sel ? S.lines[S.sel.i] : null; S.lines.sort((x, y) => x.t - y.t);
         if (sl && S.sel) S.sel.i = S.lines.indexOf(sl); S.picked.clear(); buildPreview(true);
       }
@@ -249,6 +283,7 @@ export function setupWave(cv: HTMLCanvasElement) {
     if (h.b) { setLayer(h.b.layer); S.sel = { i: h.b.i, k: h.b.k }; return openEdit(h.b.i, h.b.layer, h.b.k); }
     if (h.type === 'band') return h.i >= 0 ? focusRow(h.i, isTr(S.layer) ? 'input.tr' : 'input.o') : newLineEdit(h.t, mkLayer(false, isTr(S.layer)));
     if (h.type === 'wave') return;
+    if (h.type === 'sec') return setSec(h.s.from, h.s.label); // double click on a section = rename it
     if (h.type === 'ledge') return fitToWords(h.i); // double click on an end of a line = fit it to its words
     const layer = laneLayer(h.lane), i = lineAt(h.t);
     if (i < 0) return newLineEdit(h.t, layer);

@@ -434,3 +434,8 @@ input.rng:hover::-webkit-slider-thumb,input.rng:active::-webkit-slider-thumb{tra
 .gd s{color:var(--mut);text-decoration-color:#ff8a8a}.gd ins{text-decoration:none;color:var(--txt)}
 .gd.add{border-color:color-mix(in srgb,var(--ok) 40%,transparent)}.gd.del{border-color:rgba(255,138,138,.4)}
 .gd button.ok{color:var(--ok)}
+.stop{margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border-radius:12px;font-size:13px;border:1px solid rgba(251,191,36,.45);background:rgba(251,191,36,.07)}
+.stop>span{flex:1;min-width:200px}.stop.ok{border-color:color-mix(in srgb,var(--ok) 45%,transparent);background:color-mix(in srgb,var(--ok) 7%,transparent)}
+.pop .opt.col{flex-direction:column;align-items:stretch;gap:4px}.pop .opt.col .row{gap:6px;align-items:center}
+.pfolder{margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border-radius:12px;border:1px solid var(--line);font-size:13px}
+.pfolder>span{flex:1;min-width:180px}.pfolder small{display:block;color:var(--mut);font-size:11.5px}.pfolder kbd{font-size:10.5px;margin-left:4px;opacity:.8}

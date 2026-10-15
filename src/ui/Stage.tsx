@@ -7,6 +7,7 @@ import { PV } from '../preview.ts';
 import { loadAudioFile } from '../load.ts';
 import { trackKey } from '../persist.ts';
 import { clearCover, findCover, restoreCover, setCover } from '../cover.ts';
+import { restoreFolder } from '../folder.ts';
 import { setTheme, theme, type Theme } from '../theme.ts';
 
 // React must never re-render the lyrics container's children: preview.ts owns them.
@@ -65,7 +66,7 @@ function Settings() {
 
 export function Stage() {
   const key = trackKey();
-  useEffect(() => { restoreCover(); }, [key]);
+  useEffect(() => { restoreCover(); restoreFolder(); }, [key]);
   const bg = S.coverBg && S.cover;
   return <div className={'stage' + (bg ? ' hascover' : '')}>
     {bg ? <div className="cbg" aria-hidden="true"><img src={S.cover} alt="" /><img src={S.cover} alt="" /></div> : <div className="glow"></div>}

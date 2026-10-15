@@ -16,6 +16,7 @@ export interface Line {
   sync?: { tr?: WordSync[]; orig?: WordSync[]; bg?: WordSync[]; bgo?: WordSync[] } | null;
   bg?: { text: string; tr: string };  // background vocals of this line (ad-libs, backing)
   agent?: Agent;  // missing = v1
+  sec?: string;   // a song section (Припев, Куплет 1…) starts at this line; it runs until the next one
 }
 
 /** Text unit: word by whitespace, syllable by '|', NBSP glues two words into one unit. sp=false -> syllable continues. */

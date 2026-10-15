@@ -2,6 +2,7 @@
 import { fitAndSort, plainW, sameLines, splitWords, syllabify, units, unitsText, type Layer } from './core/index.ts';
 import { S, conf, emit, ensureSync, fillLine, layerText, lineState, r3, setText, spreadLine, toast, viewWords, wordsOf, type ViewWord } from './state.ts';
 import { now, playWord } from './audio.ts';
+import { forgetWord, learnAndSpread } from './syllables.ts';
 import { buildPreview, refreshPreviewLine } from './preview.ts';
 import { scheduleSave } from './persist.ts';
 import { W, drawWave } from './waveform/wave.ts';
@@ -97,6 +98,10 @@ export function joinWords() {
   const m: typeof a = { a: a.a, b: b.b != null ? b.b : a.b }; if (a.g || b.g) m.g = 1;
   us.splice(k, 2, { w: us[k].w + (syl ? '' : ' ') + us[k + 1].w, sp: us[k + 1].sp }); sy.splice(k, 2, m);
   setLayerText(i, layer, unitsText(us)); S.lines[i].sync![layer] = sy;
+  if (syl) { // the word put (partly) back together: remember its new split or forget it
+    let a = k, b = k; while (a && !us[a - 1].sp) a--; while (!us[b].sp && b < us.length - 1) b++;
+    const word = us.slice(a, b + 1).map(u => u.w).join('|'); if (word.includes('|')) learnAndSpread(word); else forgetWord(word);
+  }
   buildPreview(true); afterSyncChange(false, i); flashChip();
   toast(syl ? 'Слоги склеены.' : 'Склеено: два слова — один блок тайминга. U — разделить.', 'ok');
 }
@@ -111,8 +116,9 @@ export function splitWord() {
   const nw = splitWords(unitsText(nu), a, b).map(w => ({ a: r3(w.a), b: r3(w.b), ...(x.g ? { g: 1 as const } : {}) }));
   us.splice(k, 1, ...nu); sy.splice(k, 1, ...nw);
   setLayerText(i, layer, unitsText(us)); S.lines[i].sync![layer] = sy;
-  buildPreview(true); afterSyncChange(false, i); flashChip();
   toast(glued ? 'Разделено на отдельные слова.' : 'Слоги: ' + parts.join(' · ') + ' — размечай каждый как слово (F / G / H).', 'ok');
+  if (!glued) learnAndSpread(parts.join('|'));
+  buildPreview(true); afterSyncChange(!glued, i); flashChip();
 }
 export function syllabifyLine() {
   if (!S.sel) return toast('Выбери строку (клик по слову).', 'err');
@@ -127,7 +133,9 @@ export function syllabifyLine() {
   });
   if (!n) { S.undo.pop(); return toast('В строке нет многосложных слов.', 'err'); }
   setLayerText(i, layer, unitsText(nu)); S.lines[i].sync![layer] = ns;
-  buildPreview(true); afterSyncChange(false, i); toast(`Разбито на слоги слов: ${n}. M — склеить слог обратно, Ctrl+Z — отмена.`, 'ok');
+  toast(`Разбито на слоги слов: ${n}. M — склеить слог обратно, Ctrl+Z — отмена.`, 'ok');
+  learnAndSpread(unitsText(nu));
+  buildPreview(true); afterSyncChange(true, i);
 }
 
 /* ---------- toolbar "Строка ⋯" menu ---------- */

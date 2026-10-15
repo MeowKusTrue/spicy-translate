@@ -24,10 +24,10 @@ const decode = (s: string) => s.replace(/&(#x[0-9a-f]+|#\d+|\w+);/gi, (m, e: str
 
 /**
  * Plain lyrics from a Genius song page: one row per sung line, "(…)" kept (they are backing vocals, our bg convention),
- * section headers like [Куплет 1] and empty rows dropped.
+ * empty rows dropped; section headers like [Куплет 1] dropped unless keepHeaders (then they stay as their own rows).
  */
-export function geniusLyrics(html: string): string {
+export function geniusLyrics(html: string, keepHeaders = false): string {
   const body = divsWith(divsWith(html, 'data-lyrics-container="true"', true), 'data-exclude-from-selection', false);
   const text = decode(body.replace(/<br\s*\/?>/gi, '\n').replace(/<\/div>/gi, '\n').replace(/<[^>]+>/g, ''));
-  return text.split('\n').map(r => r.replace(/[ \t ]+/g, ' ').trim()).filter(r => r && !/^\[[^\]]*\]$/.test(r)).join('\n');
+  return text.split('\n').map(r => r.replace(/[ \t ]+/g, ' ').trim()).filter(r => r && (keepHeaders || !/^\[[^\]]*\]$/.test(r))).join('\n');
 }

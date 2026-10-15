@@ -4,6 +4,7 @@ import { S, emit, status, type LrclibHit } from './state.ts';
 import { audio, pause, seekTo } from './audio.ts';
 import { buildPreview } from './preview.ts';
 import { restoreCover } from './cover.ts';
+import { spreadSplits } from './syllables.ts';
 import { idbGet, idbPut, restoreProject, snapshot, trackKey } from './persist.ts';
 import { CH, selectWord } from './sync.ts';
 import { W, buildPeaks, drawWave } from './waveform/wave.ts';
@@ -27,7 +28,7 @@ export function loadTrack(d: LrclibHit) {
   S.meta.title = d.trackName; S.meta.artist = d.artistName;
   const synced = !!d.syncedLyrics;
   const entries = synced ? parseLRC(d.syncedLyrics!) : parsePlain(d.plainLyrics || '');
-  setLines(entriesToLines(entries, d.duration), d.duration);
+  setLines(entriesToLines(entries, d.duration), d.duration); S.srcDur = d.duration || 0;
   const restored = restoreProject();
   status('st1', (synced ? `Загружено строк: ${S.lines.length}` : 'Только plain-текст: тайминги выдуманы, лучше выбери synced-версию.') + (restored ? ' · восстановил твою прошлую работу над треком' : ''), synced ? 'ok' : 'err');
   if (!S.hasAudio) idbGet(trackKey()).then(b => { if (b) { loadAudioFile(b, true); } });
@@ -39,12 +40,12 @@ export function loadManual(text: string, fileName = '') {
   const { lines, kind } = importLyrics(text, fileName, dur);
   if (!lines.length) return status('st1', 'Не нашёл строк в тексте.', 'err');
   setLines(lines, dur);
-  const extra = [lines.some(l => l.sync?.orig) && 'разметка слов', lines.some(l => l.agent) && 'исполнители', lines.some(l => l.bg) && 'бэки'].filter(Boolean).join(', ');
+  const extra = [lines.some(l => l.sync?.orig) && 'разметка слов', lines.some(l => l.agent) && 'исполнители', lines.some(l => l.bg) && 'бэки', lines.some(l => l.sec) && 'секции'].filter(Boolean).join(', ');
   status('st1', `${kind.toUpperCase()}: строк ${S.lines.length}${extra ? ' · ' + extra : ''}${kind === 'text' ? (dur ? ' · без таймингов: строки разложены по треку, точную синхру задай F/G' : ' · без таймингов: по 3.5 с на строку; с аудио разложу по длине трека') : ''}`, kind === 'text' ? 'err' : 'ok');
 }
 export function setLines(lines: Line[], dur: number) {
   if (S.lines.length) snapshot('перед загрузкой нового текста'); // the replaced project stays in the snapshots
-  S.lines = lines; S.undo = []; S.redo = []; S.sel = null; CH.last = -1;
+  S.lines = lines; spreadSplits(); S.undo = []; S.redo = []; // a new track: remembered syllable splits come in by themselves S.sel = null; CH.last = -1;
   S.layer = lines.some(l => l.tr && l.tr.trim()) ? 'tr' : 'orig'; S.picked.clear(); S.pickAnchor = -1;
   S.duration = Math.max(dur || 0, lines.length ? lines[lines.length - 1].end + 2 : 0, S.hasAudio ? audio.duration || 0 : 0);
   buildPreview(); seekTo(0);
@@ -94,4 +95,13 @@ async function autoFromAudio(fname: string, dur: number) {
     if (S.audioBlob) idbPut(trackKey(), S.audioBlob);
     status('st1', close ? `Подобрал автоматически: ${best.artistName} — ${best.trackName} (длительность совпала). Если не тот трек — выбери другой в списке.` : `Подобрал ближайший вариант, но длительность отличается (${mmss(best.duration)} против ${mmss(dur)}) — проверь тайминги или выбери другую версию.`, close ? 'ok' : 'err');
   } catch (e) { status('st1', 'Не вышло найти текст: ' + (e as Error).message, 'err'); }
+}
+
+/** one door for files with lyrics: TTML (ours / Apple / Spicy / NaeNae — singers, bg, words, sections), LRC, SRT, text, our project */
+export async function openLyricsFile(f: File) {
+  const t = await f.text();
+  if (/\.json$/i.test(f.name)) { try { const { loadProject } = await import('./persist.ts'); loadProject(t); } catch (e) { status('st1', 'Проект не открылся: ' + (e as Error).message, 'err'); } return; }
+  if (!/\.(ttml|xml)$/i.test(f.name)) S.manual = t;
+  loadManual(t, f.name);
+  const g = guessNames(f.name); if (S.lines.length && g.title) { S.meta.title = g.title; if (g.artist) S.meta.artist = g.artist; emit(); } // "Artist - Title (ru).ttml"
 }

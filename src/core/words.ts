@@ -63,3 +63,46 @@ export function getWords(text: string, sync: WordSync[] | null | undefined, t0: 
   if (syncComplete(sync, us.length)) return us.map((u, i) => ({ word: u.w, sp: u.sp, a: sync[i].a, b: sync[i].b, real: true }));
   return splitWords(text, t0, t1);
 }
+
+/* ---------- remembered syllable splits: split a word once, it comes split everywhere ---------- */
+/** letters of a word, lowercase: the key of a remembered split */
+export const sylKey = (w: string) => w.replace(/\|/g, '').toLowerCase().replace(/[^\p{L}]+/gu, '');
+/** "Ма|ли|на," -> ['малина', [2, 4]]: cuts counted in letters, so case and punctuation don't matter */
+export function sylCuts(token: string): [string, number[]] | null {
+  if (!token.includes('|')) return null;
+  let n = 0; const cuts: number[] = [];
+  for (const ch of token) { if (ch === '|') { if (n && cuts[cuts.length - 1] !== n) cuts.push(n); } else if (/\p{L}/u.test(ch)) n++; }
+  const key = sylKey(token);
+  return key && cuts.length && cuts[cuts.length - 1] < key.length ? [key, cuts] : null;
+}
+/** every token with "|" of a text into the dictionary; returns the keys learned */
+export function learnSplits(text: string, dict: Record<string, number[]>) {
+  const got: string[] = [];
+  for (const tok of String(text || '').split(/[^\S\u00a0]+/)) { const c = sylCuts(tok); if (c && String(dict[c[0]]) !== String(c[1])) { dict[c[0]] = c[1]; got.push(c[0]); } }
+  return got;
+}
+function cutWord(w: string, cuts: number[]) {
+  const parts: string[] = []; let cur = '', n = 0, c = 0;
+  for (const ch of w) { cur += ch; if (/\p{L}/u.test(ch) && ++n === cuts[c]) { parts.push(cur); cur = ''; c++; } }
+  if (cur) { if (/\p{L}/u.test(cur) || !parts.length) parts.push(cur); else parts[parts.length - 1] += cur; } // trailing punctuation stays on the last syllable
+  return parts;
+}
+/**
+ * Split the whole words of a layer that the dictionary knows (only = just these keys). Timings of a split word
+ * are shared by its syllables in proportion. null = nothing changed.
+ */
+export function applySplits(text: string, sync: WordSync[] | null | undefined, dict: Record<string, number[]>, only?: Set<string>) {
+  const us = units(text); if (!us.length) return null;
+  const sy = Array.isArray(sync) && sync.length === us.length ? sync : null, nu: Unit[] = [], ns: WordSync[] = []; let n = 0;
+  us.forEach((u, k) => {
+    const whole = u.sp && (k === 0 || us[k - 1].sp) && !u.w.includes(NBSP), key = whole ? sylKey(u.w) : '';
+    const cuts = key && (!only || only.has(key)) ? dict[key] : undefined, parts = cuts ? cutWord(u.w, cuts) : [u.w];
+    if (parts.length < 2) { nu.push(u); if (sy) ns.push(sy[k]); return; }
+    n++; const pu = parts.map((w, j) => ({ w, sp: j === parts.length - 1 })); nu.push(...pu);
+    if (!sy) return;
+    const x = sy[k];
+    if (x.a == null || x.b == null) ns.push(...pu.map(() => ({ a: null, b: null })));
+    else ns.push(...splitWords(unitsText(pu), x.a, x.b).map(w => ({ a: Math.round(w.a * 1000) / 1000, b: Math.round(w.b * 1000) / 1000, ...(x.g ? { g: 1 as const } : {}) })));
+  });
+  return n ? { text: unitsText(nu), sync: sy ? ns : sync ? null : sync, n } : null;
+}

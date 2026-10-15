@@ -1,10 +1,10 @@
 // Left column: 1 search/load, 2 translation + line editor, 3 export + QA.
-import { mmss, wordList } from '../core/index.ts';
+import { mmss, plainW, stopLine, wordList } from '../core/index.ts';
 import { S, emit, lineState, mainLayerFor, status } from '../state.ts';
 import { seekTo } from '../audio.ts';
 import { buildPreview } from '../preview.ts';
 import { listSnaps, loadProject, restoreSnap, scheduleSave, snapshot, type Snap } from '../persist.ts';
-import { loadManual, loadTrack, search, setMode } from '../load.ts';
+import { loadManual, loadTrack, openLyricsFile, search, setMode } from '../load.ts';
 import { selectWord } from '../sync.ts';
 import { LANGS, applyPaste, autoTranslate, clearTr, copyPrompt, llmTranslate } from '../translate.ts';
 import { copyTTML, download, gotoQa, runQa, saveLRC, saveProjectFile, saveSRT, toggleCode } from '../exporting.ts';
@@ -18,6 +18,7 @@ import { loadAudioFile } from '../load.ts';
 import { W } from '../waveform/wave.ts';
 import type { Page } from '../state.ts';
 import { findAll } from '../core/index.ts';
+import { folderSupported, openProjectFolder, pickFolder, saveToFolder, unlinkFolder } from '../folder.ts';
 import { acceptDiff, geniusDiff, geniusPick, geniusQuery, geniusSearch, geniusToText, ignoreDiff } from '../genius.ts';
 
 const set = (f: () => void) => { f(); emit(); };
@@ -30,6 +31,8 @@ export function SearchCard() {
       <input type="text" id="q" placeholder="Исполнитель — название (например: Eminem Lose Yourself)" value={S.q}
         onChange={e => set(() => S.q = e.target.value)} onKeyDown={e => { if (e.key === 'Enter') search(); }} />
       <button className="pri" id="btnSearch" onClick={search}>Найти</button>
+      {folderSupported() && <button id="btnOpenFolder" title="Папка проекта: подниму проект (или TTML) и аудио из неё" onClick={openProjectFolder}>📂 Папка проекта</button>}
+      <label className="btn" id="btnOpenFile" title="TTML (свой, Apple, Spicy, NaeNae — с исполнителями, бэками, пословной разметкой и секциями), LRC, SRT, текст или проект .spicy.json. Можно и просто перетащить файл на страницу.">📂 Открыть файл<input type="file" accept=".ttml,.xml,.lrc,.srt,.txt,.json" hidden onChange={e => { const f = e.target.files?.[0]; if (f) openLyricsFile(f); e.target.value = ''; }} /></label>
     </div>
     <div className="res" id="results">{S.results.slice(0, 25).map(d => {
       const synced = !!d.syncedLyrics;
@@ -172,7 +175,7 @@ export function LinesCard() {
 
 
 export function ExportCard() {
-  const bi = S.meta.mode === 'bilingual', qa = S.qa, errs = qa ? qa.filter(x => x.sev === 'err').length : 0;
+  const bi = S.meta.mode === 'bilingual', qa = S.qa, errs = qa ? qa.filter(x => x.sev === 'err').length : 0, st = stopLine(S.lines, S.meta.mode);
   return <section className="card">
     <h2>Экспорт TTML</h2>
     <div className="seg">
@@ -188,17 +191,27 @@ export function ExportCard() {
       <div><small style={{ color: 'var(--mut)' }}>Сдвиг, мс</small><input type="number" id="offset" step="50" value={S.exp.offset} onChange={e => set(() => S.exp.offset = e.target.value)} /></div>
       <div><small style={{ color: 'var(--mut)' }}>Авторы текста (через запятую)</small><input type="text" id="writers" placeholder="необязательно" value={S.exp.writers} onChange={e => set(() => S.exp.writers = e.target.value)} /></div>
     </div>
+    {S.lines.length > 0 && <div className={'stop ' + (st.i < 0 ? 'ok' : '')} id="stopLine">{st.i < 0
+      ? <>Все строки размечены вручную ✓ ({st.n})</>
+      : <><span>Размечено строк: <b>{st.done}</b> из {st.n}. Ты остановился на строке <b>{st.i + 1}</b>: «{plainW(S.lines[st.i].tr.trim() || S.lines[st.i].text || S.lines[st.i].bg?.text || '').slice(0, 60)}»</span>
+        <button className="sm" id="btnStop" onClick={() => { gotoQa(st.i); setPage('sync'); }}>Продолжить отсюда →</button></>}</div>}
     <div className="row" style={{ marginTop: 12 }}>
-      <button className="pri" id="btnDl" onClick={download}>Скачать .ttml</button>
+      <button className="pri" id="btnDl" title="Перед сохранением — проверка: ошибки, слова короче 50 мс, неразмеченные строки" onClick={download}>Скачать .ttml</button>
       <button id="btnCopy" onClick={copyTTML}>Копировать</button>
       <button id="btnShow" onClick={toggleCode}>{S.out == null ? 'Показать код' : 'Скрыть код'}</button>
     </div>
     <div className="row" style={{ marginTop: 8, flexWrap: 'wrap' }}>
       <button className="sm" id="btnLrc" onClick={saveLRC}>LRC</button><button className="sm" id="btnSrt" onClick={saveSRT}>SRT (субтитры)</button>
       <button className="sm" id="btnProjSave" onClick={saveProjectFile}>Сохранить проект</button>
-      <label className="btn sm" style={{ padding: '6px 10px', fontSize: 12.5 }}>Открыть проект<input type="file" id="fileProj" accept=".json" hidden
-        onChange={async e => { const f = e.target.files?.[0]; if (!f) return; try { loadProject(await f.text()); } catch (err) { status('st1', 'Не открылось: ' + (err as Error).message, 'err'); } }} /></label>
+      <label className="btn sm" style={{ padding: '6px 10px', fontSize: 12.5 }} title="Проект .spicy.json или готовый TTML (тайминги, бэки, секции)">Открыть проект / TTML<input type="file" id="fileProj" accept=".json,.ttml,.xml,.lrc" hidden
+        onChange={e => { const f = e.target.files?.[0]; if (f) openLyricsFile(f); e.target.value = ''; }} /></label>
     </div>
+    {folderSupported() && <div className="pfolder" id="projFolder">
+      {S.folder
+        ? <><span>📁 <b title={S.folder.label}>{S.folder.label.split(/[\\/]/).pop()}</b><small>{S.folder.saved ? `сохранено в ${new Date(S.folder.saved).toLocaleTimeString().slice(0, 5)}` : 'TTML, проект и аудио — сюда'}</small></span>
+          <button className="sm pri" id="btnFolderSave" onClick={saveToFolder}>Сохранить сюда <kbd>Ctrl+S</kbd></button><button className="sm" onClick={pickFolder}>Сменить</button><button className="sm ic" title="Отвязать папку от трека" onClick={unlinkFolder}>✕</button></>
+        : <><span>Папка проекта<small>TTML, проект и аудио лежат вместе; <kbd>Ctrl+S</kbd> сохраняет туда без вопросов</small></span><button className="sm" id="btnFolderPick" onClick={() => saveToFolder()}>📁 Выбрать папку и сохранить</button></>}
+    </div>}
     <div className="row" style={{ marginTop: 8 }}><button className="sm" id="btnQa" title="Проверка перед экспортом: пустые, перекрытия, слишком короткие слова…" onClick={runQa}>✔ Проверка (QA)</button>
       <small className="hint" id="qaSum" style={{ margin: 0 }}>{qa && S.lines.length ? (qa.length ? `ошибок: ${errs}, замечаний: ${qa.length - errs}` : 'всё чисто ✓') : ''}</small></div>
     <div className="qa" id="qaOut">{(qa || []).slice(0, 80).map((x, k) => <div key={k} className={x.sev} onClick={() => gotoQa(x.i)}>{`строка ${x.i + 1}: ${x.msg}`}</div>)}</div>

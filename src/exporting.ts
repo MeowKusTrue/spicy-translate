@@ -1,5 +1,5 @@
 // Export (TTML/LRC/SRT/project) and QA panel actions.
-import { buildLRC, buildSRT, buildTTML, qaCheck, type ExportOpts } from './core/index.ts';
+import { SHORT_WORD, buildLRC, buildSRT, buildTTML, qaCheck, stopLine, type ExportOpts } from './core/index.ts';
 import { S, emit, mainLayerFor, status } from './state.ts';
 import { seekTo } from './audio.ts';
 import { projectJSON, saveText } from './persist.ts';
@@ -20,9 +20,20 @@ function checkExport() {
   if (missing) status('st2', `У ${missing} строк нет перевода — в файл попадёт оригинал.`, 'err');
   return buildTTML(opts());
 }
-export function download() {
+/** the check before a file goes out: errors ask first, short words and unfinished lines are said after */
+export function preflight() {
+  runQa();
+  const qa = S.qa!, errs = qa.filter(x => x.sev === 'err'), short = qa.filter(x => x.msg.includes('слишком короткое')), st = stopLine(S.lines, S.meta.mode);
+  if (errs.length && !confirm(`Ошибок: ${errs.length} (первая — строка ${errs[0].i + 1}: ${errs[0].msg}).\nSpicy может не загрузить такой файл. Всё равно сохранить?`)) return null;
+  const notes = [st.i >= 0 && `размечено строк ${st.done} из ${st.n}, остановился на строке ${st.i + 1}`, short.length && `слов короче ${SHORT_WORD * 1000} мс: ${short.length}`].filter(Boolean);
+  return notes.length ? 'Сохранено, но ' + notes.join('; ') + ' — список во вкладке «Экспорт».' : '';
+}
+export async function download() {
   const x = checkExport(); if (!x) return;
-  return saveText(`${fileBase()} (${S.meta.lang}).ttml`, x, 'application/xml');
+  const note = preflight(); if (note == null) return;
+  const ok = await saveText(`${fileBase()} (${S.meta.lang}).ttml`, x, 'application/xml');
+  if (ok && note) status('st2', note, 'err');
+  return ok;
 }
 export async function copyTTML() { const x = checkExport(); if (!x) return; (await copyText(x)) ? status('st2', 'TTML скопирован в буфер.', 'ok') : status('st2', 'Буфер заблокирован — нажми «Показать код» и скопируй вручную.', 'err'); }
 export function toggleCode() { if (S.out == null) { const x = checkExport(); if (!x) return; S.out = x; } else S.out = null; emit(); }

@@ -1,7 +1,10 @@
 // Text from Genius (where Spicy Lyrics makers take lyrics from). Genius has no timings, so its text is laid
 // over the lines we have (LRCLIB / LRC / auto-timing) through the «Текст» tab: rows are matched by similarity,
 // timings of matched lines stay, translations follow their lines. The server fetches Genius (no CORS there).
-import { alignRows, lineRow, textDiff } from './core/index.ts';
+import { alignRows, lineRow, splitHeaders, textDiff } from './core/index.ts';
+import { snap } from './sync.ts';
+import { scheduleSave } from './persist.ts';
+import { drawWave } from './waveform/wave.ts';
 import { S, emit, toast } from './state.ts';
 import { fetchSearch, loadManual, loadTrack } from './load.ts';
 import { setPage } from './hotkeys.ts';
@@ -35,6 +38,7 @@ export async function geniusPick(h: GeniusHit) {
   let text: string;
   try { text = (await api<{ text: string }>('/api/genius/lyrics?url=' + encodeURIComponent(h.url))).text; }
   catch (e) { return done('Genius: ' + (e as Error).message, 'err'); }
+  const { rows, heads } = splitHeaders(text); text = rows.join('\n'); // [Припев] headers -> sections
   if (!S.lines.length) { // nothing to lay the text on yet: timings from LRCLIB, else the text spread evenly
     busy('Ищу тайминги этой песни в LRCLIB…');
     const synced = (await fetchSearch(`${h.artist} ${bare(h.title)}`).catch(() => [])).filter(d => d.syncedLyrics);
@@ -45,9 +49,23 @@ export async function geniusPick(h: GeniusHit) {
       return done('Тайминги в LRCLIB не нашлись: текст Genius разложен по времени ровно. Подгони строки на волне или запусти ✨ Авто-тайминг.', 'err');
     }
   }
-  S.genius = { ...S.genius!, text, title: h.title, ignored: [] };
-  const n = geniusDiff().length;
-  done(n ? `Сверка с «${h.title}»: отличий ${n}. Принимай по строке (✓) или все сразу — разметка совпавших слов сохранится.` : `Текст совпадает с Genius («${h.title}») — править нечего.`);
+  S.genius = { ...S.genius!, text, heads, title: h.title, ignored: [] };
+  if (heads.length) snap();
+  const ns = applySections(), n = geniusDiff().length, sec = ns ? ` Секции с Genius: ${ns} — цветные блоки над волной.` : '';
+  done((n ? `Сверка с «${h.title}»: отличий ${n}. Принимай по строке (✓) или все сразу — разметка совпавших слов сохранится.` : `Текст совпадает с Genius («${h.title}») — править нечего.`) + sec);
+}
+/** Genius section headers onto our lines (the line where the header's first row starts); returns how many */
+export function applySections() {
+  const g = S.genius; if (!g?.text || !g.heads?.length) return 0;
+  const rows = g.text.split('\n'), map = textDiff(S.lines.map(l => lineRow(l, false)), rows).rowLine;
+  S.lines.forEach(l => { delete l.sec; });
+  let n = 0;
+  g.heads.forEach((h, x) => {
+    const end = x + 1 < g.heads!.length ? g.heads![x + 1].row : rows.length;
+    for (let r = h.row; r < end; r++) if (map[r] >= 0) { const l = S.lines[map[r]]; if (!l.sec) { l.sec = h.label; n++; } break; }
+  });
+  emit(); drawWave(); scheduleSave();
+  return n;
 }
 
 /* ---------- line-by-line check of the current text against Genius ---------- */
@@ -72,7 +90,7 @@ export function acceptDiff(items: DiffItem[]) {
     else { o.splice(d.m, 1); t.splice(d.m, 1); }
   }
   S.full = { o: o.join('\n'), t: t.some(Boolean) ? t.join('\n') : '', dirty: true };
-  applyFull();
+  applyFull(); applySections();
   const left = geniusDiff().length; S.genius = { ...S.genius!, msg: left ? `Осталось отличий: ${left}` : 'Текст совпадает с Genius ✓', cls: 'ok' }; emit();
 }
 export function ignoreDiff(d: DiffItem) { S.genius = { ...S.genius!, ignored: [...S.genius!.ignored, d.key] }; emit(); }

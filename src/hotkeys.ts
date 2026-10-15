@@ -5,6 +5,7 @@ import { PV } from './preview.ts';
 import { doRedo, doUndo, joinWords, mark, nudgeWord, resetWord, setLayer, splitWord, stepWord } from './sync.ts';
 import { isApp, appZoom } from './desktop.ts';
 import { snapshot } from './persist.ts';
+import { folderSupported, saveToFolder } from './folder.ts';
 import { copyLines, copyTiming, fullDraft, openEdit, pasteLines, pasteTimingHere, repeatChorus } from './lineEdit.ts';
 import { W, drawWave } from './waveform/wave.ts';
 import { cycleAgent, setAgent } from './agents.ts';
@@ -84,7 +85,7 @@ export function installHotkeys() {
   document.addEventListener('keydown', e => {
     const c = e.code, ctrl = e.ctrlKey || e.metaKey;
     if (e.key === 'Alt') e.preventDefault(); // releasing Alt after an Alt+drag copy would focus the browser menu
-    if (ctrl && !e.shiftKey && c === 'KeyS') { e.preventDefault(); if (S.lines.length) snapshot('вручную').then(() => toast('Сохранено: снимок проекта (Трек → Проекты и история). Автосохранение тоже работает.', 'ok')); }
+    if (ctrl && !e.shiftKey && c === 'KeyS') { e.preventDefault(); if (folderSupported()) saveToFolder(); else if (S.lines.length) snapshot('вручную').then(() => toast('Сохранено: снимок проекта (Трек → Проекты и история). Автосохранение тоже работает.', 'ok')); }
     if (ctrl && !e.shiftKey && c === 'KeyF') { e.preventDefault(); setPage('tr'); if (!S.find) S.find = { q: '', r: '', where: 'all', cs: false, word: true }; emit(); setTimeout(() => document.getElementById('findQ')?.focus(), 50); }
     if (isApp && (c === 'F5' || (ctrl && (c === 'KeyR' || c === 'KeyP' || c === 'KeyU' || c === 'KeyJ')))) e.preventDefault(); // no reload / print / source / downloads in the app
     if (isApp && ctrl && (c === 'Equal' || c === 'NumpadAdd' || c === 'Minus' || c === 'NumpadSubtract' || c === 'Digit0' || c === 'Numpad0')) {

@@ -179,6 +179,19 @@ export function shiftLine(l: Line, o: Line, d: number) {
   l.t = r3(o.t + d); l.end = r3(o.end + d);
   if (o.sync) for (const k of Object.keys(o.sync) as Layer[]) l.sync?.[k]?.forEach((x, j) => { const y = o.sync![k]![j]; if (y && y.a != null) x.a = r3(y.a + d); if (y && y.b != null) x.b = r3(y.b + d); });
 }
+/**
+ * Another version of the track (sped up / slowed down, other master): every time t -> at + (t - at) * k,
+ * lines and all their words. k = new length / old length.
+ */
+export function stretchLines(lines: Line[], k: number, at = 0) {
+  const f = (x: number) => r3(Math.max(0, at + (x - at) * k));
+  for (const l of lines) {
+    l.t = f(l.t); l.end = f(l.end);
+    if (l.sync) for (const ly of Object.keys(l.sync) as Layer[]) l.sync[ly]?.forEach(x => { if (x && x.a != null) x.a = f(x.a); if (x && x.b != null) x.b = f(x.b); });
+  }
+}
+/** "3:42.5", "3:42" or "222.5" -> seconds (NaN if not a time) */
+export const parseDur = (s: string) => { const m = String(s).trim().match(/^(?:(\d+):)?(\d+(?:[.,]\d+)?)$/); return m ? (+(m[1] || 0)) * 60 + +m[2].replace(',', '.') : NaN; };
 const setTxt = (l: Line, layer: Layer, v: string) => {
   if (layer === 'tr') l.tr = v; else if (layer === 'orig') l.text = v;
   else { l.bg = l.bg || { text: '', tr: '' }; if (layer === 'bg') l.bg.tr = v; else l.bg.text = v; }
@@ -309,7 +322,8 @@ export function textDiff(oldRows: string[], newRows: string[]) {
     const o = A[i].w.replace(/\|/g, ''), n = B[j].w;
     return o === n || (!out[A[i].r].length && o.toLowerCase() === n.toLowerCase()) || (A[i + 1]?.r !== A[i].r && o === n.replace(/[,;]$/, ''));
   };
-  const match = (i: number, j: number) => { out[A[i].r].push(same(i, j) ? A[i].w : B[j].w); last = A[i].r; };
+  const rowLine: number[] = newRows.map(() => -1);
+  const match = (i: number, j: number) => { out[A[i].r].push(same(i, j) ? A[i].w : B[j].w); last = A[i].r; if (rowLine[B[j].r] < 0) rowLine[B[j].r] = A[i].r; };
   const gap = (i0: number, i1: number, j0: number, j1: number) => {
     if (j1 <= j0) return; // only our words: dropped
     const full = (q: number) => { const [s, e] = rowSpan.get(B[q].r)!; return s >= j0 && e < j1; };
@@ -342,5 +356,5 @@ export function textDiff(oldRows: string[], newRows: string[]) {
   gap(pi, A.length, pj, B.length);
   const edits: { m: number; row: string }[] = [], dels: number[] = [];
   oldRows.forEach((r, m) => { const n = out[m].join(' '); if (!r.trim()) return; if (!n) dels.push(m); else if (n !== r.trim().split(/ +/).join(' ')) edits.push({ m, row: n }); });
-  return { edits, adds, dels };
+  return { edits, adds, dels, rowLine };
 }

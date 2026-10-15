@@ -1,6 +1,7 @@
 import type { Agent, ExportOpts, TimedWord } from './types.ts';
 import { getWords, plainW, syncComplete, units } from './words.ts';
 import { hasCyr, translit } from './roman.ts';
+import { secCategory } from './sections.ts';
 
 const p2 = (n: number) => String(n).padStart(2, '0');
 const p3 = (n: number) => String(n).padStart(3, '0');
@@ -18,7 +19,7 @@ export function esc(s: unknown) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-type Item = { a: number; b: number; mainText: string; main: TimedWord[] | null; bg: TimedWord[] | null; agent: Agent };
+type Item = { a: number; b: number; mainText: string; main: TimedWord[] | null; bg: TimedWord[] | null; agent: Agent; sec: string }; // sec: id of its song section ('' = none)
 
 export function buildTTML(o: ExportOpts) {
   const { lines, mode = 'translation', wordSpread = true, lang = 'ru', offset = 0, songwriters = [], roman = false } = o;
@@ -27,14 +28,16 @@ export function buildTTML(o: ExportOpts) {
   const wordTiming = bilingual || wordSpread;
   const sh = (ws: TimedWord[]) => ws.map(w => ({ word: w.word, sp: w.sp, a: Math.max(0, w.a + shift), b: Math.max(0, w.b + shift) }));
   const items: Item[] = [];
+  let sec = '', secN = 0; const secs: { id: string; label: string; category: string }[] = [];
   for (const l of lines) {
+    if (l.sec) { sec = 's' + ++secN; secs.push({ id: sec, label: l.sec, category: secCategory(l.sec) }); }
     const hasTr = l.tr && l.tr.trim();
     const mainLayer = bilingual ? 'orig' : (hasTr ? 'tr' : 'orig');
     const mainText = mainLayer === 'tr' ? l.tr.trim() : l.text, hasMain = !!(mainText && mainText.trim());
     // a line may be background vocals only (empty lead): Spicy renders those in word mode
     if (!hasMain && !(wordTiming && l.bg && (l.bg.text.trim() || l.bg.tr.trim()))) continue;
     const sync = l.sync || {};
-    const it: Item = { a: Math.max(0, l.t + shift), b: Math.max(0, l.end + shift), mainText, main: null, bg: null, agent: l.agent || 'v1' };
+    const it: Item = { a: Math.max(0, l.t + shift), b: Math.max(0, l.end + shift), mainText, main: null, bg: null, agent: l.agent || 'v1', sec };
     if (wordTiming) {
       it.main = hasMain ? sh(getWords(mainText, sync[mainLayer], l.t, l.end)) : [];
       if (bilingual && hasTr && hasMain) it.bg = sh(getWords(l.tr.trim().replace(/[()]/g, ''), sync.tr, l.t, l.end));
@@ -69,17 +72,17 @@ export function buildTTML(o: ExportOpts) {
       inner = esc(plainW(l.mainText));
       if (roman && hasCyr(l.mainText)) inner += `<span ttm:role="x-roman">${esc(translit(plainW(l.mainText)))}</span>`;
     }
-    body += `      <p begin="${fmtTime(l.a)}" end="${fmtTime(l.b)}" ttm:agent="${l.agent}" itunes:key="L${i + 1}">${inner}</p>\n`;
+    body += `      <p begin="${fmtTime(l.a)}" end="${fmtTime(l.b)}" ttm:agent="${l.agent}" itunes:key="L${i + 1}"${l.sec ? ` amll:section="${l.sec}"` : ''}>${inner}</p>\n`;
   });
   const used = ['v1', 'v2', 'v1000'].filter(id => id === 'v1' || items.some(i => i.agent === id));
   const agents = used.map(id => `      <ttm:agent type="${id === 'v1000' ? 'group' : 'person'}" xml:id="${id}"/>`).join('\n');
   const sw = songwriters.filter(Boolean).map(s => `<songwriter>${esc(s)}</songwriter>`).join('');
   return `<?xml version="1.0" encoding="UTF-8"?>
-<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" itunes:timing="${wordTiming ? 'Word' : 'Line'}" xml:lang="${esc(lang)}">
+<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:ttm="http://www.w3.org/ns/ttml#metadata"${secs.length ? ' xmlns:amll="http://www.example.com/ns/amll"' : ''} itunes:timing="${wordTiming ? 'Word' : 'Line'}" xml:lang="${esc(lang)}">
   <head>
     <metadata>
 ${agents}
-      <iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal"><songwriters>${sw}</songwriters>${roms ? `<transliterations><transliteration xml:lang="${esc(lang)}-Latn">${roms}</transliteration></transliterations>` : ''}</iTunesMetadata>
+${secs.length ? `      <amll:meta key="amll:sections" value="${esc(JSON.stringify({ version: 1, sections: secs }))}"/>\n` : ''}      <iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal"><songwriters>${sw}</songwriters>${roms ? `<transliterations><transliteration xml:lang="${esc(lang)}-Latn">${roms}</transliteration></transliterations>` : ''}</iTunesMetadata>
     </metadata>
   </head>
   <body dur="${fmtTime(dur)}">

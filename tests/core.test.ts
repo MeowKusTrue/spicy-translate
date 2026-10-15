@@ -102,7 +102,7 @@ describe('qaCheck', () => {
     expect(msgs).toContain('1:warn:нет перевода — пойдёт оригинал');
     expect(msgs).toContain('1:warn:слова не размечены — будет равномерный спред');
     expect(msgs).toContain('2:warn:слова только раскиданы, не проверены вручную');
-    expect(msgs).toContain('2:warn:«раз»: слишком короткое (20 мс)');
+    expect(msgs.some(m => m.startsWith('2:warn:«раз»: слишком короткое (20 мс)'))).toBe(true);
     expect(msgs).toContain('2:err:«два»: перекрывает предыдущее слово');
     expect(msgs.some(m => m.startsWith('3:warn:начинается раньше конца строки 3'))).toBe(true);
   });

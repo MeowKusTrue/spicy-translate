@@ -29,6 +29,51 @@ async fn save_file(app: tauri::AppHandle, name: String, text: String) -> Result<
     Ok(Some(path.display().to_string()))
 }
 
+/* ---------- the project folder: TTML, project and audio side by side; Ctrl+S writes there without asking ---------- */
+/// only plain file names of lyrics / project / audio files: nothing else can be read or written through these
+fn in_folder(dir: &str, name: &str) -> Result<std::path::PathBuf, String> {
+    let n = name.to_lowercase();
+    let ok = !name.contains(['/', '\\', ':']) && !name.starts_with('.')
+        && [".ttml", ".json", ".lrc", ".srt", ".mp3", ".flac", ".wav", ".ogg", ".m4a", ".opus", ".aac"].iter().any(|e| n.ends_with(e));
+    let d = std::path::Path::new(dir);
+    if !ok || !d.is_absolute() || !d.is_dir() { return Err(format!("нельзя: {name}")); }
+    Ok(d.join(name))
+}
+fn unhex(v: Option<&tauri::http::HeaderValue>) -> Result<String, String> {
+    let s = v.and_then(|h| h.to_str().ok()).ok_or("нет заголовка")?;
+    let b: Result<Vec<u8>, _> = (0..s.len()).step_by(2).map(|i| u8::from_str_radix(s.get(i..i + 2).unwrap_or("x"), 16)).collect();
+    String::from_utf8(b.map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
+#[tauri::command]
+async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let Some(p) = app.dialog().file().set_title("Папка проекта: TTML, проект и аудио будут лежать здесь").blocking_pick_folder() else { return Ok(None) };
+    Ok(Some(p.into_path().map_err(|e| e.to_string())?.display().to_string()))
+}
+#[tauri::command]
+fn list_dir(dir: String) -> Result<Vec<String>, String> {
+    let mut out = vec![];
+    for e in std::fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
+        if e.path().is_file() { if let Some(n) = e.file_name().to_str() { if in_folder(&dir, n).is_ok() { out.push(n.to_string()); } } }
+    }
+    Ok(out)
+}
+#[tauri::command]
+fn read_text(dir: String, name: String) -> Result<String, String> { std::fs::read_to_string(in_folder(&dir, &name)?).map_err(|e| e.to_string()) }
+#[tauri::command]
+fn read_bytes(dir: String, name: String) -> Result<tauri::ipc::Response, String> {
+    Ok(tauri::ipc::Response::new(std::fs::read(in_folder(&dir, &name)?).map_err(|e| e.to_string())?))
+}
+#[tauri::command]
+fn write_text(dir: String, name: String, text: String) -> Result<(), String> { std::fs::write(in_folder(&dir, &name)?, text).map_err(|e| e.to_string()) }
+/// raw body (the audio), folder and file name in hex headers (headers are ASCII only)
+#[tauri::command]
+fn write_bytes(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let tauri::ipc::InvokeBody::Raw(data) = request.body() else { return Err("нужны байты".into()) };
+    let (dir, name) = (unhex(request.headers().get("x-dir"))?, unhex(request.headers().get("x-name"))?);
+    std::fs::write(in_folder(&dir, &name)?, data).map_err(|e| e.to_string())
+}
+
 /// 8787 like the MCP server, so both share one project; SPICY_PORT overrides
 fn base_port() -> u16 { std::env::var("SPICY_PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(8787) }
 fn addr(port: u16) -> SocketAddr { SocketAddr::from(([127, 0, 0, 1], port)) }
@@ -62,7 +107,7 @@ fn main() {
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build()) // size / position remembered between launches
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![save_file])
+        .invoke_handler(tauri::generate_handler![save_file, pick_folder, list_dir, read_text, read_bytes, write_text, write_bytes])
         .manage(Server(Mutex::new(None)))
         .setup(|app| {
             let mut port = base_port();

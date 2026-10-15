@@ -143,7 +143,7 @@ async function geniusSearch(q: string): Promise<GeniusHit[]> {
 async function geniusText(url: string) {
   if (!/^https:\/\/genius\.com\/[\w%.-]+-lyrics$/.test(url)) throw new Error('нужна ссылка на песню genius.com/…-lyrics');
   const r = await fetch(url, { headers: GH }); if (!r.ok) throw new Error('Genius HTTP ' + r.status);
-  const text = C.geniusLyrics(await r.text()); if (!text) throw new Error('на странице нет текста (инструментал или Genius поменял вёрстку)');
+  const text = C.geniusLyrics(await r.text(), true); if (!text) throw new Error('на странице нет текста (инструментал или Genius поменял вёрстку)');
   return text;
 }
 const AL = { running: false, stage: '', done: 0, total: 0, error: '', out: '', vocals: '', audio: '', device: '', log: [] as string[] };
@@ -267,7 +267,7 @@ const lastSearch: LrclibHit[] = [];
 const need = async () => { const s = await getState(); if (!s.project || !s.project.lines) throw new Error('проект пуст: сначала lyrics_search + load_lyrics (или открой проект в редакторе)'); return s.project; };
 const layerText = (l: C.Line, layer: Layer) => layer === 'tr' ? (l.tr || '') : l.text;
 const summary = (p: Project) => ({
-  meta: p.meta, lines: p.lines.map((l, i) => ({ i, t: +l.t.toFixed(2), end: +l.end.toFixed(2), text: l.text, tr: l.tr || '', agent: l.agent || 'v1', ...(l.bg ? { bg: l.bg } : {}),
+  meta: p.meta, lines: p.lines.map((l, i) => ({ i, t: +l.t.toFixed(2), end: +l.end.toFixed(2), text: l.text, tr: l.tr || '', agent: l.agent || 'v1', ...(l.bg ? { bg: l.bg } : {}), ...(l.sec ? { section: l.sec } : {}),
     wordsSynced: !!(l.sync && (['tr', 'orig'] as const).some(k => l.sync![k] && l.sync![k]!.length && l.sync![k]!.every(x => x.a != null && x.b != null && !x.g))) }))
 });
 
@@ -283,7 +283,7 @@ const tools: Record<string, Tool> = {
     }
   },
   genius_lyrics: {
-    description: 'Текст песни с Genius — эталонный текст для Spicy Lyrics (таймингов там нет). Без url — поиск: кандидаты + текст лучшего совпадения. Строка = строка песни, (…) = бэк-вокал. Тайминги бери из LRCLIB (lyrics_search + load_lyrics); положить текст Genius на них пользователь может в редакторе: «Трек» → «Текст с Genius».',
+    description: 'Текст песни с Genius — эталонный текст для Spicy Lyrics (таймингов там нет). Без url — поиск: кандидаты + текст лучшего совпадения. Строка = строка песни, (…) = бэк-вокал, [Припев] — заголовок секции. Тайминги бери из LRCLIB (lyrics_search + load_lyrics); положить текст Genius на них пользователь может в редакторе: «Трек» → «Текст с Genius».',
     schema: { type: 'object', properties: { q: { type: 'string', description: 'исполнитель и название' }, url: { type: 'string', description: 'ссылка genius.com/…-lyrics из прошлого поиска' } } },
     async run({ q, url }: { q?: string; url?: string }) {
       if (url) return { url, text: await geniusText(url) };

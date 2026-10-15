@@ -1,5 +1,5 @@
 // Waveform canvas: state W, peaks, drawing, zoom.
-import { mmss, plainW } from '../core/index.ts';
+import { mmss, plainW, secCategory, sectionsOf, type Section } from '../core/index.ts';
 import { JOIN, bandRows as coreBandRows, lineAt as coreLineAt, type Layer } from '../core/index.ts';
 import { S, clamp, emit, isBg, isTr, lineState, ls, mainLayerFor, mkLayer, status, viewWords } from '../state.ts';
 import { now } from '../audio.ts';
@@ -17,6 +17,7 @@ export const W = {
   multi: [] as { i: number; k: number; layer: Layer }[], // words picked with a Shift+drag box / Shift+click
   onsets: [] as number[], // note attacks found in the waveform (magnet targets)
   vpeaks: null as Float32Array | null, vonsets: [] as number[], // the same for the separated voice
+  secs: [] as Section[], // song sections drawn as a strip on top of the wave (drag = move a whole section)
   spec: null as Spec | null, vspec: null as Spec | null, // spectrograms of the mix / the voice (built after the waveform)
   drag: null as any, pend: null as any, boxes: [] as Box[], ctrl: false,
   snapAt: null as number | null, flash: null as { t: number; kind: 'F' | 'G' | 'H'; at: number } | null,
@@ -146,6 +147,16 @@ export function drawWave() {
       const hh = Math.max(1, m * amp); if (SP) { g.fillRect(x, mid - hh, 1, 1); g.fillRect(x, mid + hh, 1, 1); } else g.fillRect(x, mid - hh, 1, hh * 2);
     }
   } else { g.fillStyle = `rgba(${TH.t},.25)`; g.font = '12px system-ui'; g.textBaseline = 'middle'; g.fillText('Загрузи аудио (♪ аудио) — тут появится волна', 14, mid); }
+  // song sections: colored blocks over the top of the wave
+  W.secs = sectionsOf(S.lines);
+  for (const s of W.secs) {
+    if (s.b < t0 || s.a > t1) continue;
+    const x1 = X(s.a), x2 = X(s.b), col = secColor(s.label), y = G.wY + SEC_Y, on = W.drag?.type === 'sec' && W.drag.from === s.from;
+    g.fillStyle = `rgba(${col},${on ? .45 : .22})`; g.fillRect(x1, y, Math.max(2, x2 - x1 - 1), SEC_H);
+    g.fillStyle = `rgb(${col})`; g.fillRect(x1, y, 3, SEC_H);
+    g.save(); g.beginPath(); g.rect(x1 + 5, y, Math.max(0, x2 - x1 - 8), SEC_H); g.clip();
+    g.font = '700 10px system-ui'; g.textBaseline = 'middle'; g.fillStyle = `rgb(${TH.t})`; g.fillText(s.label, x1 + 7, y + SEC_H / 2 + 1); g.restore();
+  }
   if (S.onsetSnap && W.px > 50) { g.fillStyle = `rgba(${TH.t},.35)`; for (const o of waveOnsets()) if (o >= t0 && o <= t1) g.fillRect(X(o), G.lY - 7, 1, 5); } // attacks: magnet ticks
   // lanes: the active track is tinted and has a stripe on the left
   const act: Lane = isBg(S.layer) ? 'bg' : 'main';
@@ -225,6 +236,11 @@ export function drawWave() {
   if (W.snapAt != null && W.drag) { const sx = X(W.snapAt); g.fillStyle = '#ffd166'; g.fillRect(sx - 0.75, 0, 1.5, h); g.font = '11px ui-monospace,monospace'; g.fillText('🧲 ' + W.snapAt.toFixed(3), sx + 5, G.lY - 14); }
   drawMini(t, w / W.px);
 }
+export const SEC_Y = 3, SEC_H = 15;
+/** a section's color by its kind: chorus pink, verse green, bridge yellow… */
+export function secColor(label: string) {
+  return ({ chorus: TH.a2, 'pre-chorus': '120,170,255', verse: TH.a, bridge: '255,209,102', hook: '255,150,80', intro: TH.t, outro: TH.t, other: '170,140,255' })[secCategory(label)];
+}
 /** whole-song strip over the wave: lines colored by sync state, background-only lines pink, the visible window, playhead */
 export const songLen = () => Math.max(S.duration || 0, ...S.lines.map(l => l.end + 1), 1);
 function drawMini(t: number, view: number) {
@@ -239,6 +255,7 @@ function drawMini(t: number, view: number) {
     g.fillStyle = bgOnly ? `rgba(${TH.a2},.75)` : st === 'done' ? `rgba(${TH.a},.85)` : st === 'part' ? 'rgba(251,191,36,.75)' : `rgba(${TH.t},.28)`;
     g.fillRect(X(l.t), bgOnly ? h * .6 : 3, Math.max(1.5, X(l.end) - X(l.t) - 1), bgOnly ? h * .4 - 2 : h * .55 - 3);
   });
+  for (const s of W.secs) { g.fillStyle = `rgba(${secColor(s.label)},.9)`; g.fillRect(X(s.a), h - 2, Math.max(2, X(s.b) - X(s.a) - 1), 2); }
   g.strokeStyle = `rgba(${TH.t},.8)`; g.lineWidth = 1.5; g.strokeRect(X(W.start) + .75, .75, Math.max(4, X(view)) - 1.5, h - 1.5); g.lineWidth = 1;
   g.fillStyle = `rgb(${TH.t})`; g.fillRect(X(t), 0, 1.5, h);
 }

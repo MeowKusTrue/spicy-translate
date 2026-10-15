@@ -1,8 +1,9 @@
 // Editing texts and lines: the list inputs, the inline editor on the wave (double click / E), adding and removing
 // lines (own words, background vocals with no lead line), "(…)" -> background vocals. bg = bg translation, bgo = bg original.
-import { alignRows, findAll, fmtTime, insertLine, lineFromWords, lineRow, fitLineToWords, fitsWords, pasteTiming, repeatTranslations, timingOf, transferTiming, parensToBg, parseRow, plainW, remapSync, repeatTiming, replaceUnit, sameLines, shiftLine, type Layer, type Line } from './core/index.ts';
+import { stretchLines, alignRows, findAll, fmtTime, insertLine, lineFromWords, lineRow, fitLineToWords, fitsWords, pasteTiming, repeatTranslations, timingOf, transferTiming, parensToBg, parseRow, plainW, remapSync, repeatTiming, replaceUnit, sameLines, shiftLine, type Layer, type Line } from './core/index.ts';
 import { S, clamp, emit, ls, fillLine, isBg, isTr, layerText, lineState, r3, setText, toast, viewWords, wordsOf } from './state.ts';
 import { now } from './audio.ts';
+import { learnAndSpread, spreadSplits } from './syllables.ts';
 import { buildPreview } from './preview.ts';
 import { scheduleSave } from './persist.ts';
 import { CH, afterSyncChange, restore, selectWord, setLayer, snap } from './sync.ts';
@@ -13,7 +14,7 @@ const after = () => { buildPreview(true); emit(); drawWave(); scheduleSave(); };
  * Unchanged words keep their timings, a fixed typo keeps its span, new words are placed into the gaps
  * (auto, dashed) so they can be dragged right away.
  */
-export function editText(i: number, layer: Layer, v: string) { if (S.lines[i]) { keepText(i, layer, v); after(); } }
+export function editText(i: number, layer: Layer, v: string) { if (S.lines[i]) { keepText(i, layer, v); learnAndSpread(v); after(); } }
 function keepText(i: number, layer: Layer, v: string) {
   const l = S.lines[i], old = layerText(l, layer); if (old === v) return;
   setText(i, layer, v);
@@ -106,12 +107,13 @@ export function closeEdit(commit: boolean) {
     snap(); const r = replaceUnit(layerText(l, layer), l.sync && l.sync[layer], k, v); if (!r) return;
     setText(i, layer, r.text); l.sync = l.sync || {};
     if (r.sync && r.sync.length) { l.sync[layer] = r.sync; fillLine(i, layer); } else delete l.sync[layer];
+    learnAndSpread(r.text);
     S.sel = { i, k: clamp(k, 0, Math.max(0, wordsOf(i, layer).length - 1)) };
     buildPreview(true); afterSyncChange(false, i);
   } else {
     if (v === layerText(l, layer)) return;
     if (!fresh) snap();
-    keepText(i, layer, v);
+    keepText(i, layer, v); learnAndSpread(v);
     if (fresh) l.end = r3(Math.min(l.end, l.t + Math.max(0.6, 0.45 * wordsOf(i, layer).length)));
     fillLine(i, layer); buildPreview(true); afterSyncChange(false, i);
   }
@@ -162,6 +164,7 @@ export function applyFull() {
   });
   if (S.sel && S.sel.i >= S.lines.length) S.sel = { i: S.lines.length - 1, k: 0 };
   const added = map.filter(m => m < 0).length, removed = old.length - map.filter(m => m >= 0).length;
+  spreadSplits(); // remembered syllable splits
   afterLines(); S.full = fullDraft(); emit();
   toast(`Текст применён${added ? `, новых строк: ${added}` : ''}${removed ? `, удалено: ${removed}` : ''}. Тайминги неизменённых слов на месте. Ctrl+Z — отмена.`, 'ok');
 }
@@ -260,6 +263,14 @@ export function shiftLines(ms: number, all = false) {
   toast(`${ms > 0 ? '+' : ''}${ms} мс: сдвинуто строк ${n}${all ? ' (вся песня)' : ' после курсора'}, со всеми словами. Ctrl+Z — отмена.`, 'ok');
 }
 
+/** fit the timings to another version of the track: old length -> new length (s) */
+export function stretchAll(from: number, to: number) {
+  if (!S.lines.length || !(from > 0) || !(to > 0)) return toast('Укажи обе длительности, например 3:42 и 3:31.', 'err');
+  const k = to / from; if (Math.abs(k - 1) < 1e-4) return toast('Длительности совпадают — растягивать нечего.', 'err');
+  snap(); stretchLines(S.lines, k); S.duration = Math.max(S.duration, to); S.srcDur = to;
+  afterLines();
+  toast(`Тайминги ${k > 1 ? 'растянуты' : 'сжаты'} на ${Math.abs((k - 1) * 100).toFixed(2)}% (${fmtTime(from)} → ${fmtTime(to)}). Если начало «уехало» — поправь «Сдвигом строк». Ctrl+Z — отмена.`, 'ok');
+}
 /** clear every word timing of a line (all tracks) — room to paste a timing into */
 export function clearTiming(i: number) {
   const l = S.lines[i]; if (!l?.sync) return toast('У строки и так нет разметки.', 'err');

@@ -10,3 +10,4 @@ export * from './edit.ts';
 export * from './roman.ts';
 export * from './timeline.ts';
 export * from './genius.ts';
+export * from './sections.ts';

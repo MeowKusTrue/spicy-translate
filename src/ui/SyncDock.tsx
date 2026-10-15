@@ -1,14 +1,15 @@
 // Bottom dock: top bar, waveform, word chips, F/G/H toolbar with "Строка ⋯" and ⚙ menus.
-import { useEffect, useRef } from 'react';
-import { fmtTime, mmss, plainW, units } from '../core/index.ts';
+import { useEffect, useRef, useState } from 'react';
+import { fmtTime, mmss, parseDur, plainW, units } from '../core/index.ts';
 import { S, isBg, isTr, layerText, lineState, ls, mkLayer, viewWords, wordsOf, emit } from '../state.ts';
-import { playWord } from '../audio.ts';
+import { audio, playWord } from '../audio.ts';
 import { dockMouseDown, setLoop, setSnap, toggleDock } from '../hotkeys.ts';
 import { setupGrip } from '../dockSize.ts';
+import { SYL, forgetAll, setSylMem } from '../syllables.ts';
 import { setAgent } from '../agents.ts';
-import { copyTiming, fitLines, pasteTimingHere, repeatChorus, setAutoFit, setFitPad, shiftLines } from '../lineEdit.ts';
+import { stretchAll, copyTiming, fitLines, pasteTimingHere, repeatChorus, setAutoFit, setFitPad, shiftLines } from '../lineEdit.ts';
 import { DEVICES, alignLabel, alignPct, autoAlign, openAlignPanel, setupLabel } from '../autoAlign.ts';
-import { W, waveSpec } from '../waveform/wave.ts';
+import { W, songLen, waveSpec } from '../waveform/wave.ts';
 const setWaveView = (v: typeof S.waveView) => { S.waveView = v; ls.set('waveView', v); emit(); drawWave(); };
 import {
   clearLayer, doRedo, doUndo, joinWords, mark, nudgeWord, playSel, resetLine, resetWord, selectWord, setLayer,
@@ -59,6 +60,17 @@ function Chips() {
   return <>{rows}</>;
 }
 
+/** «Растянуть под другую версию»: old length -> new length (audio) */
+function Stretch() {
+  const [from, setFrom] = useState(''), [to, setTo] = useState('');
+  const f0 = S.srcDur || songLen(), t0 = S.hasAudio ? audio.duration || 0 : 0;
+  const a = from ? parseDur(from) : f0, b = to ? parseDur(to) : t0;
+  return <div className="opt col"><span>Другая версия трека<small>растянуть / сжать все тайминги под новую длительность (sped up, другой мастер)</small></span>
+    <span className="row"><input type="text" id="strFrom" placeholder={fmtTime(f0)} value={from} title="Длительность версии, под которую размечено" onChange={e => setFrom(e.target.value)} style={{ width: 82 }} />→
+      <input type="text" id="strTo" placeholder={t0 ? fmtTime(t0) : 'м:сс'} value={to} title="Длительность новой версии (по умолчанию — загруженное аудио)" onChange={e => setTo(e.target.value)} style={{ width: 82 }} />
+      <button className="sm" id="btnStretch" disabled={!(a > 0 && b > 0) || Math.abs(a - b) < 0.01} onClick={() => { stretchAll(a, b); setFrom(''); setTo(''); }}>{a > 0 && b > 0 && Math.abs(a - b) >= 0.01 ? `${b > a ? '+' : ''}${((b / a - 1) * 100).toFixed(1)}%` : 'Растянуть'}</button></span></div>;
+}
+
 export function SyncDock() {
   const cv = useRef<HTMLCanvasElement>(null);
   useEffect(() => setupWave(cv.current!), []);
@@ -94,10 +106,13 @@ export function SyncDock() {
           <label className="opt"><span>Реакция, мс<small>вычитается из момента нажатия</small></span><input type="number" id="lat" defaultValue={S.lat} step="10" min="0" max="500" onChange={e => { S.lat = +e.target.value || 0; ls.set('lat', e.target.value); }} /></label>
           <label className="opt"><span>Магнит <kbd>N</kbd><small>края прилипают при перетаскивании</small></span><input type="checkbox" id="snapChk" checked={S.snap} onChange={e => setSnap(e.target.checked)} /></label>
           <label className="opt"><span>…и к атакам звука<small>начала нот на волне (метки внизу волны)</small></span><input type="checkbox" id="onsetChk" checked={S.onsetSnap} onChange={e => { S.onsetSnap = e.target.checked; ls.set('onsetSnap', S.onsetSnap ? '1' : '0'); emit(); }} /></label>
+          <label className="opt"><span>Запоминать слоги<small>разбил слово раз — разбивается во всей песне и следующих треках{Object.keys(SYL).length ? ` · запомнено: ${Object.keys(SYL).length}` : ''}</small></span><input type="checkbox" id="sylMemChk" checked={S.sylMem} onChange={e => setSylMem(e.target.checked)} /></label>
+          {Object.keys(SYL).length > 0 && <button className="sm" id="btnSylForget" title={Object.keys(SYL).slice(0, 30).join(', ')} onClick={() => confirm(`Забыть все запомненные разбиения (${Object.keys(SYL).length} слов)? Уже разбитые слова останутся как есть.`) && forgetAll()}>Забыть слоги ({Object.keys(SYL).length})</button>}
           <label className="opt"><span>Строки сами по словам<small>начало и конец строки следуют за её размеченными словами</small></span><input type="checkbox" id="autoFitChk" checked={S.autoFit} onChange={e => setAutoFit(e.target.checked)} /></label>
           <div className="opt"><span>Запас строки, мс<small>до первого / после последнего слова; минус — короче слов</small></span><span className="row"><input type="number" id="padA" step="50" value={S.fitPad.a} onChange={e => setFitPad('a', +e.target.value || 0)} style={{ width: 70 }} /><input type="number" id="padB" step="50" value={S.fitPad.b} onChange={e => setFitPad('b', +e.target.value || 0)} style={{ width: 70 }} /></span></div>
           <div className="opt"><span>Сдвиг строк<small>со всеми словами; LRC от другой версии трека</small></span><span className="row"><input type="number" id="shiftMs" step="50" value={S.shiftMs} onChange={e => { S.shiftMs = +e.target.value || 0; emit(); }} style={{ width: 76 }} /><small>мс</small></span></div>
           <span className="row"><button className="sm" id="btnShiftAfter" title="Строки, начинающиеся после курсора воспроизведения" onClick={() => shiftLines(S.shiftMs)}>→ после курсора</button><button className="sm" id="btnShiftAll" onClick={() => shiftLines(S.shiftMs, true)}>→ вся песня</button></span>
+          <Stretch />
           <button className={'sm' + (S.loop ? ' pri' : '')} id="btnLoop" title="L" onClick={() => setLoop(!S.loop)}>{S.loop ? '🔁 Кручу строку (L)' : '🔁 Крутить строку по кругу (L)'}</button>
           <span className="row"><button className="sm" id="btnZoomOut" title="Ctrl+колесо" onClick={() => zoomAt(width() / 2, 1 / 1.4)}>− зум</button><button className="sm" id="btnZoomIn" onClick={() => zoomAt(width() / 2, 1.4)}>+ зум</button><button className="sm" id="btnFit" onClick={centerOnSel}>⤢ вписать строку</button></span>
         </div>
