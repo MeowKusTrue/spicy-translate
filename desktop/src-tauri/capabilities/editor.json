@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "editor-window",
-  "description": "The editor page (served by the local server) may only move / minimize / maximize / close its own window and set its zoom.",
+  "description": "The editor page (served by the local server) may move / minimize / maximize / close its own window, set its zoom and save files through the Save As dialog.",
   "windows": [
     "main"
   ],
@@ -22,6 +22,7 @@
     "core:window:allow-start-dragging",
     "core:event:allow-listen",
     "core:event:allow-unlisten",
-    "core:webview:allow-set-webview-zoom"
+    "core:webview:allow-set-webview-zoom",
+    "allow-save-file"
   ]
 }

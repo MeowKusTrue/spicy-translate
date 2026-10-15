@@ -18,6 +18,7 @@ import { loadAudioFile } from '../load.ts';
 import { W } from '../waveform/wave.ts';
 import type { Page } from '../state.ts';
 import { findAll } from '../core/index.ts';
+import { acceptDiff, geniusDiff, geniusPick, geniusQuery, geniusSearch, geniusToText, ignoreDiff } from '../genius.ts';
 
 const set = (f: () => void) => { f(); emit(); };
 const St = ({ id, m }: { id: string; m: { msg: string; cls: string } }) => <div className={'status ' + m.cls} id={id}>{m.msg}</div>;
@@ -38,6 +39,7 @@ export function SearchCard() {
       </div>;
     })}</div>
     <p className="hint">Источник синхро-текста — <a href="https://lrclib.net" target="_blank" rel="noreferrer">LRCLIB</a> (открытая база, без ключей). Если нужного трека нет — вставь свой LRC ниже.</p>
+    <Genius />
     <details style={{ marginTop: 10 }}>
       <summary style={{ cursor: 'pointer', color: 'var(--mut)', fontSize: 13 }}>Вставить LRC / текст вручную</summary>
       <textarea id="manual" placeholder={'[00:12.30] первая строка\n[00:15.80] вторая строка'} value={S.manual} onChange={e => set(() => S.manual = e.target.value)} />
@@ -53,6 +55,39 @@ export function SearchCard() {
     </div>
     <St id="st1" m={S.st1} />
   </section>;
+}
+
+function Genius() {
+  const g = S.genius;
+  return <div className="genius">
+    <h3><span className="gl">G</span>Текст с Genius<small>эталонный текст для Spicy: ляжет на тайминги, совпавшие строки сохранят разметку и перевод</small></h3>
+    <div className="row">
+      <input type="text" id="gq" placeholder="Исполнитель название" value={geniusQuery()} onChange={e => set(() => S.genius = { hits: [], busy: false, msg: '', cls: '', ignored: [], ...S.genius, q: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') geniusSearch(); }} />
+      <button id="btnGenius" disabled={g?.busy} onClick={() => geniusSearch()}>{g?.busy ? '…' : 'Найти на Genius'}</button>
+    </div>
+    {!!g?.hits.length && <div className="res" id="gres">{g.hits.map(h => <div className="item" key={h.id} onClick={() => !g.busy && geniusPick(h)}>
+      {h.art ? <img src={h.art} alt="" /> : <span className="noart" />}<div><b>{h.title}</b><small>{h.artist}</small></div><span className="tag">взять текст</span>
+    </div>)}</div>}
+    {g?.msg && <div className={'status ' + g.cls}>{g.msg}</div>}
+    {g?.text && <GeniusDiff />}
+  </div>;
+}
+const KIND = { edit: 'правка', add: 'нет у нас', del: 'нет на Genius' };
+function GeniusDiff() {
+  const ds = geniusDiff();
+  return <div className="gdiff">
+    <div className="row"><b>Сверка с Genius{S.genius?.title ? ` · ${S.genius.title}` : ''}</b><span className="sp" />
+      <button className="sm pri" id="btnGeniusAll" disabled={!ds.length} onClick={() => acceptDiff(ds)}>✓ Принять все ({ds.length})</button>
+      <button className="sm" title="Весь текст Genius во вкладку «Текст» — править руками" onClick={geniusToText}>В «Текст»</button>
+      <button className="sm ic" title="Закрыть сверку" onClick={() => set(() => { S.genius = { ...S.genius!, text: undefined, msg: '' }; })}>✕</button></div>
+    {ds.map((d, x) => <div key={x + d.key} className={'gd ' + d.kind}>
+      <span className="k">{KIND[d.kind]}{d.kind !== 'add' && <small> · стр. {d.m + 1}</small>}</span>
+      <span className="tx">{d.from && <s>{d.from}</s>}{d.to && <ins>{d.to}</ins>}</span>
+      {d.kind !== 'add' && <button className="sm ic" title="Показать строку" onClick={() => { seekTo(S.lines[d.m].t); focusLine(d.m, 'orig'); }}>▶</button>}
+      <button className="sm ic ok" title={d.kind === 'del' ? 'Удалить строку' : d.kind === 'add' ? 'Добавить строку (время — между соседями)' : 'Принять текст Genius; разметка совпавших слов останется'} onClick={() => acceptDiff([d])}>✓</button>
+      <button className="sm ic" title="Оставить как у нас" onClick={() => ignoreDiff(d)}>✕</button>
+    </div>)}
+  </div>;
 }
 
 function LineRow({ i }: { i: number }) {

@@ -24,6 +24,7 @@ export const S = {
   picked: new Set<number>(), pickAnchor: -1,
   layer: 'tr' as Layer, sel: null as { i: number; k: number } | null, undo: [] as string[], redo: [] as string[],
   cover: '', coverBg: true, blur: true, // preview: cover picture (object URL) behind the lyrics, blur of the other lines
+  waveView: 'wave' as 'wave' | 'spec', // the wave panel shows the waveform or a spectrogram
   chips: 'big' as 'big' | 'small' | 'off', // word chips under the wave
   dock: false, fx: true, snap: true, onsetSnap: true, waveVoice: false, autoFit: false, fitPad: { a: 0, b: 0 }, loop: false, voff: 0, lat: 100, // autoFit: line ends follow their words (+fitPad ms of slack)
   align: null as null | { stage: string; done: number; total: number; device: string }, // auto-timing in progress
@@ -42,6 +43,7 @@ export const S = {
   palette: null as null | { q: string; i: number }, // Ctrl+K
   maxed: false, // desktop app window maximized
   page: 'track' as Page, prevPage: 'tr' as Page, // the tab shown; the sync tab opens the dock
+  genius: null as null | { q: string; hits: import('./genius.ts').GeniusHit[]; busy: boolean; msg: string; cls: string; text?: string; title?: string; ignored: string[] }, // «Текст с Genius» + its check
   full: null as null | { o: string; t: string; dirty: boolean }, // «Текст» tab draft
   find: null as null | { q: string; r: string; where: 'tr' | 'orig' | 'all'; cs: boolean; word: boolean },
 };

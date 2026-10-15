@@ -130,7 +130,22 @@ async function setupAlign(want?: Backend) {
   step('готово', 100); SETUP.done = true;
 }
 /** bump when the editor needs new server endpoints (3: auto-timing install / GPU / open folder) */
-const API = 4; // 4: /api/yield, --auto-exit, /api/bye
+const API = 5; // 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius
+/* ---------- Genius (lyrics makers take the text from there). No CORS for pages, so the server fetches them. ---------- */
+const GH = { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', 'accept-language': 'en-US,en;q=0.9' };
+type GeniusHit = { id: number; title: string; artist: string; url: string; art: string };
+async function geniusSearch(q: string): Promise<GeniusHit[]> {
+  const r = await fetch('https://genius.com/api/search/song?per_page=10&q=' + encodeURIComponent(q), { headers: GH });
+  if (!r.ok) throw new Error('Genius HTTP ' + r.status);
+  const j = await r.json() as { response?: { sections?: { hits?: { result: any }[] }[] } };
+  return (j.response?.sections?.[0]?.hits || []).map(({ result: s }) => ({ id: s.id, title: s.title, artist: s.primary_artist?.name || s.artist_names || '', url: s.url, art: s.song_art_image_thumbnail_url || '' }));
+}
+async function geniusText(url: string) {
+  if (!/^https:\/\/genius\.com\/[\w%.-]+-lyrics$/.test(url)) throw new Error('нужна ссылка на песню genius.com/…-lyrics');
+  const r = await fetch(url, { headers: GH }); if (!r.ok) throw new Error('Genius HTTP ' + r.status);
+  const text = C.geniusLyrics(await r.text()); if (!text) throw new Error('на странице нет текста (инструментал или Genius поменял вёрстку)');
+  return text;
+}
 const AL = { running: false, stage: '', done: 0, total: 0, error: '', out: '', vocals: '', audio: '', device: '', log: [] as string[] };
 const alDir = () => { const d = path.join(DATA, 'align'); fs.mkdirSync(d, { recursive: true }); return d; };
 function readBody(req: http.IncomingMessage): Promise<Buffer> { return new Promise((res, rej) => { const ch: Buffer[] = []; req.on('data', c => ch.push(c)); req.on('end', () => res(Buffer.concat(ch))); req.on('error', rej); }); }
@@ -221,6 +236,8 @@ const server = http.createServer((req, res) => {
       }); return;
     }
   }
+  if (u.pathname === '/api/genius/search') { geniusSearch(u.searchParams.get('q') || '').then(h => json(res, h), e => json(res, { error: e.message }, 502)); return; }
+  if (u.pathname === '/api/genius/lyrics') { geniusText(u.searchParams.get('url') || '').then(text => json(res, { text }), e => json(res, { error: e.message }, 502)); return; }
   if (u.pathname.startsWith('/api/align')) { alignRoute(req, res, u).catch(e => json(res, { error: String(e?.message || e) }, 500)); return; }
   if (u.pathname === '/' || u.pathname === '/index.html') {
     if (!fs.existsSync(htmlPath)) { res.statusCode = 503; res.setHeader('content-type', 'text/plain; charset=utf-8'); return res.end('Редактор не собран: запусти `npm run build` в ' + root); }
@@ -263,6 +280,15 @@ const tools: Record<string, Tool> = {
       const r = await fetch('https://lrclib.net/api/search?q=' + encodeURIComponent(q)); if (!r.ok) throw new Error('LRCLIB HTTP ' + r.status);
       const d = ((await r.json()) as LrclibHit[]).slice(0, 15); lastSearch.length = 0; lastSearch.push(...d);
       return d.map(x => ({ id: x.id, track: x.trackName, artist: x.artistName, album: x.albumName, duration: x.duration, synced: !!x.syncedLyrics }));
+    }
+  },
+  genius_lyrics: {
+    description: 'Текст песни с Genius — эталонный текст для Spicy Lyrics (таймингов там нет). Без url — поиск: кандидаты + текст лучшего совпадения. Строка = строка песни, (…) = бэк-вокал. Тайминги бери из LRCLIB (lyrics_search + load_lyrics); положить текст Genius на них пользователь может в редакторе: «Трек» → «Текст с Genius».',
+    schema: { type: 'object', properties: { q: { type: 'string', description: 'исполнитель и название' }, url: { type: 'string', description: 'ссылка genius.com/…-lyrics из прошлого поиска' } } },
+    async run({ q, url }: { q?: string; url?: string }) {
+      if (url) return { url, text: await geniusText(url) };
+      const hits = await geniusSearch(q || ''); if (!hits.length) throw new Error('на Genius ничего не нашлось');
+      return { best: { ...hits[0], text: await geniusText(hits[0].url) }, others: hits.slice(1, 6) };
     }
   },
   load_lyrics: {

@@ -138,3 +138,11 @@ describe('transferTiming', () => {
     expect([dst.text, dst.sync!.orig, dst.t, dst.end]).toEqual(['три четыре', [{ a: 20, b: 21, g: 1 }, { a: 21, b: 22, g: 1 }], 20, 22]);
   });
 });
+
+import { mergeMarkup } from '../src/core/edit.ts';
+describe('mergeMarkup', () => {
+  it('keeps syllable splits of unchanged words, takes the corrected ones', () => {
+    expect(mergeMarkup('Ааа, мо|ре, пе|сок', 'А-а-а, мо|ре, песок')).toBe('А-а-а, мо|ре, пе|сок');
+    expect(mergeMarkup('ма|ли|на (э|эй)', 'малина (эй)')).toBe('ма|ли|на (эй)');
+  });
+});

@@ -134,6 +134,7 @@ export function fullRows() {
 export function applyFull() {
   if (!S.full) return;
   const { o, t } = fullRows(), hasT = t.some(Boolean);
+  while (hasT && t.length < o.length) t.push(''); // the last lines may just be untranslated
   if (hasT && t.length !== o.length) return toast(`Строк: оригинал ${o.length}, перевод ${t.length}. Выровняй столбцы: строка перевода стоит напротив своей строки (пустая — без перевода).`, 'err');
   const rows = o.map((x, j) => ({ o: x, t: t[j] || '' })).filter(r => r.o || r.t);
   if (!rows.length) return toast('Пусто — так весь текст не удалить.', 'err');

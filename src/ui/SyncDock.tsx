@@ -8,7 +8,8 @@ import { setupGrip } from '../dockSize.ts';
 import { setAgent } from '../agents.ts';
 import { copyTiming, fitLines, pasteTimingHere, repeatChorus, setAutoFit, setFitPad, shiftLines } from '../lineEdit.ts';
 import { DEVICES, alignLabel, alignPct, autoAlign, openAlignPanel, setupLabel } from '../autoAlign.ts';
-import { W } from '../waveform/wave.ts';
+import { W, waveSpec } from '../waveform/wave.ts';
+const setWaveView = (v: typeof S.waveView) => { S.waveView = v; ls.set('waveView', v); emit(); drawWave(); };
 import {
   clearLayer, doRedo, doUndo, joinWords, mark, nudgeWord, playSel, resetLine, resetWord, selectWord, setLayer,
   splitWord, spreadAll, spreadSelLine, stepWord, syllabifyLine, wordLabel,
@@ -82,6 +83,7 @@ export function SyncDock() {
       </span>
       <button className={'sm' + (S.align || S.setup ? ' busy' : '')} id="btnAutoAlign" disabled={!!S.align || !!S.setup} title="Нейросеть расставит слова оригинала и бэка по аудио (черновик пунктиром; размеченное вручную не трогает). Нужен локальный сервер и Python-прототип." onClick={autoAlign}>{S.setup ? '⬇ ' + setupLabel() : S.align ? '⏳ ' + alignLabel() : '✨ Авто-тайминг'}</button>
       <button className="sm ic" id="btnAlignPanel" title="Авто-тайминг: видеокарта, установка, удаление" onClick={openAlignPanel}>⋯</button>
+      {W.peaks && <span className="tseg" title="Волна или спектрограмма: согласные и ноты видно лучше, магнит липнет к их атакам"><button className={S.waveView === 'wave' ? 'on' : ''} id="viewWave" onClick={() => setWaveView('wave')}>волна</button><button className={S.waveView === 'spec' ? 'on' : ''} id="viewSpec" disabled={!waveSpec()} title={waveSpec() ? '' : 'считаю спектрограмму…'} onClick={() => setWaveView('spec')}>{waveSpec() ? 'спектр' : 'спектр…'}</button></span>}
       {W.vpeaks && <span className="tseg" title="Волна по всему миксу или по вырезанному голосу"><button className={S.waveVoice ? '' : 'on'} onClick={() => { S.waveVoice = false; emit(); drawWave(); }}>микс</button><button className={S.waveVoice ? 'on' : ''} onClick={() => { S.waveVoice = true; emit(); drawWave(); }}>голос</button></span>}
       <span className="hint-line" id="guideTxt"><Guide /></span>
       <small id="dockMsg" className={S.toast.cls}>{S.toast.msg}</small><span className={'kbd' + (S.typing ? ' warn' : '')} id="kbd">{S.typing ? '⌨ клавиши выключены — кликни по волне' : ''}</span>

@@ -1,12 +1,15 @@
 // Waveform canvas: state W, peaks, drawing, zoom.
 import { mmss, plainW } from '../core/index.ts';
 import { JOIN, bandRows as coreBandRows, lineAt as coreLineAt, type Layer } from '../core/index.ts';
-import { S, clamp, isBg, isTr, lineState, ls, mainLayerFor, mkLayer, status, viewWords } from '../state.ts';
+import { S, clamp, emit, isBg, isTr, lineState, ls, mainLayerFor, mkLayer, status, viewWords } from '../state.ts';
 import { now } from '../audio.ts';
 import { computePeaks, onsets } from './peaks.ts';
 import PeaksWorker from './peaks.worker.ts?worker&inline';
+import SpecWorker from './spec.worker.ts?worker&inline';
+import { ROWS, SPEC_FPS, fluxOnsets, spectrogram } from './spec.ts';
 
 export type Lane = 'main' | 'bg';
+type Spec = { data: Uint8Array; cols: number; tiles: (HTMLCanvasElement | null)[] };
 export type Box = { i: number; k: number; a: number; b: number; real: boolean; g: boolean; lane: Lane; layer: Layer };
 export const W = {
   peaks: null as Float32Array | null, pps: 200, px: 140, start: 0,
@@ -14,6 +17,7 @@ export const W = {
   multi: [] as { i: number; k: number; layer: Layer }[], // words picked with a Shift+drag box / Shift+click
   onsets: [] as number[], // note attacks found in the waveform (magnet targets)
   vpeaks: null as Float32Array | null, vonsets: [] as number[], // the same for the separated voice
+  spec: null as Spec | null, vspec: null as Spec | null, // spectrograms of the mix / the voice (built after the waveform)
   drag: null as any, pend: null as any, boxes: [] as Box[], ctrl: false,
   snapAt: null as number | null, flash: null as { t: number; kind: 'F' | 'G' | 'H'; at: number } | null,
 };
@@ -26,25 +30,68 @@ function peaksInWorker(ch: Float32Array, per: number) {
     wk.postMessage({ ch, per }, [ch.buffer]);
   });
 }
-async function peaksOf(file: Blob) {
+function specInWorker(ch: Float32Array, sr: number) {
+  return new Promise<ReturnType<typeof spectrogram>>((res, rej) => {
+    let wk: Worker; try { wk = new SpecWorker(); } catch (e) { return rej(e); }
+    wk.onmessage = e => { res(e.data); wk.terminate(); }; wk.onerror = e => { rej(e); wk.terminate(); };
+    wk.postMessage({ ch, sr }, [ch.buffer]);
+  });
+}
+/** peaks now; the spectrogram (and its sharper attacks) arrives a few seconds later through `then` */
+async function analyse(file: Blob, then: (s: Spec, on: number[]) => void) {
   const AC = window.AudioContext || (window as any).webkitAudioContext; if (!AC) return null;
   const ctx = new AC();
   try {
     const buf = await ctx.decodeAudioData(await file.arrayBuffer());
-    const per = Math.max(1, Math.floor(buf.sampleRate / W.pps)), ch = buf.getChannelData(0).slice();
-    try { return await peaksInWorker(ch, per); }
-    catch { return computePeaks(buf.getChannelData(0), per); } // no workers -> same scan on the main thread
+    const per = Math.max(1, Math.floor(buf.sampleRate / W.pps)), ch = buf.getChannelData(0);
+    specInWorker(ch.slice(), buf.sampleRate).then(r => then({ data: r.data, cols: r.cols, tiles: [] }, fluxOnsets(r.flux, r.lead)), () => {}); // ponytail: no spectrogram without workers
+    try { return await peaksInWorker(ch.slice(), per); }
+    catch { return computePeaks(ch, per); } // no workers -> same scan on the main thread
   } finally { ctx.close && ctx.close(); }
 }
+let gen = 0, vgen = 0; // a newer file drops the late spectrogram of an older one
 export async function buildPeaks(file: Blob) {
-  W.peaks = null; W.vpeaks = null; W.vonsets = []; S.waveVoice = false;
-  try { W.peaks = await peaksOf(file); if (W.peaks) W.onsets = onsets(W.peaks, W.pps); }
-  catch (e) { status('st1', 'Волну построить не удалось (' + (e as Error).message + '), но аудио играет.', 'err'); }
+  const my = ++gen; vgen++;
+  W.peaks = null; W.vpeaks = null; W.vonsets = []; W.spec = null; W.vspec = null; S.waveVoice = false;
+  try {
+    const pk = await analyse(file, (s, on) => { if (my === gen) { W.spec = s; W.onsets = on; emit(); drawWave(); } });
+    W.peaks = pk; if (pk && !W.spec) W.onsets = onsets(pk, W.pps);
+  } catch (e) { status('st1', 'Волну построить не удалось (' + (e as Error).message + '), но аудио играет.', 'err'); }
 }
-/** the separated voice (from auto-timing): a much clearer waveform and attacks for the magnet */
+/** the separated voice (from auto-timing): a much clearer waveform, spectrogram and attacks for the magnet */
 export async function buildVoicePeaks(file: Blob) {
-  W.vpeaks = await peaksOf(file); if (!W.vpeaks) return false;
-  W.vonsets = onsets(W.vpeaks, W.pps); S.waveVoice = true; return true;
+  const my = ++vgen, pk = await analyse(file, (s, on) => { if (my === vgen) { W.vspec = s; W.vonsets = on; emit(); drawWave(); } }); if (!pk) return false;
+  W.vpeaks = pk; if (!W.vspec) W.vonsets = onsets(pk, W.pps); S.waveVoice = true; return true;
+}
+export const waveSpec = () => S.waveVoice && W.vpeaks ? W.vspec : W.spec;
+
+/* spectrogram tiles: 1024 columns (10 s) each, painted once on first view */
+const TILE = 1024, PAL = (() => { // dark violet -> magenta -> orange -> pale yellow; quiet = transparent
+  const st = [[0, 0, 0, 4], [.3, 87, 16, 110], [.55, 188, 55, 84], [.8, 249, 142, 9], [1, 252, 255, 164]], p = new Uint8ClampedArray(256 * 4);
+  for (let v = 0; v < 256; v++) {
+    const x = v / 255, k = Math.max(1, st.findIndex(s => s[0] >= x)), a = st[k - 1], b = st[k], f = (x - a[0]) / (b[0] - a[0]);
+    for (let c = 0; c < 3; c++) p[v * 4 + c] = a[c + 1] + (b[c + 1] - a[c + 1]) * f;
+    p[v * 4 + 3] = Math.min(255, v * 2.2);
+  }
+  return p;
+})();
+function tile(s: Spec, k: number) {
+  if (s.tiles[k]) return s.tiles[k]!;
+  const c0 = k * TILE, n = Math.min(TILE, s.cols - c0), cv = document.createElement('canvas'); cv.width = n; cv.height = ROWS;
+  const g = cv.getContext('2d')!, img = g.createImageData(n, ROWS);
+  for (let x = 0; x < n; x++) for (let r = 0; r < ROWS; r++) {
+    const v = s.data[(c0 + x) * ROWS + r], o = ((ROWS - 1 - r) * n + x) * 4;
+    img.data[o] = PAL[v * 4]; img.data[o + 1] = PAL[v * 4 + 1]; img.data[o + 2] = PAL[v * 4 + 2]; img.data[o + 3] = PAL[v * 4 + 3];
+  }
+  g.putImageData(img, 0, 0); return s.tiles[k] = cv;
+}
+function drawSpec(g: CanvasRenderingContext2D, s: Spec, t0: number, t1: number, y: number, h: number) {
+  const c0 = Math.max(0, Math.floor(t0 * SPEC_FPS)), c1 = Math.min(s.cols, Math.ceil(t1 * SPEC_FPS)); if (c1 <= c0) return;
+  g.imageSmoothingEnabled = true;
+  for (let k = Math.floor(c0 / TILE); k * TILE < c1; k++) {
+    const tc = k * TILE, sx = Math.max(0, c0 - tc), ex = Math.min(TILE, c1 - tc, s.cols - tc); if (ex <= sx) continue;
+    g.drawImage(tile(s, k), sx, 0, ex - sx, ROWS, ((tc + sx) / SPEC_FPS - t0) * W.px, y, (ex - sx) / SPEC_FPS * W.px, h);
+  }
 }
 export const wavePeaks = () => S.waveVoice && W.vpeaks ? W.vpeaks : W.peaks;
 export const waveOnsets = () => S.waveVoice && W.vpeaks ? W.vonsets : W.onsets;
@@ -89,13 +136,14 @@ export function drawWave() {
   const step = W.px > 400 ? 0.5 : W.px > 150 ? 1 : W.px > 60 ? 2 : 5;
   for (let s = Math.ceil(t0 / step) * step; s < t1; s += step) { const x = X(s); g.fillRect(x, h - 6, 1, 6); g.fillText(mmss(s) + (step < 1 ? '.' + Math.round((s % 1) * 10) : ''), x + 3, h - 15); }
   // waveform
-  const PK = wavePeaks();
-  if (PK) {
-    g.fillStyle = S.waveVoice && W.vpeaks ? `rgba(${TH.a2},.6)` : `rgba(${TH.a},.55)`;
+  const PK = wavePeaks(), SP = S.waveView === 'spec' ? waveSpec() : null;
+  if (SP) drawSpec(g, SP, t0, t1, G.wY, G.lY - 2 - G.wY);
+  if (PK) { // over a spectrogram the waveform is only a faint outline
+    g.fillStyle = SP ? `rgba(${TH.t},.18)` : S.waveVoice && W.vpeaks ? `rgba(${TH.a2},.6)` : `rgba(${TH.a},.55)`;
     for (let x = 0; x < w; x++) {
       const a = Math.floor((t0 + x / W.px) * W.pps), b = Math.max(a + 1, Math.floor((t0 + (x + 1) / W.px) * W.pps));
       let m = 0; for (let i = Math.max(0, a); i < b && i < PK.length; i++) if (PK[i] > m) m = PK[i];
-      const hh = Math.max(1, m * amp); g.fillRect(x, mid - hh, 1, hh * 2);
+      const hh = Math.max(1, m * amp); if (SP) { g.fillRect(x, mid - hh, 1, 1); g.fillRect(x, mid + hh, 1, 1); } else g.fillRect(x, mid - hh, 1, hh * 2);
     }
   } else { g.fillStyle = `rgba(${TH.t},.25)`; g.font = '12px system-ui'; g.textBaseline = 'middle'; g.fillText('Загрузи аудио (♪ аудио) — тут появится волна', 14, mid); }
   if (S.onsetSnap && W.px > 50) { g.fillStyle = `rgba(${TH.t},.35)`; for (const o of waveOnsets()) if (o >= t0 && o <= t1) g.fillRect(X(o), G.lY - 7, 1, 5); } // attacks: magnet ticks

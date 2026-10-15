@@ -19,6 +19,7 @@ S.fx = ls.get('fx', '1') !== '0';
 S.onsetSnap = ls.get('onsetSnap', '1') !== '0';
 S.coverBg = ls.get('coverBg', '1') !== '0';
 S.blur = ls.get('blur', '1') !== '0';
+S.waveView = ls.get('waveView', 'wave') === 'spec' ? 'spec' : 'wave';
 S.chips = (['big', 'small', 'off'] as const).find(x => x === ls.get('chips', 'big')) || 'big';
 S.autoFit = ls.get('autoFit', '0') === '1';
 try { S.fitPad = { a: 0, b: 0, ...JSON.parse(ls.get('fitPad', '{}') || '{}') }; } catch {}

@@ -13,8 +13,21 @@ use std::{
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
 /// server API the editor in this build needs (server/index.ts `API`)
-const API: u32 = 4;
+const API: u32 = 5;
 struct Server(Mutex<Option<Child>>);
+
+/// «Сохранить как»: the system dialog instead of a silent download into Downloads. None = cancelled.
+#[tauri::command]
+async fn save_file(app: tauri::AppHandle, name: String, text: String) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let ext = name.rsplit('.').next().unwrap_or("txt").to_string();
+    let Some(path) = app.dialog().file().set_file_name(&name).add_filter(ext.to_uppercase(), &[ext.as_str()]).blocking_save_file() else {
+        return Ok(None);
+    };
+    let path = path.into_path().map_err(|e| e.to_string())?;
+    std::fs::write(&path, text).map_err(|e| e.to_string())?;
+    Ok(Some(path.display().to_string()))
+}
 
 /// 8787 like the MCP server, so both share one project; SPICY_PORT overrides
 fn base_port() -> u16 { std::env::var("SPICY_PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(8787) }
@@ -48,6 +61,8 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build()) // size / position remembered between launches
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![save_file])
         .manage(Server(Mutex::new(None)))
         .setup(|app| {
             let mut port = base_port();

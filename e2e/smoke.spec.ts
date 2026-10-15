@@ -4,6 +4,7 @@ import { expect, test } from '@playwright/test';
 const LRC = '[00:01.00]paper lanterns drifting\n[00:04.00]over quiet water\n[00:07.00]morning comes again';
 
 test('load, F/G/H, join/syllables, export TTML', async ({ page }) => {
+  await page.addInitScript(() => { delete (window as { showSaveFilePicker?: unknown }).showSaveFilePicker; }); // the plain-download path (Chrome would ask where)
   await page.goto('/');
   await page.getByText('Вставить LRC / текст вручную').click();
   await page.locator('#manual').fill(LRC);

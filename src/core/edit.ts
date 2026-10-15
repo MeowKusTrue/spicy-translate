@@ -282,3 +282,65 @@ export function repeatTranslations(lines: Line[], from?: number) {
   }
   return [...changed];
 }
+
+/**
+ * A corrected row (e.g. from Genius) that keeps our markup on the words it did not change:
+ * a word equal to an old one apart from "|" syllable splits comes back with its splits.
+ */
+export function mergeMarkup(oldRow: string, newRow: string) {
+  const A = oldRow.split(' ').filter(Boolean), B = newRow.split(' ').filter(Boolean), out = B.slice();
+  lcsWalk(A.map(w => w.replace(/\|/g, '')), B, (i, j) => { out[j] = A[i]; }, () => {});
+  return out.join(' ');
+}
+
+/**
+ * Correct our rows by a reference text with other line breaks (Genius): words are matched across the whole song,
+ * so our lines (and their timings) stay and only get the reference's words. Reference rows we lack entirely
+ * come back as additions (after our row `after`), our rows the reference lacks as deletions.
+ */
+export function textDiff(oldRows: string[], newRows: string[]) {
+  const keyOf = (w: string) => w.replace(/\|/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '') || w;
+  const tok = (rows: string[]) => rows.flatMap((row, r) => row.split(/[ \u00a0]+/).filter(Boolean).map(w => ({ w, k: keyOf(w), r })));
+  const A = tok(oldRows), B = tok(newRows), out: string[][] = oldRows.map(() => []), adds: { after: number; row: string }[] = [];
+  const rowSpan = new Map<number, [number, number]>(); B.forEach((t, j) => { const s = rowSpan.get(t.r); rowSpan.set(t.r, s ? [s[0], j] : [j, j]); });
+  let last = -1; // our row of the last placed word
+  // same word: keep our syllable splits; where only our line breaks, keep the line's capital (if it still starts it) and its end without a comma
+  const same = (i: number, j: number) => {
+    const o = A[i].w.replace(/\|/g, ''), n = B[j].w;
+    return o === n || (!out[A[i].r].length && o.toLowerCase() === n.toLowerCase()) || (A[i + 1]?.r !== A[i].r && o === n.replace(/[,;]$/, ''));
+  };
+  const match = (i: number, j: number) => { out[A[i].r].push(same(i, j) ? A[i].w : B[j].w); last = A[i].r; };
+  const gap = (i0: number, i1: number, j0: number, j1: number) => {
+    if (j1 <= j0) return; // only our words: dropped
+    const full = (q: number) => { const [s, e] = rowSpan.get(B[q].r)!; return s >= j0 && e < j1; };
+    if (i1 > i0) { // replaced words go to the rows of the words they replace, in proportion
+      let p0 = j0, p1 = j1; // whole reference rows around the replaced words (ad-libs, intros) are lines of their own
+      while (p0 < p1 && full(p0)) p0++;
+      while (p1 > p0 && full(p1 - 1)) p1--;
+      if (p0 === p1) { p0 = j0; p1 = j1; }
+      const rows = (a: number, b: number, after: number) => { for (let q = a; q < b;) { const r = B[q].r, e = rowSpan.get(r)![1] + 1; adds.push({ after, row: B.slice(q, e).map(t => t.w).join(' ') }); q = e; } };
+      rows(j0, p0, last);
+      for (let q = p0; q < p1; q++) out[A[i0 + Math.min(i1 - i0 - 1, Math.floor((q - p0) * (i1 - i0) / (p1 - p0)))].r].push(B[q].w);
+      last = A[i1 - 1].r; rows(p1, j1, last); return;
+    }
+    for (let q = j0; q < j1;) { // inserted words: whole reference rows become new lines, pieces join a neighbour
+      const r = B[q].r, [s, e] = rowSpan.get(r)!, end = Math.min(j1, e + 1);
+      const words = B.slice(q, end).map(t => t.w);
+      if (s >= j0 && e < j1) adds.push({ after: last, row: words.join(' ') });
+      else { const to = B[q - 1]?.r === r && last >= 0 ? last : A[i1]?.r ?? Math.max(0, last); out[to].push(...words); } // a row's tail joins the line before, its head the line after
+      q = end;
+    }
+  };
+  // matches across the whole song; a lone short word ("эй") matched far from its row is noise, not an anchor
+  const pairs: [number, number][] = []; lcsWalk(A.map(t => t.k), B.map(t => t.k), (i, j) => pairs.push([i, j]), () => {});
+  const near = (p: [number, number], q?: [number, number]) => !!q && Math.abs(q[0] - p[0]) === 1 && Math.abs(q[1] - p[1]) === 1;
+  let pi = 0, pj = 0;
+  pairs.forEach((p, x) => {
+    if (A[p[0]].k.length < 4 && !near(p, pairs[x - 1]) && !near(p, pairs[x + 1])) return;
+    gap(pi, p[0], pj, p[1]); match(p[0], p[1]); pi = p[0] + 1; pj = p[1] + 1;
+  });
+  gap(pi, A.length, pj, B.length);
+  const edits: { m: number; row: string }[] = [], dels: number[] = [];
+  oldRows.forEach((r, m) => { const n = out[m].join(' '); if (!r.trim()) return; if (!n) dels.push(m); else if (n !== r.trim().split(/ +/).join(' ')) edits.push({ m, row: n }); });
+  return { edits, adds, dels };
+}

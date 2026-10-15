@@ -22,10 +22,7 @@ function checkExport() {
 }
 export function download() {
   const x = checkExport(); if (!x) return;
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([x], { type: 'application/xml' }));
-  a.download = `${fileBase()} (${S.meta.lang}).ttml`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-  status('st2', window.self !== window.top ? 'Если файл не появился — страница открыта во встроенном просмотре: открой редактор в обычном браузере или жми «Копировать».' : 'Файл скачан.', window.self !== window.top ? 'err' : 'ok');
+  return saveText(`${fileBase()} (${S.meta.lang}).ttml`, x, 'application/xml');
 }
 export async function copyTTML() { const x = checkExport(); if (!x) return; (await copyText(x)) ? status('st2', 'TTML скопирован в буфер.', 'ok') : status('st2', 'Буфер заблокирован — нажми «Показать код» и скопируй вручную.', 'err'); }
 export function toggleCode() { if (S.out == null) { const x = checkExport(); if (!x) return; S.out = x; } else S.out = null; emit(); }

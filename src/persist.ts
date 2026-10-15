@@ -88,8 +88,30 @@ export function loadProject(txt: string, keepSel?: boolean) {
   if (sel && sel.i < S.lines.length) S.sel = sel;
   buildPreview(); status('st1', `Проект загружен: строк ${S.lines.length}`, 'ok');
 }
-export function saveText(name: string, text: string, mime?: string) {
+type Picker = (o: object) => Promise<{ createWritable(): Promise<{ write(d: string): Promise<void>; close(): Promise<void> }> }>;
+/**
+ * Save a file asking where (app: the Windows «Save as» dialog; Chrome / Edge: the browser's own),
+ * else the usual download. Resolves false when the user cancelled.
+ */
+export async function saveText(name: string, text: string, mime?: string) {
+  const ext = name.slice(name.lastIndexOf('.')), invoke = (window as unknown as { __TAURI__?: { core?: { invoke(c: string, a: object): Promise<string | null> } } }).__TAURI__?.core?.invoke;
+  try {
+    if (invoke) {
+      const p = await invoke('save_file', { name, text });
+      status('st2', p ? 'Сохранено: ' + p : 'Сохранение отменено.', p ? 'ok' : ''); return !!p;
+    }
+    const pick = (window as unknown as { showSaveFilePicker?: Picker }).showSaveFilePicker;
+    if (pick && window.self === window.top) {
+      const h = await pick({ suggestedName: name, id: 'spicy-export', types: [{ description: ext.slice(1).toUpperCase(), accept: { [mime || 'text/plain']: [ext] } }] });
+      const w = await h.createWritable(); await w.write(text); await w.close();
+      status('st2', 'Сохранено: ' + name, 'ok'); return true;
+    }
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') { status('st2', 'Сохранение отменено.'); return false; }
+    if (invoke) { status('st2', 'Не вышло сохранить: ' + ((e as Error).message || e), 'err'); return false; }
+  }
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: mime || 'text/plain' })); a.download = name;
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   status('st2', window.self !== window.top ? 'Если файл не появился — страница во встроенном просмотре: открой в обычном браузере.' : 'Файл скачан.', window.self !== window.top ? 'err' : 'ok');
+  return true;
 }
