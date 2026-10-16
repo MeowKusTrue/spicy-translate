@@ -376,7 +376,7 @@ const tools: Record<string, Tool> = {
     schema: { type: 'object', properties: { mode: { type: 'string', enum: ['translation', 'bilingual'] }, wordSpread: { type: 'boolean' }, offset_ms: { type: 'number' }, songwriters: { type: 'array', items: { type: 'string' } }, include_text: { type: 'boolean' } } },
     async run({ mode, wordSpread = true, offset_ms = 0, songwriters = [], include_text }: { mode?: Mode; wordSpread?: boolean; offset_ms?: number; songwriters?: string[]; include_text?: boolean }) {
       const p = await need();
-      const ttml = C.buildTTML({ lines: p.lines, mode: mode || p.meta.mode || 'translation', wordSpread, lang: p.meta.lang || 'ru', offset: offset_ms, songwriters });
+      const ttml = C.buildTTML({ lines: p.lines, mode: mode || p.meta.mode || 'translation', wordSpread, lang: p.meta.lang || 'ru', offset: offset_ms, songwriters, meta: p.meta.md });
       const out = path.join(DATA, 'exports'); fs.mkdirSync(out, { recursive: true });
       const f = path.join(out, `${(p.meta.artist + ' - ' + p.meta.title).replace(/[\\/:*?"<>|]/g, '').trim() || 'lyrics'} (${p.meta.lang || 'ru'}).ttml`);
       fs.writeFileSync(f, ttml); return { path: f, ...(include_text ? { ttml } : {}) };

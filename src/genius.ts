@@ -31,17 +31,20 @@ export async function geniusSearch(q = geniusQuery()) {
   } catch (e) { done('Genius: ' + (e as Error).message, 'err'); }
 }
 
-/** songwriters into the export field: of the song picked on Genius, else the first search hit for artist + title */
-export async function geniusWriters(id = S.genius?.id) {
+/** songwriters into the metadata («Автор песни»): of the song picked on Genius, else the first search hit for artist + title */
+export async function geniusWriters(id = S.genius?.id, title = S.genius?.title) {
+  toast('Ищу авторов на Genius…', '');
   try {
     if (!id) {
       const q = [S.meta.artist, S.meta.title].filter(Boolean).join(' ').trim(); if (!q) return toast('Впиши исполнителя и название трека', 'err');
       const h = (await api<GeniusHit[]>('/api/genius/search?q=' + encodeURIComponent(q)))[0]; if (!h) return toast('На Genius ничего не нашлось', 'err');
-      id = h.id;
+      id = h.id; title = `${h.artist} — ${h.title}`;
     }
     const { writers } = await api<{ writers: string[] }>('/api/genius/writers?id=' + id);
-    if (!writers.length) return toast('У песни на Genius не указаны авторы', 'err');
-    S.exp.writers = writers.join(', '); emit(); scheduleSave(); toast('Авторы с Genius: ' + S.exp.writers, 'ok');
+    if (!writers.length) return toast(`У «${title}» на Genius не указаны авторы`, 'err');
+    const e = S.meta.md.find(m => m.key === 'songwriter');
+    if (e) e.value = writers; else S.meta.md.push({ key: 'songwriter', value: writers });
+    emit(); scheduleSave(); toast(`Авторы с Genius («${title}»): ${writers.join(', ')}`, 'ok');
   } catch (e) { toast('Genius: ' + (e as Error).message, 'err'); }
 }
 
@@ -64,7 +67,7 @@ export async function geniusPick(h: GeniusHit) {
     }
   }
   S.genius = { ...S.genius!, text, heads, title: h.title, id: h.id, ignored: [] };
-  if (!S.exp.writers.trim()) geniusWriters(h.id);
+  if (!S.meta.md.some(m => m.key === 'songwriter' && m.value.some(v => v.trim()))) geniusWriters(h.id, h.title);
   if (heads.length) snap();
   const ns = applySections(), n = geniusDiff().length, sec = ns ? ` Секции с Genius: ${ns} — цветные блоки над волной.` : '';
   done((n ? `Сверка с «${h.title}»: отличий ${n}. Принимай по строке (✓) или все сразу — разметка совпавших слов сохранится.` : `Текст совпадает с Genius («${h.title}») — править нечего.`) + sec);

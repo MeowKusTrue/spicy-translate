@@ -1,5 +1,6 @@
 import { S, lineState, mainLayerFor, useS } from '../state.ts';
 import { PAGES, setPage } from '../hotkeys.ts';
+import { MetaModal } from './MetaModal.tsx';
 import { AudioCard, ExportCard, HistoryCard, LinesCard, Next, SearchCard, TextCard, TranslateCard } from './Cards.tsx';
 import { Stage } from './Stage.tsx';
 import { SyncDock } from './SyncDock.tsx';
@@ -63,6 +64,7 @@ export function App() {
     </main>
     <SyncDock />
     <HelpModal />
+    <MetaModal />
     <Palette />
     <AlignPanel />
     <Drop />

@@ -24,6 +24,9 @@ export interface Unit { w: string; sp: boolean }
 
 export interface TimedWord { word: string; sp: boolean; a: number; b: number; real?: boolean }
 
+/** Song metadata like the AMLL TTML tool: one key, several values. songwriter -> Apple <songwriters> (Spicy shows them), the rest -> <amll:meta> */
+export interface MetaEntry { key: string; value: string[] }
+
 export interface ExportOpts {
   lines: Line[];
   mode?: Mode;
@@ -31,11 +34,12 @@ export interface ExportOpts {
   lang?: string;
   offset?: number;
   songwriters?: string[];
+  meta?: MetaEntry[];
   roman?: boolean; // add a Latin romanization of Cyrillic lyrics (Spicy shows it under the line)
 }
 
 export interface Project {
   v: 1;
-  meta: { title: string; artist: string; lang: string; mode: Mode; writers?: string };
+  meta: { title: string; artist: string; lang: string; mode: Mode; md?: MetaEntry[] };
   lines: Line[];
 }

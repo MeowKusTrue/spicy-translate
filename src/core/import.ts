@@ -1,6 +1,6 @@
 // Import lyrics from files: TTML (ours / Apple / Spicy style — singers, background vocals, word & syllable timings),
 // SRT, LRC and plain text. Pure functions (no DOM), so the web editor, the extension and the MCP server share them.
-import type { Agent, Line, Unit, WordSync } from './types.ts';
+import type { Agent, Line, MetaEntry, Unit, WordSync } from './types.ts';
 import { entriesToLines, parseLRC } from './lrc.ts';
 import { NBSP, units, unitsText } from './words.ts';
 
@@ -109,8 +109,16 @@ export function parseTTML(xml: string): Line[] {
   return out.sort((x, y) => x.t - y.t);
 }
 
-/** <songwriter> names from a TTML <head> (Apple iTunesMetadata, what our export writes) */
-export const ttmlSongwriters = (xml: string) => [...xml.matchAll(/<songwriter>([^<]*)<\/songwriter>/g)].map(m => unesc(m[1]).trim()).filter(Boolean);
+/** song metadata from a TTML <head>: Apple <songwriter> names + <amll:meta key value> (not our own amll:sections etc.) */
+export function ttmlMeta(xml: string): MetaEntry[] {
+  const out: MetaEntry[] = [], add = (key: string, v: string) => {
+    v = v.trim(); if (!key || !v) return;
+    const e = out.find(m => m.key === key); if (!e) out.push({ key, value: [v] }); else if (!e.value.includes(v)) e.value.push(v);
+  };
+  for (const m of xml.matchAll(/<songwriter>([^<]*)<\/songwriter>/g)) add('songwriter', unesc(m[1]));
+  for (const m of xml.matchAll(/<amll:meta\b([^>]*)\/?>/g)) { const k = attr(m[1], 'key') || ''; if (!k.startsWith('amll:')) add(k, attr(m[1], 'value') || ''); }
+  return out;
+}
 
 /** SRT -> lines (one cue = one line; multi-line cues are joined with a space). */
 export function parseSRT(text: string): Line[] {

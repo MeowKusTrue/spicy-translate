@@ -37,7 +37,7 @@ const blurActive = () => { const a = document.activeElement; if (a instanceof HT
 
 const KEYS = new Set(['KeyC', 'KeyB', 'KeyT', 'KeyE', 'Digit1', 'Digit2', 'Digit3', 'KeyV', 'KeyM', 'KeyU', 'KeyN', 'KeyL', 'KeyR', 'Comma', 'Period', 'Space', 'KeyF', 'KeyG', 'KeyH', 'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'BracketLeft', 'BracketRight', 'Quote', 'Delete', 'Backspace']);
 function onKey(e: KeyboardEvent) {
-  if (!S.dock || S.help || S.palette) return;
+  if (!S.dock || S.help || S.metaEd || S.palette) return;
   const tg = e.target as HTMLInputElement, tag = tg.tagName;
   if (tag === 'TEXTAREA' || tag === 'SELECT' || (tag === 'INPUT' && tg.type !== 'range' && tg.type !== 'checkbox' && tg.type !== 'radio' && tg.type !== 'file')) return;
   const c = e.code;
@@ -103,7 +103,7 @@ export function installHotkeys() {
   });
   document.addEventListener('keydown', e => {
     if (e.code !== 'Escape') return;
-    if (S.help) { S.help = false; emit(); }
+    if (S.help || S.metaEd) { S.help = S.metaEd = false; emit(); }
     if (W.multi.length) { W.multi = []; drawWave(); }
     document.querySelectorAll<HTMLDetailsElement>('details.menu[open]').forEach(d => d.open = false);
     blurActive(); updateKbd();

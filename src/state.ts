@@ -2,7 +2,7 @@
 // Hot paths (rAF loop, wave drag) mutate S and paint the DOM/canvas directly; everything else calls emit().
 import { useSyncExternalStore } from 'react';
 import { splitWords, syncComplete, units, wordList } from './core/index.ts';
-import type { Layer, Line, Mode, QaItem, WordSync } from './core/index.ts';
+import type { Layer, Line, MetaEntry, Mode, QaItem, WordSync } from './core/index.ts';
 
 export type Msg = { msg: string; cls: string };
 export type Page = 'track' | 'text' | 'tr' | 'sync' | 'export';
@@ -15,7 +15,7 @@ export const ls = {
 
 export const S = {
   lines: [] as Line[],
-  meta: { title: '', artist: '', lang: 'ru', mode: 'translation' as Mode },
+  meta: { title: '', artist: '', lang: 'ru', mode: 'translation' as Mode, md: [] as MetaEntry[] }, // md: song metadata (authors, album…)
   duration: 0,
   // playback / clock
   hasAudio: false, playing: false, vt: 0, vStart: 0, rate: 1, vol: 0.3,
@@ -36,13 +36,13 @@ export const S = {
   ver: 0, // bumps whenever preview timings change
   // form fields
   q: '', manual: '', results: [] as LrclibHit[],
-  exp: { spread: true, offset: '0', writers: '', roman: false }, shiftMs: 100,
+  exp: { spread: true, offset: '0', roman: false }, shiftMs: 100,
   llm: { prov: 'openai', model: '', url: '', key: '', style: '' },
   // ui
   st1: { msg: '', cls: '' } as Msg, st2: { msg: '', cls: '' } as Msg, toast: { msg: '', cls: '' } as Msg,
   save: { msg: '💾 —', cls: '' } as Msg, live: null as Msg | null,
   qa: null as QaItem[] | null, paste: null as string | null, out: null as string | null,
-  help: false, typing: false, busyAuto: false, busyLlm: false,
+  help: false, metaEd: false, typing: false, busyAuto: false, busyLlm: false,
   palette: null as null | { q: string; i: number }, // Ctrl+K
   maxed: false, // desktop app window maximized
   page: 'track' as Page, prevPage: 'tr' as Page, // the tab shown; the sync tab opens the dock

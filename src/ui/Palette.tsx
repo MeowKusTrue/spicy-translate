@@ -6,12 +6,16 @@ import { addBgHere, addLineHere, bracketsToBg, copyLines, copyTiming, fillRepeat
 import { autoTranslate, copyPrompt, llmTranslate } from '../translate.ts';
 import { copyTTML, download, runQa, saveLRC, saveProjectFile, saveSRT } from '../exporting.ts';
 import { snapshot } from '../persist.ts';
+import { openMeta } from './MetaModal.tsx';
+import { geniusWriters } from '../genius.ts';
 import { centerOnSel } from '../waveform/wave.ts';
 import { autoAlign, openAlignPanel } from '../autoAlign.ts';
 
 type Cmd = [title: string, keys: string, run: () => unknown];
 const cmds = (): Cmd[] => [
   ...PAGES.map(([id, name], k): Cmd => [`Вкладка: ${name}`, `Alt+${k + 1}`, () => setPage(id)]),
+  ['Метаданные песни (авторы, альбом…)', '', openMeta],
+  ['Авторы песни с Genius', '', () => geniusWriters()],
   ['Найти трек (LRCLIB)', '', () => { setPage('track'); setTimeout(() => document.getElementById('q')?.focus()); }],
   ['Весь текст: оригинал и перевод рядом', 'Alt+2', () => setPage('text')],
   ['Автоперевод (Google)', '', autoTranslate],

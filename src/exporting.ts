@@ -12,7 +12,7 @@ const fileBase = () => (S.meta.artist + ' - ' + S.meta.title).replace(/[\\/:*?"<
 const baseName = () => fileBase() + ` (${S.meta.lang})`;
 export function opts(): ExportOpts {
   return { lines: S.lines, mode: S.meta.mode, wordSpread: S.exp.spread, lang: S.meta.lang,
-    offset: parseInt(S.exp.offset, 10) || 0, songwriters: S.exp.writers.split(',').map(s => s.trim()), roman: S.exp.roman };
+    offset: parseInt(S.exp.offset, 10) || 0, meta: S.meta.md, roman: S.exp.roman };
 }
 function checkExport() {
   if (!S.lines.length) { status('st2', 'Нечего экспортировать — загрузи текст.', 'err'); return null; }

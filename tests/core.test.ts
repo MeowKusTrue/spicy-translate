@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildLRC, buildSRT, buildTTML, entriesToLines, getWords, NBSP, parseLRC, parsePlain, plainW,
-  qaCheck, splitWords, syllabify, ttmlSongwriters, units, unitsText, wordList, type Line,
+  qaCheck, splitWords, syllabify, ttmlMeta, units, unitsText, wordList, type Line,
 } from '../src/core/index.ts';
 
 const line = (o: Partial<Line>): Line => ({ t: 1, end: 3, text: 'one two', tr: '', ...o });
@@ -50,7 +50,10 @@ describe('TTML', () => {
     expect(x).toContain('<p begin="0:01.500" end="0:03.500" ttm:agent="v1" itunes:key="L1">a &lt; b</p>');
     expect(x).not.toContain('L2');
     expect(x).toContain('<songwriters><songwriter>X</songwriter></songwriters>');
-    expect(ttmlSongwriters(buildTTML({ lines: [line({})], songwriters: ['A & B', 'C'] }))).toEqual(['A & B', 'C']);
+    const meta = [{ key: 'songwriter', value: ['A & B', 'C', ' '] }, { key: 'album', value: ['Альбом "1"'] }, { key: 'artists', value: ['P', 'Q'] }];
+    const y = buildTTML({ lines: [line({})], songwriters: ['C'], meta });
+    expect(y).toContain('xmlns:amll=');
+    expect(ttmlMeta(y)).toEqual([{ key: 'songwriter', value: ['C', 'A & B'] }, { key: 'album', value: ['Альбом "1"'] }, { key: 'artists', value: ['P', 'Q'] }]);
   });
 
   it('bilingual: translation as x-bg without brackets', () => {

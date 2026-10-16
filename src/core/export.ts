@@ -1,4 +1,4 @@
-import type { Agent, ExportOpts, TimedWord } from './types.ts';
+import type { Agent, ExportOpts, MetaEntry, TimedWord } from './types.ts';
 import { getWords, plainW, syncComplete, units } from './words.ts';
 import { hasCyr, translit } from './roman.ts';
 import { secCategory } from './sections.ts';
@@ -22,7 +22,7 @@ export function esc(s: unknown) {
 type Item = { a: number; b: number; mainText: string; main: TimedWord[] | null; bg: TimedWord[] | null; agent: Agent; sec: string }; // sec: id of its song section ('' = none)
 
 export function buildTTML(o: ExportOpts) {
-  const { lines, mode = 'translation', wordSpread = true, lang = 'ru', offset = 0, songwriters = [], roman = false } = o;
+  const { lines, mode = 'translation', wordSpread = true, lang = 'ru', offset = 0, songwriters = [], roman = false, meta = [] } = o;
   const shift = (offset || 0) / 1000;
   const bilingual = mode === 'bilingual';
   const wordTiming = bilingual || wordSpread;
@@ -76,13 +76,15 @@ export function buildTTML(o: ExportOpts) {
   });
   const used = ['v1', 'v2', 'v1000'].filter(id => id === 'v1' || items.some(i => i.agent === id));
   const agents = used.map(id => `      <ttm:agent type="${id === 'v1000' ? 'group' : 'person'}" xml:id="${id}"/>`).join('\n');
-  const sw = songwriters.filter(Boolean).map(s => `<songwriter>${esc(s)}</songwriter>`).join('');
+  const vals = (m: MetaEntry) => m.value.map(v => v.trim()).filter(Boolean);
+  const sw = [...new Set([...songwriters.map(s => s.trim()), ...meta.filter(m => m.key === 'songwriter').flatMap(vals)])].filter(Boolean).map(s => `<songwriter>${esc(s)}</songwriter>`).join('');
+  const extra = meta.filter(m => m.key && m.key !== 'songwriter' && !m.key.startsWith('amll:')).flatMap(m => vals(m).map(v => `      <amll:meta key="${esc(m.key)}" value="${esc(v)}"/>\n`)).join('');
   return `<?xml version="1.0" encoding="UTF-8"?>
-<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:ttm="http://www.w3.org/ns/ttml#metadata"${secs.length ? ' xmlns:amll="http://www.example.com/ns/amll"' : ''} itunes:timing="${wordTiming ? 'Word' : 'Line'}" xml:lang="${esc(lang)}">
+<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:ttm="http://www.w3.org/ns/ttml#metadata"${secs.length || extra ? ' xmlns:amll="http://www.example.com/ns/amll"' : ''} itunes:timing="${wordTiming ? 'Word' : 'Line'}" xml:lang="${esc(lang)}">
   <head>
     <metadata>
 ${agents}
-${secs.length ? `      <amll:meta key="amll:sections" value="${esc(JSON.stringify({ version: 1, sections: secs }))}"/>\n` : ''}      <iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal"><songwriters>${sw}</songwriters>${roms ? `<transliterations><transliteration xml:lang="${esc(lang)}-Latn">${roms}</transliteration></transliterations>` : ''}</iTunesMetadata>
+${extra}${secs.length ? `      <amll:meta key="amll:sections" value="${esc(JSON.stringify({ version: 1, sections: secs }))}"/>\n` : ''}      <iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal"><songwriters>${sw}</songwriters>${roms ? `<transliterations><transliteration xml:lang="${esc(lang)}-Latn">${roms}</transliteration></transliterations>` : ''}</iTunesMetadata>
     </metadata>
   </head>
   <body dur="${fmtTime(dur)}">
