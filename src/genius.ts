@@ -9,6 +9,7 @@ import { S, emit, toast } from './state.ts';
 import { fetchSearch, loadManual, loadTrack } from './load.ts';
 import { setPage } from './hotkeys.ts';
 import { applyFull } from './lineEdit.ts';
+import { setMeta, splitArtists } from './metadata.ts';
 
 export interface GeniusHit { id: number; title: string; artist: string; url: string; art: string }
 const api = async <T,>(path: string): Promise<T> => {
@@ -31,21 +32,28 @@ export async function geniusSearch(q = geniusQuery()) {
   } catch (e) { done('Genius: ' + (e as Error).message, 'err'); }
 }
 
-/** songwriters into the metadata («Автор песни»): of the song picked on Genius, else the first search hit for artist + title */
-export async function geniusWriters(id = S.genius?.id, title = S.genius?.title) {
-  toast('Ищу авторов на Genius…', '');
+const norm = (x: string) => x.toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9]+/g, ' ').trim();
+/**
+ * Songwriters and album into the metadata. Button (auto = false): the song picked on Genius, else the first hit for
+ * artist + title; overwrites the authors. On load (auto): only a hit whose title and artist match, only empty fields, quietly.
+ */
+export async function geniusWriters(id = S.genius?.id, title = S.genius?.title, auto = false) {
+  if (!auto) toast('Ищу авторов на Genius…', '');
   try {
     if (!id) {
-      const q = [S.meta.artist, S.meta.title].filter(Boolean).join(' ').trim(); if (!q) return toast('Впиши исполнителя и название трека', 'err');
-      const h = (await api<GeniusHit[]>('/api/genius/search?q=' + encodeURIComponent(q)))[0]; if (!h) return toast('На Genius ничего не нашлось', 'err');
+      const q = [S.meta.artist, S.meta.title].filter(Boolean).join(' ').trim(); if (!q) return auto || toast('Впиши исполнителя и название трека', 'err');
+      const hits = await api<GeniusHit[]>('/api/genius/search?q=' + encodeURIComponent(q));
+      const t = norm(bare(S.meta.title)), ar = norm(S.meta.artist).split(' ');
+      const h = auto ? hits.find(x => { const xt = norm(bare(x.title)); return t && (xt === t || xt.startsWith(t + ' ')) && norm(x.artist).split(' ').some(w => w.length > 1 && ar.includes(w)); }) : hits[0];
+      if (!h) return auto || toast('На Genius ничего не нашлось', 'err');
       id = h.id; title = `${h.artist} — ${h.title}`;
     }
-    const { writers } = await api<{ writers: string[] }>('/api/genius/writers?id=' + id);
-    if (!writers.length) return toast(`У «${title}» на Genius не указаны авторы`, 'err');
-    const e = S.meta.md.find(m => m.key === 'songwriter');
-    if (e) e.value = writers; else S.meta.md.push({ key: 'songwriter', value: writers });
-    emit(); scheduleSave(); toast(`Авторы с Genius («${title}»): ${writers.join(', ')}`, 'ok');
-  } catch (e) { toast('Genius: ' + (e as Error).message, 'err'); }
+    const { writers, album = '' } = await api<{ writers: string[]; album?: string }>('/api/genius/writers?id=' + id);
+    const w = setMeta('songwriter', writers, auto), al = setMeta('album', [album]);
+    if (w || al) { emit(); scheduleSave(); }
+    if (auto) { if (w || al) toast(`С Genius: ${[w && 'авторы ' + writers.join(', '), al && 'альбом «' + album + '»'].filter(Boolean).join(', ')}`, 'ok'); return; }
+    toast(writers.length ? `Авторы с Genius («${title}»): ${writers.join(', ')}` : `У «${title}» на Genius не указаны авторы`, writers.length ? 'ok' : 'err');
+  } catch (e) { if (!auto) toast('Genius: ' + (e as Error).message, 'err'); }
 }
 
 /** Genius title without the translated name in brackets: «Буду твоей пальмой! (I'll Be Your Palm!)» */
@@ -67,7 +75,8 @@ export async function geniusPick(h: GeniusHit) {
     }
   }
   S.genius = { ...S.genius!, text, heads, title: h.title, id: h.id, ignored: [] };
-  if (!S.meta.md.some(m => m.key === 'songwriter' && m.value.some(v => v.trim()))) geniusWriters(h.id, h.title);
+  setMeta('musicName', [bare(h.title)]); setMeta('artists', splitArtists(h.artist)); emit(); scheduleSave();
+  geniusWriters(h.id, h.title, true);
   if (heads.length) snap();
   const ns = applySections(), n = geniusDiff().length, sec = ns ? ` Секции с Genius: ${ns} — цветные блоки над волной.` : '';
   done((n ? `Сверка с «${h.title}»: отличий ${n}. Принимай по строке (✓) или все сразу — разметка совпавших слов сохранится.` : `Текст совпадает с Genius («${h.title}») — править нечего.`) + sec);

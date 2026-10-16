@@ -81,14 +81,14 @@ export function projectJSON() {
   const p: Project = { v: 1, meta: { ...S.meta }, lines: S.lines.map(l => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || null, agent: l.agent, bg: l.bg, sec: l.sec })) };
   return JSON.stringify(p, null, 1);
 }
-export function loadProject(txt: string, keepSel?: boolean) {
+/** keep = the same song updated by the agent: undo, layer, selection and playhead stay */
+export function loadProject(txt: string, keep?: boolean) {
   const p = JSON.parse(txt); if (!p.lines) throw new Error('это не проект Spicy Translate');
-  const m = p.meta || {}, sel = keepSel && S.sel ? { ...S.sel } : null;
+  const m = p.meta || {};
   S.meta.title = m.title || ''; S.meta.artist = m.artist || ''; if (m.lang) S.meta.lang = m.lang;
   S.meta.md = m.md || [];
   if (m.mode && m.mode !== S.meta.mode) setMode(m.mode as Mode);
-  setLines(p.lines.map((l: any) => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || undefined, agent: l.agent, bg: l.bg, ...(l.sec ? { sec: l.sec } : {}) })), 0);
-  if (sel && sel.i < S.lines.length) S.sel = sel;
+  setLines(p.lines.map((l: any) => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || undefined, agent: l.agent, bg: l.bg, ...(l.sec ? { sec: l.sec } : {}) })), 0, keep);
   buildPreview(); status('st1', `Проект загружен: строк ${S.lines.length}`, 'ok');
 }
 type Picker = (o: object) => Promise<{ createWritable(): Promise<{ write(d: string): Promise<void>; close(): Promise<void> }> }>;

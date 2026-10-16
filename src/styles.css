@@ -445,3 +445,49 @@ input.rng:hover::-webkit-slider-thumb,input.rng:active::-webkit-slider-thumb{tra
 .pop .opt.col{flex-direction:column;align-items:stretch;gap:4px}.pop .opt.col .row{gap:6px;align-items:center}
 .pfolder{margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border-radius:12px;border:1px solid var(--line);font-size:13px}
 .pfolder>span{flex:1;min-width:180px}.pfolder small{display:block;color:var(--mut);font-size:11.5px}.pfolder kbd{font-size:10.5px;margin-left:4px;opacity:.8}
+/* ---------- the browser gets the app's workspace: compact header, the page itself never scrolls, the left column does ---------- */
+@media (min-width:981px){
+  html,body{height:100%;overflow:hidden}
+  header{height:58px;padding:0 20px;gap:14px}
+  header .brand span{display:none}
+  main{height:calc(100vh - 58px);max-width:none;padding:14px 20px;grid-template-rows:minmax(0,1fr);overflow:hidden}
+  main>.col{min-height:0}
+  main>.col:first-child{overflow-y:auto;overscroll-behavior:contain;padding-right:6px;padding-bottom:4px}
+  .stage,body.dock-open .stage{position:relative;top:0;height:100%;min-height:0}
+  body.dock-open main{padding-bottom:calc(var(--dockH,400px) + 12px)}
+  main.page-text .textcard .textab{height:calc(100vh - 240px)}
+  body.dock-open main.page-sync .lines,main.page-tr .lines{max-height:none}
+}
+header h1{letter-spacing:-.01em}
+.pill{white-space:nowrap}
+.grid2>*{min-width:0}
+/* press feedback on pointer-down, not on release */
+button:active:not(:disabled),.btn:active,.nav button:active:not(:disabled){transform:scale(.97);transition:transform 80ms ease-out}
+/* keyboard focus is always visible; the mouse doesn't leave rings */
+:is(button,.btn,summary,[role=tab]):focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+/* metadata row on the export tab: a field-like button that opens the editor */
+.metarow{display:flex;align-items:center;gap:10px;width:100%;text-align:left;margin-top:10px;padding:9px 12px;background:var(--field);font-weight:500}
+.metarow>span:first-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.metarow small{display:block;color:var(--mut);font-size:11.5px;font-weight:600}
+.metarow>span:last-child{color:var(--mut);font-size:18px;line-height:1}
+.offset{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:13px;color:var(--mut)}
+.offset input{width:110px}
+/* dialogs arrive as a material: scale + fade from slightly smaller, critically damped feel */
+.modal:not([hidden]){animation:scrimin .18s ease-out}
+.modal:not([hidden])>*{animation:matin .26s cubic-bezier(.2,.9,.25,1)}
+@keyframes scrimin{from{background:rgba(8,5,16,0);backdrop-filter:blur(0)}}
+@keyframes matin{from{opacity:0;transform:scale(.96) translateY(6px)}}
+@media (prefers-reduced-motion:reduce){
+  .modal:not([hidden]),.modal:not([hidden])>*{animation:none}
+  button:active:not(:disabled),.btn:active{transform:none}
+  .stage .glow{animation:none}
+}
+@media (prefers-reduced-transparency:reduce){
+  header,.dock,.player{backdrop-filter:none;background:var(--bg)}
+  .modal{backdrop-filter:none;background:rgba(0,0,0,.8)}
+}
+.fld{display:flex;flex-direction:column;gap:4px;min-width:0}.fld small{color:var(--mut);font-size:11.5px;font-weight:600}
+.btn.sm{padding:6px 10px;font-size:12.5px;border-radius:9px}
+.lines{gap:2px}.ln{padding:6px 8px}
+@media(max-width:980px){header{gap:10px;padding:12px 16px}header .brand{display:none}}
+@media(max-width:980px){header{flex-wrap:wrap;row-gap:8px}header .nav{order:9;flex-basis:100%}}

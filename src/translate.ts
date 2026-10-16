@@ -4,6 +4,7 @@ import { S, emit, ls, status } from './state.ts';
 import { buildPreview } from './preview.ts';
 import { scheduleSave } from './persist.ts';
 import { drawWave } from './waveform/wave.ts';
+import { snap } from './sync.ts';
 
 export const LANGS: [string, string][] = [['ru', 'на русский'], ['en', 'на английский'], ['uk', 'на украинский'], ['kk', 'на казахский'], ['be', 'на белорусский'],
   ['es', 'на испанский'], ['de', 'на немецкий'], ['fr', 'на французский'], ['it', 'на итальянский'], ['pt', 'на португальский'], ['tr', 'на турецкий'],
@@ -89,4 +90,4 @@ export function applyPaste() {
   S.paste = null; refresh();
   status('st2', rows.length === S.lines.length ? 'Перевод применён.' : `Внимание: строк в переводе ${rows.length}, в оригинале ${S.lines.length}.`, rows.length === S.lines.length ? 'ok' : 'err');
 }
-export function clearTr() { S.lines.forEach(l => { l.tr = ''; if (l.sync) delete l.sync.tr; }); buildPreview(true); emit(); drawWave(); status('st2', 'Перевод очищен.'); }
+export function clearTr() { snap(); S.lines.forEach(l => { l.tr = ''; if (l.sync) delete l.sync.tr; }); buildPreview(true); emit(); drawWave(); scheduleSave(); status('st2', 'Перевод очищен. Вернуть — Ctrl+Z.'); }

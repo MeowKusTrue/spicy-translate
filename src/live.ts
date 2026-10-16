@@ -4,6 +4,7 @@ import { isApp } from './desktop.ts';
 import { W } from './waveform/wave.ts';
 import { idbGet, loadProject, projectJSON, snapshot, trackKey } from './persist.ts';
 import { loadAudioFile } from './load.ts';
+import { snap } from './sync.ts';
 
 // in the desktop app the server is the app's own (or a running MCP server it found): say «сервер», not «MCP»
 const OK = isApp ? 'сервер ✓' : 'MCP: связь ✓', BAD = isApp ? 'нет связи с сервером' : 'MCP: нет связи';
@@ -24,6 +25,7 @@ function otherSong(p: Proj) {
 function applyLive(j: { project: unknown }) {
   snapshot('перед обновлением с сервера'); // both sides are kept: ours here, the server's after it lands
   LIVE.applying = true;
+  snap(); // Ctrl+Z takes the agent's edit back
   try { loadProject(JSON.stringify(j.project), true); idbGet(trackKey()).then(b => { if (b && !S.hasAudio) loadAudioFile(b, true); }); } finally { setTimeout(() => { LIVE.applying = false; }, 300); }
 }
 async function livePoll() {
@@ -32,7 +34,7 @@ async function livePoll() {
     const j = await (await fetch('/api/project')).json(); LIVE.on = true;
     if (j.rev !== LIVE.rev) { const fromAgent = j.by === 'mcp' && LIVE.rev >= 0; LIVE.rev = j.rev; if (fromAgent || (!S.lines.length && j.project && j.project.lines)) {
         if (otherSong(j.project) && !confirm(`Агент (MCP) открыл другой проект: «${name(j.project)}». Заменить им «${name({ meta: S.meta })}»? (текущий сохранится в снимках)`)) { snapshot('проект агента (не открыт)', JSON.stringify(j.project)); return; }
-        applyLive(j); toast('Агент (MCP) обновил проект. Прошлое состояние — в снимках («Трек» → История).', 'ok');
+        applyLive(j); toast('Агент (MCP) обновил проект. Отменить его правку — Ctrl+Z.', 'ok');
       } }
     livePill(true, OK);
   } catch { if (LIVE.on) livePill(false, BAD); }
@@ -53,7 +55,7 @@ export async function liveInit() {
 }
 
 /** the editor is newer than the running server (e.g. the MCP server started before an update): say so and how to fix */
-export const SERVER_API = 6; // Genius (text, songwriters) goes through the server
+export const SERVER_API = 7; // Genius (text, songwriters) goes through the server
 export async function checkServer() {
   const api = await fetch('/api/version').then(r => r.ok ? r.json() : {}).then((j: { api?: number }) => +(j.api || 0)).catch(() => 0);
   if (api >= SERVER_API) return true;

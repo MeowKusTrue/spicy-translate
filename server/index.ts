@@ -130,7 +130,7 @@ async function setupAlign(want?: Backend) {
   step('готово', 100); SETUP.done = true;
 }
 /** bump when the editor needs new server endpoints (3: auto-timing install / GPU / open folder) */
-const API = 6; // 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers
+const API = 7; // 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album
 /* ---------- Genius (lyrics makers take the text from there). No CORS for pages, so the server fetches them. ---------- */
 const GH = { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', 'accept-language': 'en-US,en;q=0.9' };
 type GeniusHit = { id: number; title: string; artist: string; url: string; art: string };
@@ -146,12 +146,12 @@ async function geniusText(url: string) {
   const text = C.geniusLyrics(await r.text(), true); if (!text) throw new Error('на странице нет текста (инструментал или Genius поменял вёрстку)');
   return text;
 }
-/** songwriters (Genius «Written By») of a song by its Genius id */
-async function geniusWriters(id: string): Promise<string[]> {
+/** songwriters (Genius «Written By») and album of a song by its Genius id */
+async function geniusWriters(id: string): Promise<{ writers: string[]; album: string }> {
   if (!/^\d+$/.test(id)) throw new Error('нужен id песни Genius');
   const r = await fetch('https://genius.com/api/songs/' + id, { headers: GH }); if (!r.ok) throw new Error('Genius HTTP ' + r.status);
-  const j = await r.json() as { response?: { song?: { writer_artists?: { name: string }[] } } };
-  return (j.response?.song?.writer_artists || []).map(a => a.name);
+  const s = (await r.json() as { response?: { song?: { writer_artists?: { name: string }[]; album?: { name?: string } | null } } }).response?.song;
+  return { writers: (s?.writer_artists || []).map(a => a.name), album: s?.album?.name || '' };
 }
 const AL = { running: false, stage: '', done: 0, total: 0, error: '', out: '', vocals: '', audio: '', device: '', log: [] as string[] };
 const alDir = () => { const d = path.join(DATA, 'align'); fs.mkdirSync(d, { recursive: true }); return d; };
@@ -244,7 +244,7 @@ const server = http.createServer((req, res) => {
     }
   }
   if (u.pathname === '/api/genius/search') { geniusSearch(u.searchParams.get('q') || '').then(h => json(res, h), e => json(res, { error: e.message }, 502)); return; }
-  if (u.pathname === '/api/genius/writers') { geniusWriters(u.searchParams.get('id') || '').then(writers => json(res, { writers }), e => json(res, { error: e.message }, 502)); return; }
+  if (u.pathname === '/api/genius/writers') { geniusWriters(u.searchParams.get('id') || '').then(r => json(res, r), e => json(res, { error: e.message }, 502)); return; }
   if (u.pathname === '/api/genius/lyrics') { geniusText(u.searchParams.get('url') || '').then(text => json(res, { text }), e => json(res, { error: e.message }, 502)); return; }
   if (u.pathname.startsWith('/api/align')) { alignRoute(req, res, u).catch(e => json(res, { error: String(e?.message || e) }, 500)); return; }
   if (u.pathname === '/' || u.pathname === '/index.html') {

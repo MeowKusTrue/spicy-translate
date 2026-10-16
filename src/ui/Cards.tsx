@@ -3,7 +3,7 @@ import { mmss, plainW, stopLine, wordList } from '../core/index.ts';
 import { S, emit, lineState, mainLayerFor, status } from '../state.ts';
 import { seekTo } from '../audio.ts';
 import { buildPreview } from '../preview.ts';
-import { listSnaps, loadProject, restoreSnap, scheduleSave, snapshot, type Snap } from '../persist.ts';
+import { idbPut, listSnaps, loadProject, restoreSnap, scheduleSave, snapshot, trackKey, type Snap } from '../persist.ts';
 import { loadManual, loadTrack, openLyricsFile, search, setMode } from '../load.ts';
 import { selectWord } from '../sync.ts';
 import { LANGS, applyPaste, autoTranslate, clearTr, copyPrompt, llmTranslate } from '../translate.ts';
@@ -25,6 +25,8 @@ import { folderSupported, openProjectFolder, pickFolder, saveToFolder, unlinkFol
 import { acceptDiff, geniusDiff, geniusPick, geniusQuery, geniusSearch, geniusToText, ignoreDiff } from '../genius.ts';
 
 const set = (f: () => void) => { f(); emit(); };
+/** the audio is cached in IndexedDB under «artist - title»: after renaming, keep it under the new name too */
+const rekeyAudio = () => { if (S.audioBlob) idbPut(trackKey(), S.audioBlob); };
 const St = ({ id, m }: { id: string; m: { msg: string; cls: string } }) => <div className={'status ' + m.cls} id={id}>{m.msg}</div>;
 
 export function SearchCard() {
@@ -34,8 +36,10 @@ export function SearchCard() {
       <input type="text" id="q" placeholder="Исполнитель — название (например: Eminem Lose Yourself)" value={S.q}
         onChange={e => set(() => S.q = e.target.value)} onKeyDown={e => { if (e.key === 'Enter') search(); }} />
       <button className="pri" id="btnSearch" onClick={search}>Найти</button>
-      {folderSupported() && <button id="btnOpenFolder" title="Папка проекта: подниму проект (или TTML) и аудио из неё" onClick={openProjectFolder}>📂 Папка проекта</button>}
-      <label className="btn" id="btnOpenFile" title="TTML (свой, Apple, Spicy, NaeNae — с исполнителями, бэками, пословной разметкой и секциями), LRC, SRT, текст или проект .spicy.json. Можно и просто перетащить файл на страницу.">📂 Открыть файл<input type="file" accept=".ttml,.xml,.lrc,.srt,.txt,.json" hidden onChange={e => { const f = e.target.files?.[0]; if (f) openLyricsFile(f); e.target.value = ''; }} /></label>
+    </div>
+    <div className="row" style={{ marginTop: 8 }}>
+      {folderSupported() && <button id="btnOpenFolder" className="sm" title="Папка проекта: подниму проект (или TTML) и аудио из неё" onClick={openProjectFolder}>📂 Папка проекта</button>}
+      <label className="btn sm" id="btnOpenFile" title="TTML (свой, Apple, Spicy, NaeNae — с исполнителями, бэками, пословной разметкой и секциями), LRC, SRT, текст или проект .spicy.json. Можно и просто перетащить файл на страницу.">📂 Открыть файл<input type="file" accept=".ttml,.xml,.lrc,.srt,.txt,.json" hidden onChange={e => { const f = e.target.files?.[0]; if (f) openLyricsFile(f); e.target.value = ''; }} /></label>
     </div>
     <div className="res" id="results">{S.results.slice(0, 25).map(d => {
       const synced = !!d.syncedLyrics;
@@ -56,8 +60,8 @@ export function SearchCard() {
       </div>
     </details>
     <div className="grid2" style={{ marginTop: 12 }}>
-      <input type="text" id="mTitle" placeholder="Название" value={S.meta.title} onChange={e => set(() => S.meta.title = e.target.value)} />
-      <input type="text" id="mArtist" placeholder="Исполнитель" value={S.meta.artist} onChange={e => set(() => S.meta.artist = e.target.value)} />
+      <label className="fld"><small>Название</small><input type="text" id="mTitle" placeholder="Название трека" value={S.meta.title} onChange={e => { set(() => S.meta.title = e.target.value); scheduleSave(); }} onBlur={rekeyAudio} /></label>
+      <label className="fld"><small>Исполнитель</small><input type="text" id="mArtist" placeholder="Исполнитель" value={S.meta.artist} onChange={e => { set(() => S.meta.artist = e.target.value); scheduleSave(); }} onBlur={rekeyAudio} /></label>
     </div>
     <St id="st1" m={S.st1} />
   </section>;
@@ -136,7 +140,7 @@ export function TranslateCard() {
     <div className="row" style={{ marginTop: 8, flexWrap: 'wrap' }}>
       <button id="btnPrompt" title="Скопирует промпт со строками — вставь в Claude/ChatGPT для художественного перевода" onClick={copyPrompt}>Промпт для LLM</button>
       <button id="btnPaste" onClick={() => { set(() => S.paste = S.paste ?? ''); setTimeout(() => document.getElementById('pasteTa')?.focus()); }}>Вставить перевод списком</button>
-      <button id="btnClear" onClick={clearTr}>Очистить</button>
+      <button id="btnClear" className="danger" title="Стереть весь перевод (Ctrl+Z — вернуть)" onClick={clearTr}>Очистить</button>
       <button id="btnRepeats" title="Повторы строк (припев) получают уже сделанный перевод, если у них его нет" disabled={!S.lines.length} onClick={() => fillRepeats()}>↻ Перевод на повторы</button>
       <button id="btnFind" title="Найти и заменить по всей песне" disabled={!S.lines.length} onClick={() => set(() => S.find = S.find ? null : { q: '', r: '', where: 'all', cs: false, word: true })}>🔎 Заменить</button>
     </div>
@@ -190,10 +194,10 @@ export function ExportCard() {
       : 'Переведённый текст становится основной лирикой — самый безопасный вариант для Spicy Lyrics.'}</p>
     <label className="chk"><input type="checkbox" id="spread" checked={S.exp.spread} disabled={bi} onChange={e => set(() => S.exp.spread = e.target.checked)} /><span>Пословная подсветка (караоке)<small>Слова равномерно размазываются по длительности строки. Тайминг приблизительный, но выглядит живо.</small></span></label>
     <label className="chk"><input type="checkbox" id="roman" checked={S.exp.roman} onChange={e => set(() => S.exp.roman = e.target.checked)} /><span>Транслитерация латиницей<small>Spicy покажет под строкой кириллицы, как читается: «ty moya» — для тех, кто не читает по-русски.</small></span></label>
-    <div className="grid2">
-      <div><small style={{ color: 'var(--mut)' }}>Сдвиг, мс</small><input type="number" id="offset" step="50" value={S.exp.offset} onChange={e => set(() => S.exp.offset = e.target.value)} /></div>
-      <div><small style={{ color: 'var(--mut)' }}>Метаданные песни</small><button id="btnMeta" style={{ width: '100%', textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title="Авторы, альбом, исполнители — как в AMLL" onClick={openMeta}>{metaSummary() || 'Авторы, альбом… — изменить'}</button></div>
-    </div>
+    <button className="metarow" id="btnMeta" title="Название, исполнители, авторы, альбом — как в AMLL" onClick={openMeta}>
+      <span><small>Метаданные песни</small>{metaSummary() || 'Авторы, альбом — добавить'}</span><span aria-hidden="true">›</span>
+    </button>
+    <label className="offset">Сдвиг всей лирики, мс<input type="number" id="offset" step="50" value={S.exp.offset} onChange={e => set(() => S.exp.offset = e.target.value)} /></label>
     {S.lines.length > 0 && <div className={'stop ' + (st.i < 0 ? 'ok' : '')} id="stopLine">{st.i < 0
       ? <>Все строки размечены вручную ✓ ({st.n})</>
       : <><span>Размечено строк: <b>{st.done}</b> из {st.n}. Ты остановился на строке <b>{st.i + 1}</b>: «{plainW(S.lines[st.i].tr.trim() || S.lines[st.i].text || S.lines[st.i].bg?.text || '').slice(0, 60)}»</span>

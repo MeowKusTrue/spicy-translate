@@ -5,6 +5,7 @@ import { audio, pause, seekTo } from './audio.ts';
 import { buildPreview } from './preview.ts';
 import { restoreCover } from './cover.ts';
 import { spreadSplits } from './syllables.ts';
+import { setMeta, splitArtists } from './metadata.ts';
 import { idbGet, idbPut, restoreProject, snapshot, trackKey } from './persist.ts';
 import { CH, selectWord } from './sync.ts';
 import { W, buildPeaks, drawWave } from './waveform/wave.ts';
@@ -30,6 +31,8 @@ export function loadTrack(d: LrclibHit) {
   const entries = synced ? parseLRC(d.syncedLyrics!) : parsePlain(d.plainLyrics || '');
   setLines(entriesToLines(entries, d.duration), d.duration); S.srcDur = d.duration || 0;
   const restored = restoreProject();
+  setMeta('musicName', [d.trackName]); setMeta('artists', splitArtists(d.artistName)); // LRCLIB album is user-typed and often junk: album comes from Genius
+  import('./genius.ts').then(g => g.geniusWriters(0, '', true));
   status('st1', (synced ? `Загружено строк: ${S.lines.length}` : 'Только plain-текст: тайминги выдуманы, лучше выбери synced-версию.') + (restored ? ' · восстановил твою прошлую работу над треком' : ''), synced ? 'ok' : 'err');
   if (!S.hasAudio) idbGet(trackKey()).then(b => { if (b) { loadAudioFile(b, true); } });
   else if (S.audioBlob) idbPut(trackKey(), S.audioBlob);
@@ -43,13 +46,15 @@ export function loadManual(text: string, fileName = '') {
   const extra = [lines.some(l => l.sync?.orig) && 'разметка слов', lines.some(l => l.agent) && 'исполнители', lines.some(l => l.bg) && 'бэки', lines.some(l => l.sec) && 'секции'].filter(Boolean).join(', ');
   status('st1', `${kind.toUpperCase()}: строк ${S.lines.length}${extra ? ' · ' + extra : ''}${kind === 'text' ? (dur ? ' · без таймингов: строки разложены по треку, точную синхру задай F/G' : ' · без таймингов: по 3.5 с на строку; с аудио разложу по длине трека') : ''}`, kind === 'text' ? 'err' : 'ok');
 }
-export function setLines(lines: Line[], dur: number) {
-  if (S.lines.length) snapshot('перед загрузкой нового текста'); // the replaced project stays in the snapshots
-  S.lines = lines; spreadSplits(); S.undo = []; S.redo = []; // a new track: remembered syllable splits come in by themselves S.sel = null; CH.last = -1;
-  S.layer = lines.some(l => l.tr && l.tr.trim()) ? 'tr' : 'orig'; S.picked.clear(); S.pickAnchor = -1;
+/** keep = the same song edited elsewhere (the agent): undo, layer, selection and playhead stay */
+export function setLines(lines: Line[], dur: number, keep = false) {
+  if (S.lines.length && !keep) snapshot('перед загрузкой нового текста'); // the replaced project stays in the snapshots
+  S.lines = lines; spreadSplits(); S.picked.clear(); S.pickAnchor = -1; // remembered syllable splits come in by themselves
+  if (!keep) { S.undo = []; S.redo = []; S.layer = lines.some(l => l.tr && l.tr.trim()) ? 'tr' : 'orig'; }
+  else if (S.sel && S.sel.i >= lines.length) S.sel = lines.length ? { i: lines.length - 1, k: 0 } : null;
   S.duration = Math.max(dur || 0, lines.length ? lines[lines.length - 1].end + 2 : 0, S.hasAudio ? audio.duration || 0 : 0);
-  buildPreview(); seekTo(0);
-  if (lines.length) selectWord(0, 0);
+  buildPreview();
+  if (!keep) { seekTo(0); if (lines.length) selectWord(0, 0); }
   emit();
 }
 export function setMode(m: Mode) {

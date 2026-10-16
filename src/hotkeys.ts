@@ -101,6 +101,11 @@ export function installHotkeys() {
     const n = /^Digit([1-5])$/.exec(e.code); if (!n || !e.altKey || e.ctrlKey || e.metaKey) return;
     e.preventDefault(); setPage(PAGES[+n[1] - 1][0]);
   });
+  document.addEventListener('keydown', e => { // Ctrl+Z / Ctrl+Shift+Z on every tab; the dock has its own; in a field — the field's own undo
+    if (S.dock || !(e.ctrlKey || e.metaKey) || e.code !== 'KeyZ' || S.help || S.metaEd || S.palette) return;
+    const tg = e.target as HTMLElement; if (/^(INPUT|TEXTAREA|SELECT)$/.test(tg.tagName) || tg.isContentEditable) return;
+    e.preventDefault(); if (e.shiftKey) doRedo(); else doUndo();
+  });
   document.addEventListener('keydown', e => {
     if (e.code !== 'Escape') return;
     if (S.help || S.metaEd) { S.help = S.metaEd = false; emit(); }
