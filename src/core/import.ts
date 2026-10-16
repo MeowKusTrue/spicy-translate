@@ -109,6 +109,9 @@ export function parseTTML(xml: string): Line[] {
   return out.sort((x, y) => x.t - y.t);
 }
 
+/** <songwriter> names from a TTML <head> (Apple iTunesMetadata, what our export writes) */
+export const ttmlSongwriters = (xml: string) => [...xml.matchAll(/<songwriter>([^<]*)<\/songwriter>/g)].map(m => unesc(m[1]).trim()).filter(Boolean);
+
 /** SRT -> lines (one cue = one line; multi-line cues are joined with a space). */
 export function parseSRT(text: string): Line[] {
   const out: Line[] = [];

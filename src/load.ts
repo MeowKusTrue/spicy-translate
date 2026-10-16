@@ -1,5 +1,5 @@
 // Getting lyrics and audio in: LRCLIB search, manual LRC, audio file (+ lyrics auto-pick by file name).
-import { entriesToLines, mmss, parseLRC, parsePlain, type Line, type Mode, importLyrics } from './core/index.ts';
+import { entriesToLines, mmss, parseLRC, parsePlain, type Line, type Mode, importLyrics, ttmlSongwriters } from './core/index.ts';
 import { S, emit, status, type LrclibHit } from './state.ts';
 import { audio, pause, seekTo } from './audio.ts';
 import { buildPreview } from './preview.ts';
@@ -103,5 +103,6 @@ export async function openLyricsFile(f: File) {
   if (/\.json$/i.test(f.name)) { try { const { loadProject } = await import('./persist.ts'); loadProject(t); } catch (e) { status('st1', 'Проект не открылся: ' + (e as Error).message, 'err'); } return; }
   if (!/\.(ttml|xml)$/i.test(f.name)) S.manual = t;
   loadManual(t, f.name);
+  const sw = ttmlSongwriters(t); if (sw.length) S.exp.writers = sw.join(', ');
   const g = guessNames(f.name); if (S.lines.length && g.title) { S.meta.title = g.title; if (g.artist) S.meta.artist = g.artist; emit(); } // "Artist - Title (ru).ttml"
 }

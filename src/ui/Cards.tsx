@@ -19,7 +19,7 @@ import { W } from '../waveform/wave.ts';
 import type { Page } from '../state.ts';
 import { findAll } from '../core/index.ts';
 import { folderSupported, openProjectFolder, pickFolder, saveToFolder, unlinkFolder } from '../folder.ts';
-import { acceptDiff, geniusDiff, geniusPick, geniusQuery, geniusSearch, geniusToText, ignoreDiff } from '../genius.ts';
+import { acceptDiff, geniusDiff, geniusPick, geniusQuery, geniusSearch, geniusToText, geniusWriters, ignoreDiff } from '../genius.ts';
 
 const set = (f: () => void) => { f(); emit(); };
 const St = ({ id, m }: { id: string; m: { msg: string; cls: string } }) => <div className={'status ' + m.cls} id={id}>{m.msg}</div>;
@@ -189,7 +189,7 @@ export function ExportCard() {
     <label className="chk"><input type="checkbox" id="roman" checked={S.exp.roman} onChange={e => set(() => S.exp.roman = e.target.checked)} /><span>Транслитерация латиницей<small>Spicy покажет под строкой кириллицы, как читается: «ty moya» — для тех, кто не читает по-русски.</small></span></label>
     <div className="grid2">
       <div><small style={{ color: 'var(--mut)' }}>Сдвиг, мс</small><input type="number" id="offset" step="50" value={S.exp.offset} onChange={e => set(() => S.exp.offset = e.target.value)} /></div>
-      <div><small style={{ color: 'var(--mut)' }}>Авторы текста (через запятую)</small><input type="text" id="writers" placeholder="необязательно" value={S.exp.writers} onChange={e => set(() => S.exp.writers = e.target.value)} /></div>
+      <div><small style={{ color: 'var(--mut)' }}>Авторы песни (через запятую)</small><div className="row" style={{ gap: 6 }}><input type="text" id="writers" placeholder="необязательно — Spicy покажет «Written by»" value={S.exp.writers} onChange={e => { set(() => S.exp.writers = e.target.value); scheduleSave(); }} /><button className="sm" id="btnWriters" title="Взять авторов с Genius (песня из вкладки Genius или поиск по исполнителю и названию)" onClick={() => geniusWriters()}>Genius</button></div></div>
     </div>
     {S.lines.length > 0 && <div className={'stop ' + (st.i < 0 ? 'ok' : '')} id="stopLine">{st.i < 0
       ? <>Все строки размечены вручную ✓ ({st.n})</>

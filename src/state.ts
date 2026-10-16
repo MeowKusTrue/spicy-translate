@@ -46,7 +46,7 @@ export const S = {
   palette: null as null | { q: string; i: number }, // Ctrl+K
   maxed: false, // desktop app window maximized
   page: 'track' as Page, prevPage: 'tr' as Page, // the tab shown; the sync tab opens the dock
-  genius: null as null | { q: string; hits: import('./genius.ts').GeniusHit[]; busy: boolean; msg: string; cls: string; text?: string; heads?: { row: number; label: string }[]; title?: string; ignored: string[] }, // «Текст с Genius» + its check
+  genius: null as null | { q: string; hits: import('./genius.ts').GeniusHit[]; busy: boolean; msg: string; cls: string; text?: string; heads?: { row: number; label: string }[]; title?: string; id?: number; ignored: string[] }, // «Текст с Genius» + its check
   full: null as null | { o: string; t: string; dirty: boolean }, // «Текст» tab draft
   find: null as null | { q: string; r: string; where: 'tr' | 'orig' | 'all'; cs: boolean; word: boolean },
 };

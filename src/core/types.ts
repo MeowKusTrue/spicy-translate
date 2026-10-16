@@ -36,6 +36,6 @@ export interface ExportOpts {
 
 export interface Project {
   v: 1;
-  meta: { title: string; artist: string; lang: string; mode: Mode };
+  meta: { title: string; artist: string; lang: string; mode: Mode; writers?: string };
   lines: Line[];
 }

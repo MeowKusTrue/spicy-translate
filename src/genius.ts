@@ -31,6 +31,20 @@ export async function geniusSearch(q = geniusQuery()) {
   } catch (e) { done('Genius: ' + (e as Error).message, 'err'); }
 }
 
+/** songwriters into the export field: of the song picked on Genius, else the first search hit for artist + title */
+export async function geniusWriters(id = S.genius?.id) {
+  try {
+    if (!id) {
+      const q = [S.meta.artist, S.meta.title].filter(Boolean).join(' ').trim(); if (!q) return toast('Впиши исполнителя и название трека', 'err');
+      const h = (await api<GeniusHit[]>('/api/genius/search?q=' + encodeURIComponent(q)))[0]; if (!h) return toast('На Genius ничего не нашлось', 'err');
+      id = h.id;
+    }
+    const { writers } = await api<{ writers: string[] }>('/api/genius/writers?id=' + id);
+    if (!writers.length) return toast('У песни на Genius не указаны авторы', 'err');
+    S.exp.writers = writers.join(', '); emit(); scheduleSave(); toast('Авторы с Genius: ' + S.exp.writers, 'ok');
+  } catch (e) { toast('Genius: ' + (e as Error).message, 'err'); }
+}
+
 /** Genius title without the translated name in brackets: «Буду твоей пальмой! (I'll Be Your Palm!)» */
 const bare = (t: string) => t.replace(/\s*[([][^)\]]*[)\]]\s*$/, '').trim() || t;
 export async function geniusPick(h: GeniusHit) {
@@ -49,7 +63,8 @@ export async function geniusPick(h: GeniusHit) {
       return done('Тайминги в LRCLIB не нашлись: текст Genius разложен по времени ровно. Подгони строки на волне или запусти ✨ Авто-тайминг.', 'err');
     }
   }
-  S.genius = { ...S.genius!, text, heads, title: h.title, ignored: [] };
+  S.genius = { ...S.genius!, text, heads, title: h.title, id: h.id, ignored: [] };
+  if (!S.exp.writers.trim()) geniusWriters(h.id);
   if (heads.length) snap();
   const ns = applySections(), n = geniusDiff().length, sec = ns ? ` Секции с Genius: ${ns} — цветные блоки над волной.` : '';
   done((n ? `Сверка с «${h.title}»: отличий ${n}. Принимай по строке (✓) или все сразу — разметка совпавших слов сохранится.` : `Текст совпадает с Genius («${h.title}») — править нечего.`) + sec);
