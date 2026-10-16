@@ -239,7 +239,9 @@ export function drawWave() {
 export const SEC_Y = 3, SEC_H = 15;
 /** a section's color by its kind: chorus pink, verse green, bridge yellow… */
 export function secColor(label: string) {
-  return ({ chorus: TH.a2, 'pre-chorus': '120,170,255', verse: TH.a, bridge: '255,209,102', hook: '255,150,80', intro: TH.t, outro: TH.t, other: '170,140,255' })[secCategory(label)];
+  const instr = '110,200,190', talk = '200,200,200';
+  return ({ chorus: TH.a2, refrain: TH.a2, 'pre-chorus': '120,170,255', 'post-chorus': '120,170,255', verse: TH.a, bridge: '255,209,102', hook: '255,150,80',
+    break: instr, interlude: instr, instrumental: instr, solo: instr, spoken: talk, skit: talk, sample: talk, intro: TH.t, outro: TH.t, other: '170,140,255' })[secCategory(label)];
 }
 /** whole-song strip over the wave: lines colored by sync state, background-only lines pink, the visible window, playhead */
 export const songLen = () => Math.max(S.duration || 0, ...S.lines.map(l => l.end + 1), 1);

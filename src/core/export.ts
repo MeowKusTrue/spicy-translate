@@ -1,7 +1,7 @@
 import type { Agent, ExportOpts, MetaEntry, TimedWord } from './types.ts';
 import { getWords, plainW, syncComplete, units } from './words.ts';
 import { hasCyr, translit } from './roman.ts';
-import { secCategory } from './sections.ts';
+import { secCategory, secOrdinal } from './sections.ts';
 
 const p2 = (n: number) => String(n).padStart(2, '0');
 const p3 = (n: number) => String(n).padStart(3, '0');
@@ -28,9 +28,9 @@ export function buildTTML(o: ExportOpts) {
   const wordTiming = bilingual || wordSpread;
   const sh = (ws: TimedWord[]) => ws.map(w => ({ word: w.word, sp: w.sp, a: Math.max(0, w.a + shift), b: Math.max(0, w.b + shift) }));
   const items: Item[] = [];
-  let sec = '', secN = 0; const secs: { id: string; label: string; category: string }[] = [];
+  let sec = '', secN = 0; const secs: { id: string; label: string; category: string; ordinal?: number }[] = [];
   for (const l of lines) {
-    if (l.sec) { sec = 's' + ++secN; secs.push({ id: sec, label: l.sec, category: secCategory(l.sec) }); }
+    if (l.sec) { sec = 's' + ++secN; const ordinal = secOrdinal(l.sec); secs.push({ id: sec, label: l.sec, category: secCategory(l.sec), ...(ordinal ? { ordinal } : {}) }); }
     const hasTr = l.tr && l.tr.trim();
     const mainLayer = bilingual ? 'orig' : (hasTr ? 'tr' : 'orig');
     const mainText = mainLayer === 'tr' ? l.tr.trim() : l.text, hasMain = !!(mainText && mainText.trim());
