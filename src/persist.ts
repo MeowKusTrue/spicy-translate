@@ -39,12 +39,25 @@ export function restoreProject() {
   buildPreview(); emit(); return p.lines.some((x: { tr?: string; sync?: unknown }) => x.tr || x.sync);
 }
 
+/**
+ * One connection per tab. It never waits forever: another editor tab holding the database (Firefox just waits on
+ * a blocked open) used to freeze whatever awaited it — auto-timing hung at «запуск…» on its snapshot. Now it gives up
+ * after 3 s (callers carry on without the snapshot), and this tab lets go when another one needs to upgrade.
+ */
+let dbP: Promise<IDBDatabase> | null = null;
 function idb() {
-  return new Promise<IDBDatabase>((res, rej) => {
-    const r = indexedDB.open('spicy-translate', 2);
+  if (dbP) return dbP;
+  dbP = new Promise<IDBDatabase>((res, rej) => {
+    const t = setTimeout(() => rej(new Error('IndexedDB не открылась за 3 с — другая вкладка редактора держит её?')), 3000);
+    let r: IDBOpenDBRequest;
+    try { r = indexedDB.open('spicy-translate', 2); } catch (e) { clearTimeout(t); return rej(e); }
     r.onupgradeneeded = () => { const db = r.result; if (!db.objectStoreNames.contains('audio')) db.createObjectStore('audio'); if (!db.objectStoreNames.contains('snaps')) db.createObjectStore('snaps', { keyPath: 'id', autoIncrement: true }); };
-    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    r.onblocked = () => { clearTimeout(t); rej(new Error('IndexedDB занята другой вкладкой редактора')); };
+    r.onsuccess = () => { clearTimeout(t); const db = r.result; db.onversionchange = () => { db.close(); dbP = null; }; db.onclose = () => { dbP = null; }; res(db); };
+    r.onerror = () => { clearTimeout(t); rej(r.error); };
   });
+  dbP.catch(() => { dbP = null; }); // try again next time
+  return dbP;
 }
 
 /* ---------- snapshots: the project as it was, kept in IndexedDB (auto every 3 min, before anything replaces it) ---------- */
