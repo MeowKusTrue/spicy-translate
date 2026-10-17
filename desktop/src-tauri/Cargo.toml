@@ -1,6 +1,6 @@
 [package]
 name = "spicy-translate"
-version = "1.0.0"
+version = "1.0.1"
 description = "Spicy Translate — синхронный перевод для Spicy Lyrics"
 edition = "2021"
 
