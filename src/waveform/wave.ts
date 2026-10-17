@@ -190,7 +190,9 @@ export function drawWave() {
     const layer = laneLayer(lane), on = layer === S.layer, [y, hh] = laneY(lane), col = lane === 'bg' ? TH.a2 : TH.a;
     g.font = laneFont(lane === 'bg' ? hh * 0.92 : hh); g.textBaseline = 'middle'; g.globalAlpha = on ? 1 : .5;
     for (let i = 0; i < S.lines.length; i++) {
-      const l = S.lines[i]; if (l.end + 8 < t0 || l.t - 8 > t1) continue;
+      const l = S.lines[i]; let lo = l.t, hi = l.end; // words may sit outside the line's own span: cull by their real timings
+      for (const s of l.sync?.[layer] || []) { if (s.a != null && s.a < lo) lo = s.a; if (s.b != null && s.b > hi) hi = s.b; }
+      if (hi < t0 || lo > t1) continue;
       viewWords(i, layer).forEach((wd, k) => {
         if (wd.a == null || wd.b == null) return;
         const x1 = X(wd.a), x2 = X(wd.b); if (x2 < -2 || x1 > w + 2) return;
