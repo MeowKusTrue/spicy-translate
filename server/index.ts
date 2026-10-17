@@ -98,45 +98,49 @@ const TORCH: Record<Backend, (cu: string) => string[]> = {
 function dirSize(d: string): number { let n = 0; try { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); n += e.isDirectory() ? dirSize(f) : fs.statSync(f).size; } } catch {} return n; }
 async function setupAlign(want?: Backend) {
   if (process.platform !== 'win32') throw new Error('установка в один клик пока только для Windows — см. experiments/auto-align/README.md');
+  // one folder for the whole install, decided now: unpacking and pip used to look at different places (ENOENT)
+  const home = pyHome(), base = path.dirname(home), py = path.join(home, 'python.exe');
   const step = (s: string, pct: number) => Object.assign(SETUP, { step: s, pct });
   const log = (l: string) => { SETUP.log.push(l); if (SETUP.log.length > 60) SETUP.log.shift(); };
   const gpu = await detectGpu(), backend = want || gpu.backend; SETUP.backend = backend;
-  fs.mkdirSync(DATA, { recursive: true });
-  if (!fs.existsSync(pyExe())) {
+  fs.mkdirSync(base, { recursive: true });
+  if (!fs.existsSync(py)) {
     step('Python: ищу сборку', 1);
     const rel = await (await fetch('https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest', { headers: { 'user-agent': 'spicy-translate' } })).json();
     const asset = (rel.assets || []).find((a: { name: string }) => /^cpython-3\.12\.\d+\+\d+-x86_64-pc-windows-msvc-install_only\.tar\.gz$/.test(a.name));
     if (!asset) throw new Error('не нашёл сборку Python 3.12 для Windows в python-build-standalone');
     SETUP.abort = new AbortController();
-    const tgz = path.join(DATA, 'python.tar.gz'), r = await fetch(asset.browser_download_url, { signal: SETUP.abort.signal });
+    const tgz = path.join(base, 'python.tar.gz'), r = await fetch(asset.browser_download_url, { signal: SETUP.abort.signal });
     if (!r.ok || !r.body) throw new Error('скачивание Python: HTTP ' + r.status);
     const total = +(r.headers.get('content-length') || 0), f = fs.createWriteStream(tgz); let got = 0;
     Object.assign(SETUP, { file: asset.name, size: total, got: 0 });
     for await (const ch of r.body as unknown as AsyncIterable<Uint8Array>) { f.write(ch); got += ch.length; SETUP.got = got; if (total) step('Python: скачиваю', 1 + Math.round(got / total * 7)); }
     await new Promise(res => f.end(res)); SETUP.abort = null;
     step('Python: распаковываю', 8); Object.assign(SETUP, { file: '', got: 0, size: 0 });
-    await run(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe'), ['-xzf', tgz, '-C', DATA], log); // the archive holds python/
+    const tmp = path.join(base, 'python-unpack'); fs.rmSync(tmp, { recursive: true, force: true }); fs.mkdirSync(tmp, { recursive: true });
+    await run(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe'), ['-xzf', tgz, '-C', tmp], log); // the archive holds python/
+    fs.rmSync(home, { recursive: true, force: true }); fs.renameSync(path.join(tmp, 'python'), home); fs.rmSync(tmp, { recursive: true, force: true });
     fs.rmSync(tgz, { force: true });
   }
   const units: Record<string, number> = { kB: 1e3, MB: 1e6, GB: 1e9 };
-  const pip = (args: string[], label: string, from: number, to: number) => run(pyExe(), ['-m', 'pip', ...args, '--progress-bar', 'raw', '--disable-pip-version-check'], l => {
+  const pip = (args: string[], label: string, from: number, to: number) => run(py, ['-m', 'pip', ...args, '--progress-bar', 'raw', '--disable-pip-version-check'], l => {
     log(l);
     const d = l.match(/^Downloading (\S+?)(?: \((\d+(?:\.\d+)?) (kB|MB|GB)\))?$/); if (d) Object.assign(SETUP, { file: d[1].split('/').pop(), size: d[2] ? +d[2] * units[d[3]] : 0, got: 0 });
     const m = l.match(/Progress (\d+) of (\d+)/); if (m) { SETUP.got = +m[1]; SETUP.size = +m[2]; step(label, Math.round(from + (to - from) * (+m[1] / +m[2]))); }
   });
-  step('pip', 9); await run(pyExe(), ['-m', 'pip', 'install', '--upgrade', 'pip', '--disable-pip-version-check'], log);
+  step('pip', 9); await run(py, ['-m', 'pip', 'install', '--upgrade', 'pip', '--disable-pip-version-check'], log);
   const label = { cuda: `PyTorch для NVIDIA (${gpu.cu})`, xpu: 'PyTorch для Intel Arc', dml: 'PyTorch + DirectML', cpu: 'PyTorch для процессора' }[backend];
   step(label, 10); await pip(['install', ...TORCH[backend](gpu.cu)], label, 10, 75);
   const req = path.join(process.env.SPICY_ALIGN_DIR || path.join(root, 'experiments', 'auto-align'), 'requirements.txt');
   // the GPU build stays: the rest may not swap torch / torchaudio / torchvision for other versions
-  const pins = path.join(pyHome(), 'torch-pins.txt'); let pinned = '';
-  await run(pyExe(), ['-c', "import importlib.metadata as m\nfor p in ('torch','torchaudio','torchvision'):\n  try: print(p+'=='+m.version(p))\n  except Exception: pass"], l => { if (/==/.test(l)) pinned += l.trim() + '\n'; });
+  const pins = path.join(home, 'torch-pins.txt'); let pinned = '';
+  await run(py, ['-c', "import importlib.metadata as m\nfor p in ('torch','torchaudio','torchvision'):\n  try: print(p+'=='+m.version(p))\n  except Exception: pass"], l => { if (/==/.test(l)) pinned += l.trim() + '\n'; });
   fs.writeFileSync(pins, pinned);
   step('Demucs, wav2vec2, karaoke', 76); await pip(['install', '-r', req, 'imageio-ffmpeg', '-c', pins], 'Demucs, wav2vec2, karaoke (pip: несколько минут)', 76, 96);
   step('ffmpeg', 97); Object.assign(SETUP, { file: '', got: 0, size: 0 });
-  let ff = ''; await run(pyExe(), ['-c', 'import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())'], l => { ff = l; });
-  if (ff && fs.existsSync(ff)) fs.copyFileSync(ff, path.join(pyHome(), 'ffmpeg.exe'));
-  fs.writeFileSync(path.join(pyHome(), '.ready'), JSON.stringify({ backend, at: new Date().toISOString(), gpu: gpu.why }));
+  let ff = ''; await run(py, ['-c', 'import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())'], l => { ff = l; });
+  if (ff && fs.existsSync(ff)) fs.copyFileSync(ff, path.join(home, 'ffmpeg.exe'));
+  fs.writeFileSync(path.join(home, '.ready'), JSON.stringify({ backend, at: new Date().toISOString(), gpu: gpu.why }));
   step('готово', 100); SETUP.done = true;
 }
 /** bump when the editor needs new server endpoints (3: auto-timing install / GPU / open folder) */
@@ -226,7 +230,7 @@ async function alignRoute(req: http.IncomingMessage, res: http.ServerResponse, u
   }
   if (u.pathname === '/api/align/setup') {
     const info = readyInfo(), installed = !!info || (SETUP.done && fs.existsSync(pyExe()));
-    return json(res, { running: SETUP.running, step: SETUP.step, pct: SETUP.pct, error: SETUP.error, done: SETUP.done || !!alignEnv(), installed, backend: info?.backend || SETUP.backend,
+    return json(res, { running: SETUP.running, step: SETUP.step, pct: SETUP.pct, error: installed && !SETUP.running ? '' : SETUP.error, done: SETUP.done || !!alignEnv(), installed, // an old failed attempt is no news once it is installed backend: info?.backend || SETUP.backend,
       file: SETUP.file, got: SETUP.got, size: SETUP.size, last: SETUP.log.slice(-1)[0] || '', bytes: u.searchParams.has('size') && installed ? dirSize(pyHome()) : undefined, dir: pyHome(),
       external: !installed && !!alignEnv() }); // a dev venv (worktree / experiments) is in use instead
   }
