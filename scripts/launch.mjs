@@ -9,7 +9,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const API = 10, root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const API = 11, root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const say = (m) => console.log(m);
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const version = (port) => fetch(`http://127.0.0.1:${port}/api/version`, { signal: AbortSignal.timeout(1500) }).then(r => r.ok ? r.json() : { api: 0 }).catch(e => e?.cause?.code === 'ECONNREFUSED' || e?.name === 'TypeError' ? null : { api: 0 });

@@ -57,8 +57,14 @@ function alignEnv(): { dir: string; py: string } | null {
 // the browser launcher keeps its data in the repo; the desktop app installs into %LOCALAPPDATA%: one install serves both
 // (LOCALAPPDATA can be missing in the environment of a launched process: the profile path is the same thing)
 const APP_PY = process.platform === 'win32' ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'dev.spicytranslate.editor', 'python') : '';
-// an install this server already has wins; otherwise the app's folder, where a new install goes too (one for both)
-const pyHome = () => { const own = path.join(DATA, 'python'); return fs.existsSync(path.join(own, '.ready')) || !APP_PY ? own : APP_PY; };
+// Installs know about each other: a server with a ready install notes its folder next to the app's data
+// (python-path.txt), so the app and the browser launcher use whichever one exists instead of downloading ~3 GB again.
+const NOTE = APP_PY ? path.join(path.dirname(APP_PY), 'python-path.txt') : '';
+const ready = (d: string) => !!d && fs.existsSync(path.join(d, '.ready')) && fs.existsSync(path.join(d, process.platform === 'win32' ? 'python.exe' : path.join('bin', 'python3')));
+const noted = () => { try { return fs.readFileSync(NOTE, 'utf8').trim(); } catch { return ''; } };
+/** this server's own install, else the app's, else one noted by another server; a new install goes to the app's folder */
+const pyHome = () => { const own = path.join(DATA, 'python'); return ready(own) || !APP_PY ? own : ready(APP_PY) ? APP_PY : ready(noted()) ? noted() : APP_PY; };
+function notePython() { const h = pyHome(); if (NOTE && ready(h) && noted() !== h) try { fs.mkdirSync(path.dirname(NOTE), { recursive: true }); fs.writeFileSync(NOTE, h); } catch {} }
 const pyExe = () => path.join(pyHome(), process.platform === 'win32' ? 'python.exe' : path.join('bin', 'python3'));
 type Backend = 'cuda' | 'xpu' | 'dml' | 'cpu';
 const SETUP = { running: false, step: '', pct: 0, error: '', done: false, backend: '' as Backend | '', file: '', got: 0, size: 0, log: [] as string[], child: null as ReturnType<typeof spawn> | null, abort: null as AbortController | null, cancel: false };
@@ -140,11 +146,11 @@ async function setupAlign(want?: Backend) {
   step('ffmpeg', 97); Object.assign(SETUP, { file: '', got: 0, size: 0 });
   let ff = ''; await run(py, ['-c', 'import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())'], l => { ff = l; });
   if (ff && fs.existsSync(ff)) fs.copyFileSync(ff, path.join(home, 'ffmpeg.exe'));
-  fs.writeFileSync(path.join(home, '.ready'), JSON.stringify({ backend, at: new Date().toISOString(), gpu: gpu.why }));
+  fs.writeFileSync(path.join(home, '.ready'), JSON.stringify({ backend, at: new Date().toISOString(), gpu: gpu.why })); notePython();
   step('готово', 100); SETUP.done = true;
 }
 /** bump when the editor needs new server endpoints (3: auto-timing install / GPU / open folder) */
-const API = 10; // 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes · 10: install pins torch, Python found without LOCALAPPDATA
+const API = 11; // 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes · 10: install pins torch, Python found without LOCALAPPDATA · 11: installs noted for each other (python-path.txt)
 /* ---------- Genius (lyrics makers take the text from there). No CORS for pages, so the server fetches them. ---------- */
 const GH = { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', 'accept-language': 'en-US,en;q=0.9' };
 type GeniusHit = { id: number; title: string; artist: string; url: string; art: string };
@@ -286,6 +292,7 @@ const server = http.createServer((req, res) => {
 });
 server.on('error', (e: NodeJS.ErrnoException) => { if (e.code === 'EADDRINUSE') { remote = true; log(`port ${PORT} busy -> proxying to the running instance`); } else log('http error: ' + e.message); });
 server.listen(PORT, '127.0.0.1', () => log(`editor: http://127.0.0.1:${PORT}`));
+notePython(); // let the app / launcher find this install
 /** the instance we proxied to is gone (closed editor): serve the port ourselves again */
 function takeOver() {
   return new Promise<boolean>(r => {
