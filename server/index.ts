@@ -7,6 +7,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import * as C from '../src/core/index.ts';
@@ -54,8 +55,10 @@ function alignEnv(): { dir: string; py: string } | null {
 // version, Intel Arc: XPU, AMD / other: DirectML, else CPU), the prototype's requirements, imageio-ffmpeg (its
 // ffmpeg.exe is copied next to python.exe, which goes first on PATH for align.py).
 // the browser launcher keeps its data in the repo; the desktop app installs into %LOCALAPPDATA%: one install serves both
-const APP_PY = process.platform === 'win32' && process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'dev.spicytranslate.editor', 'python') : '';
-const pyHome = () => { const own = path.join(DATA, 'python'); return !fs.existsSync(path.join(own, '.ready')) && APP_PY && fs.existsSync(path.join(APP_PY, '.ready')) ? APP_PY : own; };
+// (LOCALAPPDATA can be missing in the environment of a launched process: the profile path is the same thing)
+const APP_PY = process.platform === 'win32' ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'dev.spicytranslate.editor', 'python') : '';
+// an install this server already has wins; otherwise the app's folder, where a new install goes too (one for both)
+const pyHome = () => { const own = path.join(DATA, 'python'); return fs.existsSync(path.join(own, '.ready')) || !APP_PY ? own : APP_PY; };
 const pyExe = () => path.join(pyHome(), process.platform === 'win32' ? 'python.exe' : path.join('bin', 'python3'));
 type Backend = 'cuda' | 'xpu' | 'dml' | 'cpu';
 const SETUP = { running: false, step: '', pct: 0, error: '', done: false, backend: '' as Backend | '', file: '', got: 0, size: 0, log: [] as string[], child: null as ReturnType<typeof spawn> | null, abort: null as AbortController | null, cancel: false };
@@ -84,11 +87,13 @@ async function detectGpu() {
     : { backend: 'cpu', why: 'подходящей видеокарты нет → процессор' };
   return { names, cuda, cu: cu || 'cu124', ...pick };
 }
+// torchvision comes from the same index: otherwise a later dependency pulls the newest one from PyPI, and with it a
+// CPU-only torch that replaces the GPU build (torchaudio then fails to load and auto-timing dies at start)
 const TORCH: Record<Backend, (cu: string) => string[]> = {
-  cuda: cu => ['torch', 'torchaudio', '--index-url', `https://download.pytorch.org/whl/${cu}`],
-  xpu: () => ['torch', 'torchaudio', '--index-url', 'https://download.pytorch.org/whl/xpu'],
-  dml: () => ['torch-directml', 'torchaudio==2.4.1'], // torch-directml pins torch 2.4.1
-  cpu: () => ['torch', 'torchaudio', '--index-url', 'https://download.pytorch.org/whl/cpu'],
+  cuda: cu => ['torch', 'torchaudio', 'torchvision', '--index-url', `https://download.pytorch.org/whl/${cu}`],
+  xpu: () => ['torch', 'torchaudio', 'torchvision', '--index-url', 'https://download.pytorch.org/whl/xpu'],
+  dml: () => ['torch-directml', 'torchaudio==2.4.1', 'torchvision==0.19.1'], // torch-directml pins torch 2.4.1
+  cpu: () => ['torch', 'torchaudio', 'torchvision', '--index-url', 'https://download.pytorch.org/whl/cpu'],
 };
 function dirSize(d: string): number { let n = 0; try { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); n += e.isDirectory() ? dirSize(f) : fs.statSync(f).size; } } catch {} return n; }
 async function setupAlign(want?: Backend) {
@@ -123,7 +128,11 @@ async function setupAlign(want?: Backend) {
   const label = { cuda: `PyTorch для NVIDIA (${gpu.cu})`, xpu: 'PyTorch для Intel Arc', dml: 'PyTorch + DirectML', cpu: 'PyTorch для процессора' }[backend];
   step(label, 10); await pip(['install', ...TORCH[backend](gpu.cu)], label, 10, 75);
   const req = path.join(process.env.SPICY_ALIGN_DIR || path.join(root, 'experiments', 'auto-align'), 'requirements.txt');
-  step('Demucs, wav2vec2, karaoke', 76); await pip(['install', '-r', req, 'imageio-ffmpeg'], 'Demucs, wav2vec2, karaoke', 76, 96);
+  // the GPU build stays: the rest may not swap torch / torchaudio / torchvision for other versions
+  const pins = path.join(pyHome(), 'torch-pins.txt'); let pinned = '';
+  await run(pyExe(), ['-c', "import importlib.metadata as m\nfor p in ('torch','torchaudio','torchvision'):\n  try: print(p+'=='+m.version(p))\n  except Exception: pass"], l => { if (/==/.test(l)) pinned += l.trim() + '\n'; });
+  fs.writeFileSync(pins, pinned);
+  step('Demucs, wav2vec2, karaoke', 76); await pip(['install', '-r', req, 'imageio-ffmpeg', '-c', pins], 'Demucs, wav2vec2, karaoke (pip: несколько минут)', 76, 96);
   step('ffmpeg', 97); Object.assign(SETUP, { file: '', got: 0, size: 0 });
   let ff = ''; await run(pyExe(), ['-c', 'import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())'], l => { ff = l; });
   if (ff && fs.existsSync(ff)) fs.copyFileSync(ff, path.join(pyHome(), 'ffmpeg.exe'));
@@ -131,7 +140,7 @@ async function setupAlign(want?: Backend) {
   step('готово', 100); SETUP.done = true;
 }
 /** bump when the editor needs new server endpoints (3: auto-timing install / GPU / open folder) */
-const API = 9; // 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes
+const API = 10; // 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes · 10: install pins torch, Python found without LOCALAPPDATA
 /* ---------- Genius (lyrics makers take the text from there). No CORS for pages, so the server fetches them. ---------- */
 const GH = { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', 'accept-language': 'en-US,en;q=0.9' };
 type GeniusHit = { id: number; title: string; artist: string; url: string; art: string };
