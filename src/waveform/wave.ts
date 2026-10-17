@@ -131,6 +131,8 @@ export function drawWave() {
   const t = now(), G = W.G = geo(h);
   if (S.playing && !W.drag) { if (t < W.start || t > W.start + w / W.px * 0.8) W.start = Math.max(0, t - w / W.px * 0.25); }
   const t0 = W.start, t1 = t0 + w / W.px, X = (tt: number) => (tt - t0) * W.px;
+  // a label starts at its block, or at the left edge when the block began off screen (zoomed in, it would be gone)
+  const stick = (x: number) => Math.max(x, 0);
   const mid = (G.wY + G.lY - 2) / 2, amp = (G.lY - 2 - G.wY) / 2 - 2;
   // ruler
   g.fillStyle = `rgba(${TH.t},.35)`; g.font = '10px ui-monospace,monospace'; g.textBaseline = 'top';
@@ -155,7 +157,7 @@ export function drawWave() {
     g.fillStyle = `rgba(${col},${on ? .45 : .22})`; g.fillRect(x1, y, Math.max(2, x2 - x1 - 1), SEC_H);
     g.fillStyle = `rgb(${col})`; g.fillRect(x1, y, 3, SEC_H);
     g.save(); g.beginPath(); g.rect(x1 + 5, y, Math.max(0, x2 - x1 - 8), SEC_H); g.clip();
-    g.font = '700 10px system-ui'; g.textBaseline = 'middle'; g.fillStyle = `rgb(${TH.t})`; g.fillText(s.label, x1 + 7, y + SEC_H / 2 + 1); g.restore();
+    g.font = '700 10px system-ui'; g.textBaseline = 'middle'; g.fillStyle = `rgb(${TH.t})`; g.fillText(s.label, stick(x1) + 7, y + SEC_H / 2 + 1); g.restore();
   }
   if (S.onsetSnap && W.px > 50) { g.fillStyle = `rgba(${TH.t},.35)`; for (const o of waveOnsets()) if (o >= t0 && o <= t1) g.fillRect(X(o), G.lY - 7, 1, 5); } // attacks: magnet ticks
   // lanes: the active track is tinted and has a stripe on the left
@@ -180,7 +182,7 @@ export function drawWave() {
     if (S.picked.has(li) || S.sel?.i === li) { g.strokeStyle = S.picked.has(li) ? `rgb(${TH.a})` : `rgba(${TH.t},.4)`; g.lineWidth = 1.5; g.strokeRect(x1 + .75, y + .75, Math.max(2, x2 - x1 - 3.5), hh - 1.5); g.lineWidth = 1; }
     const main = l.text.trim();
     g.fillStyle = main ? `rgba(${TH.t},.65)` : `rgba(${TH.a2},.85)`;
-    g.save(); g.beginPath(); g.rect(x1 + 4, y, Math.max(0, x2 - x1 - 8), hh); g.clip(); g.fillText(main ? plainW(l.text) : '♪ ' + plainW(l.bg?.text || l.bg?.tr || 'только бэк'), x1 + 6, y + hh / 2); g.restore();
+    g.save(); g.beginPath(); g.rect(x1 + 4, y, Math.max(0, x2 - x1 - 8), hh); g.clip(); g.fillText(main ? plainW(l.text) : '♪ ' + plainW(l.bg?.text || l.bg?.tr || 'только бэк'), stick(x1) + 6, y + hh / 2); g.restore();
   });
   // word boxes of both tracks; the inactive one is dimmed but clickable (click = switch to it)
   W.boxes = [];
@@ -200,7 +202,7 @@ export function drawWave() {
           g.lineWidth = sel ? 2 : 1; if (wd.g) g.setLineDash([3, 3]); g.strokeRect(x1 + .5, y + .5, bw - 1, hh - 1); g.setLineDash([]); g.lineWidth = 1;
         } else { g.setLineDash([3, 3]); g.strokeStyle = sel ? `rgb(${TH.t})` : `rgba(${TH.t},.25)`; g.strokeRect(x1 + .5, y + .5, bw - 1, hh - 1); g.setLineDash([]); }
         g.save(); g.beginPath(); g.rect(x1 + 2, y, Math.max(0, x2 - x1 - 4), hh); g.clip();
-        g.fillStyle = wd.real ? `rgb(${TH.t})` : `rgba(${TH.t},.45)`; g.fillText((wd.b - wd.a >= 1 ? '✦ ' : '') + plainW(wd.word) + (wd.sp === false ? '-' : ''), x1 + 5, y + hh / 2 + 1); g.restore();
+        g.fillStyle = wd.real ? `rgb(${TH.t})` : `rgba(${TH.t},.45)`; g.fillText((wd.b - wd.a >= 1 ? '✦ ' : '') + plainW(wd.word) + (wd.sp === false ? '-' : ''), stick(x1) + 5, y + hh / 2 + 1); g.restore();
         if (W.multi.some(m => m.i === i && m.k === k && m.layer === layer)) { g.globalAlpha = 1; g.strokeStyle = '#ffd166'; g.lineWidth = 2; g.strokeRect(x1 + 1, y + 1, bw - 2, hh - 2); g.lineWidth = 1; g.globalAlpha = on ? 1 : .5; }
         if (doubtful(S.lines[i].sync?.[layer]?.[k])) { // auto-timing was unsure here: check by ear (Q)
           g.strokeStyle = 'rgb(255,170,60)'; g.lineWidth = 1.5; g.strokeRect(x1 + 1, y + 1, bw - 2, hh - 2); g.lineWidth = 1;
