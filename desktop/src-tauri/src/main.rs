@@ -13,7 +13,7 @@ use std::{
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
 /// server API the editor in this build needs (server/index.ts `API`)
-const API: u32 = 8;
+const API: u32 = 9;
 struct Server(Mutex<Option<Child>>);
 
 /// «Сохранить как»: the system dialog instead of a silent download into Downloads. None = cancelled.

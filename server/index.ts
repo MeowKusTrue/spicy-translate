@@ -37,13 +37,12 @@ async function putProject(project: Project, by: string) {
 }
 
 /* ---------- auto-timing: runs the experiments/auto-align prototype (Python) on the uploaded audio ---------- */
-// Where the prototype and its venv live: SPICY_ALIGN_DIR / SPICY_ALIGN_PY, else experiments/auto-align of this repo,
-// else a worktree copy that has a venv (the prototype is developed in .claude/worktrees/*).
+// Where the prototype and its Python live: SPICY_ALIGN_DIR / SPICY_ALIGN_PY, else experiments/auto-align of this repo
+// with its .venv or the private Python (pyHome). Old copies in .claude/worktrees are never used: they ran stale code.
 function alignEnv(): { dir: string; py: string } | null {
   const pyIn = (d: string) => [path.join(d, '.venv', 'Scripts', 'python.exe'), path.join(d, '.venv', 'bin', 'python')].find(f => fs.existsSync(f))
     || (SETUP.done || fs.existsSync(path.join(pyHome(), '.ready')) ? pyExe() : undefined); // the private Python installed from the editor
   const dirs = [process.env.SPICY_ALIGN_DIR, path.join(root, 'experiments', 'auto-align')];
-  try { const wt = path.join(root, '.claude', 'worktrees'); for (const w of fs.readdirSync(wt)) dirs.push(path.join(wt, w, 'experiments', 'auto-align')); } catch {}
   for (const d of dirs) {
     if (!d || !fs.existsSync(path.join(d, 'align.py'))) continue;
     const py = process.env.SPICY_ALIGN_PY || pyIn(d); if (py) return { dir: d, py };
@@ -54,7 +53,9 @@ function alignEnv(): { dir: string; py: string } | null {
 // python-build-standalone (portable CPython) -> pip: a PyTorch build for the GPU that is there (NVIDIA: CUDA by driver
 // version, Intel Arc: XPU, AMD / other: DirectML, else CPU), the prototype's requirements, imageio-ffmpeg (its
 // ffmpeg.exe is copied next to python.exe, which goes first on PATH for align.py).
-const pyHome = () => path.join(DATA, 'python');
+// the browser launcher keeps its data in the repo; the desktop app installs into %LOCALAPPDATA%: one install serves both
+const APP_PY = process.platform === 'win32' && process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'dev.spicytranslate.editor', 'python') : '';
+const pyHome = () => { const own = path.join(DATA, 'python'); return !fs.existsSync(path.join(own, '.ready')) && APP_PY && fs.existsSync(path.join(APP_PY, '.ready')) ? APP_PY : own; };
 const pyExe = () => path.join(pyHome(), process.platform === 'win32' ? 'python.exe' : path.join('bin', 'python3'));
 type Backend = 'cuda' | 'xpu' | 'dml' | 'cpu';
 const SETUP = { running: false, step: '', pct: 0, error: '', done: false, backend: '' as Backend | '', file: '', got: 0, size: 0, log: [] as string[], child: null as ReturnType<typeof spawn> | null, abort: null as AbortController | null, cancel: false };
@@ -130,7 +131,7 @@ async function setupAlign(want?: Backend) {
   step('готово', 100); SETUP.done = true;
 }
 /** bump when the editor needs new server endpoints (3: auto-timing install / GPU / open folder) */
-const API = 8; // 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress
+const API = 9; // 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes
 /* ---------- Genius (lyrics makers take the text from there). No CORS for pages, so the server fetches them. ---------- */
 const GH = { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', 'accept-language': 'en-US,en;q=0.9' };
 type GeniusHit = { id: number; title: string; artist: string; url: string; art: string };

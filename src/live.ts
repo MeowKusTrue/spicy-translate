@@ -55,7 +55,7 @@ export async function liveInit() {
 }
 
 /** the editor is newer than the running server (e.g. the MCP server started before an update): say so and how to fix */
-export const SERVER_API = 8; // Genius (text, songwriters) goes through the server
+export const SERVER_API = 9; // Genius (text, songwriters) goes through the server
 export async function checkServer() {
   const api = await fetch('/api/version').then(r => r.ok ? r.json() : {}).then((j: { api?: number }) => +(j.api || 0)).catch(() => 0);
   if (api >= SERVER_API) return true;
