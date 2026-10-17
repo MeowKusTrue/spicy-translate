@@ -18,6 +18,11 @@ for f in range(50, 60): say(f, 4)       # next line's head
 spans = viterbi(lp, [1, 2, 1], 0)
 assert spans == [(20, 21), (21, 23), (30, 31)], spans
 assert viterbi(lp, [1] * 61, 0) is None
+# a long line (> 63 letters -> > 127 states): the backtrace used to overflow int8 under numpy 2
+T2 = 400; lpl = np.full((T2, V), -8.0); lpl[:, 0] = -0.01
+for j in range(70): lpl[100 + 3 * j, 0] = -6.0; lpl[100 + 3 * j, 1 + j % 2] = -0.05
+long = viterbi(lpl, [1 + j % 2 for j in range(70)], 0)
+assert long and len(long) == 70 and long[0][0] == 100, long and long[:2]
 # the LRC prior picks the occurrence inside the line's LRC interval (chorus lines repeat)
 lp2 = np.full((T, V), -8.0); lp2[:, 0] = -0.01
 for f in (5, 54): lp2[f, 0] = -6.0; lp2[f, 1] = -0.05
@@ -64,4 +69,13 @@ assert report(p2)['overlaps'] == 2
 untangle(p2)
 o0, o1 = p2['lines'][0]['sync']['orig'], p2['lines'][1]['sync']['orig']
 assert o0[1]['b'] == 2.1 and o1[0] == {'a': 2.1, 'b': 2.5} and o1[1]['a'] == 2.5 and report(p2)['overlaps'] == 0, p2
+print('ok')
+
+# words_to_lines(): Whisper words -> lyric lines: break at pauses / sentence ends, no one-word tail of a long run
+from align import words_to_lines
+W = [[w, i * 0.3, i * 0.3 + 0.25] for i, w in enumerate('раз два три, четыре пять шесть семь восемь девять десять'.split())]
+L = words_to_lines(W)
+assert all(2 <= len(l['text'].split()) <= 9 for l in L) and sum(len(l['sync']['orig']) for l in L) == 10, [l['text'] for l in L]
+L = words_to_lines([['эй', 0, 0.2], ['да.', 0.3, 0.5], ['новая', 2.0, 2.3], ['строка,', 2.4, 2.6]])
+assert [l['text'] for l in L] == ['эй да', 'новая строка'], [l['text'] for l in L]  # no trailing punctuation
 print('ok')

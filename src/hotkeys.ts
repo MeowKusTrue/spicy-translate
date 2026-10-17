@@ -2,7 +2,7 @@
 import { S, emit, isBg, isTr, ls, mkLayer, toast, viewWords, wordsOf, type Page } from './state.ts';
 import { now, pause, play, seekTo, setRate } from './audio.ts';
 import { PV } from './preview.ts';
-import { doRedo, doUndo, joinWords, mark, nudgeWord, resetWord, setLayer, splitWord, stepWord } from './sync.ts';
+import { doRedo, doUndo, joinWords, mark, nudgeWord, resetWord, setLayer, splitWord, stepWord, stepDoubt } from './sync.ts';
 import { isApp, appZoom } from './desktop.ts';
 import { snapshot } from './persist.ts';
 import { folderSupported, saveToFolder } from './folder.ts';
@@ -35,7 +35,7 @@ export function updateKbd() {
 }
 const blurActive = () => { const a = document.activeElement; if (a instanceof HTMLElement && a !== document.body) a.blur(); };
 
-const KEYS = new Set(['KeyC', 'KeyB', 'KeyT', 'KeyE', 'Digit1', 'Digit2', 'Digit3', 'KeyV', 'KeyM', 'KeyU', 'KeyN', 'KeyL', 'KeyR', 'Comma', 'Period', 'Space', 'KeyF', 'KeyG', 'KeyH', 'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'BracketLeft', 'BracketRight', 'Quote', 'Delete', 'Backspace']);
+const KEYS = new Set(['KeyQ', 'KeyC', 'KeyB', 'KeyT', 'KeyE', 'Digit1', 'Digit2', 'Digit3', 'KeyV', 'KeyM', 'KeyU', 'KeyN', 'KeyL', 'KeyR', 'Comma', 'Period', 'Space', 'KeyF', 'KeyG', 'KeyH', 'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'BracketLeft', 'BracketRight', 'Quote', 'Delete', 'Backspace']);
 function onKey(e: KeyboardEvent) {
   if (!S.dock || S.help || S.metaEd || S.palette) return;
   const tg = e.target as HTMLInputElement, tag = tg.tagName;
@@ -71,6 +71,7 @@ function onKey(e: KeyboardEvent) {
   if (c === 'KeyN') return setSnap(!S.snap);
   if (c === 'KeyL') return setLoop(!S.loop);
   if (c === 'KeyR') { if (S.sel) { const vw = viewWords(S.sel.i, S.layer).filter(x => x.a != null); seekTo(Math.max(0, (vw.length ? vw[0].a! : S.lines[S.sel.i].t) - 0.4)); } return; }
+  if (c === 'KeyQ') return stepDoubt(e.shiftKey ? -1 : 1);
   if (c === 'KeyA') return stepWord(-1);
   if (c === 'KeyD') return stepWord(1);
   if (c === 'Delete' || c === 'Backspace') return resetWord();
@@ -109,7 +110,7 @@ export function installHotkeys() {
   document.addEventListener('keydown', e => {
     if (e.code !== 'Escape') return;
     if (S.help || S.metaEd) { S.help = S.metaEd = false; emit(); }
-    if (W.multi.length) { W.multi = []; drawWave(); }
+    if (W.multi.length || S.picked.size) { W.multi = []; S.picked.clear(); emit(); drawWave(); }
     document.querySelectorAll<HTMLDetailsElement>('details.menu[open]').forEach(d => d.open = false);
     blurActive(); updateKbd();
   });

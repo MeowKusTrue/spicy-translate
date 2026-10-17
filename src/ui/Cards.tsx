@@ -1,6 +1,6 @@
 // Left column: 1 search/load, 2 translation + line editor, 3 export + QA.
 import { mmss, plainW, stopLine, wordList } from '../core/index.ts';
-import { S, emit, lineState, mainLayerFor, status } from '../state.ts';
+import { S, doubtful, emit, lineState, mainLayerFor, status } from '../state.ts';
 import { seekTo } from '../audio.ts';
 import { buildPreview } from '../preview.ts';
 import { idbPut, listSnaps, loadProject, restoreSnap, scheduleSave, snapshot, trackKey, type Snap } from '../persist.ts';
@@ -10,7 +10,9 @@ import { LANGS, applyPaste, autoTranslate, clearTr, copyPrompt, llmTranslate } f
 import { copyTTML, download, gotoQa, runQa, saveLRC, saveProjectFile, saveSRT, toggleCode } from '../exporting.ts';
 import { drawWave } from '../waveform/wave.ts';
 import { agentOf, cycleAgent, pickLine } from '../agents.ts';
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { secPick } from '../waveform/edit.ts';
+import { secColor } from '../waveform/wave.ts';
 import { addBg, addBgHere, addLineAfter, addLineHere, applyFull, bracketsToBg, delBg, delLine, editText, fillRepeats, findOpts, focusLine, fullRows, replaceEverywhere, resetFull } from '../lineEdit.ts';
 import { setPage } from '../hotkeys.ts';
 import { META_KEYS, openMeta } from './MetaModal.tsx';
@@ -106,6 +108,7 @@ function LineRow({ i }: { i: number }) {
     <div className="t" onClick={() => { seekTo(l.t); selectWord(i, 0); }}>
       {mmss(l.t) + '.' + String(Math.floor((l.t % 1) * 10))}
       {lineState(i, mainLayerFor(i)) === 'done' && <i className="sd" title="слова синхронизированы" />}
+      {!l.sec && <button className="secb" title="Секция с этой строки (Припев, Куплет…)" onClick={e => { e.stopPropagation(); secPick(e.nativeEvent, i); }}>§</button>}
       <button className="ag" data-agent={agentOf(i).id} title={agentOf(i).title + ' (клик или V — сменить)'} onClick={e => { e.stopPropagation(); cycleAgent(i); }}>{agentOf(i).label}</button>
     </div>
     <div className="txt">
@@ -176,11 +179,15 @@ export function LinesCard() {
       <button className="sm" id="btnAddBg" title="Отдельный бэк (без основной строки) в точке воспроизведения" onClick={addBgHere}>+ бэк у курсора</button>
       <button className="sm" id="btnParens" title="«текст (бэк)» → «(бэк)» уходит в фоновый вокал строки, тайминги слов переезжают вместе со словами" onClick={bracketsToBg}>( ) → бэки</button>
     </div>
-    <div className="lines" id="lines" style={{ marginTop: 10 }}>{S.lines.map((_, i) => <LineRow key={i} i={i} />)}</div>
+    <div className="lines" id="lines" style={{ marginTop: 10 }}>{S.lines.map((l, i) => <Fragment key={i}>
+      {l.sec && <button className="sechd" style={{ '--sc': secColor(l.sec) } as CSSProperties} title="Секция до следующей: клик — сменить / убрать" onClick={e => secPick(e.nativeEvent, i)}>{l.sec}</button>}
+      <LineRow i={i} />
+    </Fragment>)}</div>
   </section>;
 }
 
 
+const doubts = () => S.lines.reduce((n, l) => n + Object.values(l.sync || {}).reduce((m, ws) => m + (ws || []).filter(doubtful).length, 0), 0);
 export function ExportCard() {
   const bi = S.meta.mode === 'bilingual', qa = S.qa, errs = qa ? qa.filter(x => x.sev === 'err').length : 0, st = stopLine(S.lines, S.meta.mode);
   return <section className="card">
@@ -200,7 +207,7 @@ export function ExportCard() {
     <label className="offset">Сдвиг всей лирики, мс<input type="number" id="offset" step="50" value={S.exp.offset} onChange={e => set(() => S.exp.offset = e.target.value)} /></label>
     {S.lines.length > 0 && <div className={'stop ' + (st.i < 0 ? 'ok' : '')} id="stopLine">{st.i < 0
       ? <>Все строки размечены вручную ✓ ({st.n})</>
-      : <><span>Размечено строк: <b>{st.done}</b> из {st.n}. Ты остановился на строке <b>{st.i + 1}</b>: «{plainW(S.lines[st.i].tr.trim() || S.lines[st.i].text || S.lines[st.i].bg?.text || '').slice(0, 60)}»</span>
+      : <><span>Размечено строк: <b>{st.done}</b> из {st.n}.{doubts() ? <> Сомнительных слов авто-тайминга: <b>{doubts()}</b> (<kbd>Q</kbd> на вкладке «Синхра»).</> : null} Ты остановился на строке <b>{st.i + 1}</b>: «{plainW(S.lines[st.i].tr.trim() || S.lines[st.i].text || S.lines[st.i].bg?.text || '').slice(0, 60)}»</span>
         <button className="sm" id="btnStop" onClick={() => { gotoQa(st.i); setPage('sync'); }}>Продолжить отсюда →</button></>}</div>}
     <div className="row" style={{ marginTop: 12 }}>
       <button className="pri" id="btnDl" title="Перед сохранением — проверка: ошибки, слова короче 50 мс, неразмеченные строки" onClick={download}>Скачать .ttml</button>

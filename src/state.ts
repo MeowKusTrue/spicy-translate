@@ -30,7 +30,7 @@ export const S = {
   waveView: 'wave' as 'wave' | 'spec', // the wave panel shows the waveform or a spectrogram
   chips: 'big' as 'big' | 'small' | 'off', // word chips under the wave
   dock: false, fx: true, snap: true, onsetSnap: true, waveVoice: false, autoFit: false, fitPad: { a: 0, b: 0 }, loop: false, voff: 0, lat: 100, // autoFit: line ends follow their words (+fitPad ms of slack)
-  align: null as null | { stage: string; done: number; total: number; device: string }, // auto-timing in progress
+  align: null as null | { stage: string; done: number; total: number; device: string; plan?: string[]; sub?: string; subDone?: number; subTotal?: number; bytes?: boolean; elapsed?: number }, // auto-timing in progress
   alignPanel: null as null | { gpu: import('./autoAlign.ts').Gpu | null; st: import('./autoAlign.ts').SetupState | null; pick: string; err: string },
   setup: null as null | { step: string; pct: number }, // auto-timing install in progress
   ver: 0, // bumps whenever preview timings change
@@ -86,7 +86,10 @@ export function viewWords(i: number, layer: Layer): ViewWord[] {
   return splitWords(layerText(l, layer), l.t, l.end).map(w => ({ ...w, ghost: true }));
 }
 // g:1 on a word = auto-placed (spread), not yet confirmed by hand; any real edit clears it
-export const conf = (...xs: (WordSync | null | undefined)[]) => xs.forEach(x => { if (x) delete x.g; });
+export const conf = (...xs: (WordSync | null | undefined)[]) => xs.forEach(x => { if (x) { delete x.g; delete x.c; } });
+/** an auto word the model was unsure of (check it by ear) */
+export const DOUBT = 0.2; // bench.py (1143 words): flags 19 % of auto words, catches 57 % of the ones off by > 200 ms
+export const doubtful = (x: WordSync | null | undefined) => !!x && !!x.g && x.c != null && x.c < DOUBT;
 export function lineState(i: number, layer: Layer): 'none' | 'part' | 'done' {
   const n = wordsOf(i, layer).length, sy = S.lines[i].sync && S.lines[i].sync![layer];
   if (!n) return 'none';

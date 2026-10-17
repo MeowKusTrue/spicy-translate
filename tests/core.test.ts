@@ -21,6 +21,12 @@ describe('units / NBSP / syllables', () => {
     expect(syllabify('красивый')).toEqual(['кра', 'си', 'вый']);
     expect(syllabify('газлайтер')).toEqual(['газ', 'лай', 'тер']);
     expect(syllabify('день')).toEqual(['день']);
+    // a hyphen always ends a syllable, on the left side
+    expect(syllabify('из-за')).toEqual(['из-', 'за']);
+    expect(syllabify('по-моему')).toEqual(['по-', 'мо', 'е', 'му']);
+    expect(syllabify('кто-нибудь')).toEqual(['кто-', 'ни', 'будь']);
+    expect(syllabify('hol-up')).toEqual(['hol-', 'up']);
+    expect([syllabify('-то'), syllabify('эй-')]).toEqual([['-то'], ['эй-']]);
   });
 
   it('syllabify en (silent e, vowel pairs stay together)', () => {

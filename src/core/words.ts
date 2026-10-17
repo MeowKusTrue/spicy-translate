@@ -18,6 +18,11 @@ export const unitsText = (us: Unit[]) => us.map((u, k) => u.w + (k < us.length -
 // rough syllable splitter (ru/en): V|CV, VC|CV, й/ь/ъ stay with the left part, latin vowel pairs stay together
 const VOW = /[aeiouyаеёиоуыэюяіїєáéíóúàèìòùäöü]/i, LAT = /[a-z]/i;
 export function syllabify(word: string): string[] {
+  // a hyphen between letters always ends a syllable and stays with the left part: «из-за» -> из- | за
+  const parts = word.split(/(?<=\p{L}[-‐‑])(?=\p{L})/u);
+  return parts.length > 1 ? parts.flatMap(syllabify) : syllables(word);
+}
+function syllables(word: string): string[] {
   const ch = [...word], vi = ch.map((c, i) => VOW.test(c) ? i : -1).filter(i => i >= 0);
   if (LAT.test(word) && /[^aeiouy]e$/i.test(word) && vi.length > 1) vi.pop(); // silent final e
   const cuts: number[] = [];

@@ -130,7 +130,7 @@ async function setupAlign(want?: Backend) {
   step('готово', 100); SETUP.done = true;
 }
 /** bump when the editor needs new server endpoints (3: auto-timing install / GPU / open folder) */
-const API = 7; // 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album
+const API = 8; // 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress
 /* ---------- Genius (lyrics makers take the text from there). No CORS for pages, so the server fetches them. ---------- */
 const GH = { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', 'accept-language': 'en-US,en;q=0.9' };
 type GeniusHit = { id: number; title: string; artist: string; url: string; art: string };
@@ -153,7 +153,8 @@ async function geniusWriters(id: string): Promise<{ writers: string[]; album: st
   const s = (await r.json() as { response?: { song?: { writer_artists?: { name: string }[]; album?: { name?: string } | null } } }).response?.song;
   return { writers: (s?.writer_artists || []).map(a => a.name), album: s?.album?.name || '' };
 }
-const AL = { running: false, stage: '', done: 0, total: 0, error: '', out: '', vocals: '', audio: '', device: '', log: [] as string[] };
+const AL = { running: false, stage: '', done: 0, total: 0, error: '', out: '', vocals: '', audio: '', device: '', log: [] as string[],
+  plan: [] as string[], sub: '', subDone: 0, subTotal: 0, bytes: false, t0: 0, child: null as ReturnType<typeof spawn> | null, cancel: false };
 const alDir = () => { const d = path.join(DATA, 'align'); fs.mkdirSync(d, { recursive: true }); return d; };
 function readBody(req: http.IncomingMessage): Promise<Buffer> { return new Promise((res, rej) => { const ch: Buffer[] = []; req.on('data', c => ch.push(c)); req.on('end', () => res(Buffer.concat(ch))); req.on('error', rej); }); }
 const json = (res: http.ServerResponse, o: unknown, code = 200) => { res.statusCode = code; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(o)); };
@@ -172,19 +173,31 @@ async function alignRoute(req: http.IncomingMessage, res: http.ServerResponse, u
     if (!AL.audio || !fs.existsSync(AL.audio)) return json(res, { error: 'сначала загрузи аудио' }, 400);
     const inp = path.join(alDir(), 'in.spicy.json'), out = path.join(alDir(), 'out.spicy.json');
     fs.writeFileSync(inp, await readBody(req)); try { fs.unlinkSync(out); } catch {}
-    Object.assign(AL, { running: true, stage: 'start', done: 0, total: 0, error: '', out: '', vocals: '', device: '', log: [] });
-    const p = spawn(env.py, [path.join(env.dir, 'align.py'), AL.audio, inp, '-o', out, '--json-progress'], { cwd: env.dir, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8', PATH: path.dirname(env.py) + path.delimiter + (process.env.PATH || '') } });
+    Object.assign(AL, { running: true, stage: 'start', done: 0, total: 0, error: '', out: '', vocals: '', device: '', log: [], plan: [], sub: '', subDone: 0, subTotal: 0, bytes: false, t0: Date.now(), cancel: false });
+    // options from the editor, whitelisted: transcribe (no lyrics yet), separator, aligner, snap to attacks
+    const q = u.searchParams, opt: string[] = [];
+    if (q.get('transcribe') === '1') opt.push('--transcribe');
+    if (/^(ru|en|uk|de|fr|es|it|pt|ja|ko|zh)$/.test(q.get('lang') || '')) opt.push('--song-lang', q.get('lang')!);
+    if (/^(htdemucs|roformer)$/.test(q.get('sep') || '')) opt.push('--sep', q.get('sep')!);
+    if (/^(w2v|mms)$/.test(q.get('aligner') || '')) opt.push('--aligner', q.get('aligner')!);
+    const p = spawn(env.py, [path.join(env.dir, 'align.py'), AL.audio, inp, '-o', out, '--json-progress', ...opt], { cwd: env.dir, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8', PATH: path.dirname(env.py) + path.delimiter + (process.env.PATH || '') } });
     let buf = '';
     p.stdout.on('data', d => {
       buf += d; let k;
       while ((k = buf.indexOf('\n')) >= 0) {
         const line = buf.slice(0, k).trim(); buf = buf.slice(k + 1); if (!line.startsWith('{')) continue;
-        try { const m = JSON.parse(line); if (m.error) AL.error = m.error; if (m.device) AL.device = m.device; if (m.stage) Object.assign(AL, { stage: m.stage, done: m.done || 0, total: m.total || 0 }); if (m.done === true) Object.assign(AL, { out: m.out || out, vocals: m.vocals || '' }); } catch {}
+        try {
+          const m = JSON.parse(line); if (m.error) AL.error = m.error; if (m.device) AL.device = m.device; if (Array.isArray(m.plan)) AL.plan = m.plan;
+          if (m.sub !== undefined) Object.assign(AL, { stage: m.stage || AL.stage, sub: String(m.sub), subDone: +m.sub_done || 0, subTotal: +m.sub_total || 0, bytes: !!m.bytes });
+          else if (m.stage) Object.assign(AL, { stage: m.stage, done: m.done || 0, total: m.total || 0, sub: '', subDone: 0, subTotal: 0 });
+          if (m.done === true) Object.assign(AL, { out: m.out || out, vocals: m.vocals || '' });
+        } catch {}
       }
     });
     p.stderr.on('data', d => { AL.log.push(String(d)); if (AL.log.length > 40) AL.log.shift(); });
+    AL.child = p;
     p.on('error', e => { AL.running = false; AL.error = e.message; });
-    p.on('close', code => { AL.running = false; if (code && !AL.error) AL.error = `align.py завершился с кодом ${code}: ${AL.log.join('').slice(-400)}`; if (!AL.out && fs.existsSync(out)) AL.out = out; });
+    p.on('close', code => { AL.running = false; AL.child = null; if (AL.cancel) AL.error = 'отменено'; if (code && !AL.error) AL.error = `align.py завершился с кодом ${code}: ${AL.log.join('').slice(-400)}`; if (!AL.out && fs.existsSync(out)) AL.out = out; });
     return json(res, { ok: true });
   }
   if (u.pathname === '/api/align/gpu') return json(res, process.platform === 'win32' ? await detectGpu() : { names: [], backend: 'cpu', why: 'не Windows' });
@@ -212,9 +225,13 @@ async function alignRoute(req: http.IncomingMessage, res: http.ServerResponse, u
     spawn(process.platform === 'win32' ? 'explorer' : process.platform === 'darwin' ? 'open' : 'xdg-open', [what], { detached: true, stdio: 'ignore' }).unref();
     return json(res, { ok: true });
   }
+  if (u.pathname === '/api/align' && req.method === 'DELETE') { // cancel a run: the whole process tree (Python + its workers)
+    if (AL.child?.pid) { AL.cancel = true; if (process.platform === 'win32') spawn('taskkill', ['/pid', String(AL.child.pid), '/t', '/f'], { windowsHide: true }); else AL.child.kill(); }
+    return json(res, { ok: true });
+  }
   if (u.pathname === '/api/align' && req.method === 'GET') {
     const env = alignEnv(), result = !AL.running && AL.out && fs.existsSync(AL.out) ? JSON.parse(fs.readFileSync(AL.out, 'utf8')) : null;
-    return json(res, { available: !!env, canSetup: process.platform === 'win32' && !!(process.env.SPICY_ALIGN_DIR || fs.existsSync(path.join(root, 'experiments', 'auto-align'))), running: AL.running, stage: AL.stage, done: AL.done, total: AL.total, device: AL.device, error: AL.error, hasAudio: !!AL.audio, vocals: !!AL.vocals && fs.existsSync(AL.vocals), result });
+    return json(res, { available: !!env, canSetup: process.platform === 'win32' && !!(process.env.SPICY_ALIGN_DIR || fs.existsSync(path.join(root, 'experiments', 'auto-align'))), running: AL.running, stage: AL.stage, done: AL.done, total: AL.total, device: AL.device, error: AL.error, plan: AL.plan, sub: AL.sub, subDone: AL.subDone, subTotal: AL.subTotal, bytes: AL.bytes, elapsed: AL.running ? Date.now() - AL.t0 : 0, hasAudio: !!AL.audio, vocals: !!AL.vocals && fs.existsSync(AL.vocals), result });
   }
   if (u.pathname === '/api/align/vocals' && req.method === 'GET') { // the separated voice, for a clearer waveform
     if (!AL.vocals || !fs.existsSync(AL.vocals)) return json(res, { error: 'нет' }, 404);

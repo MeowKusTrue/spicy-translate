@@ -1,6 +1,6 @@
 // Word sync actions (hotkeys AND toolbar buttons use these) + undo/redo on text+sync snapshots.
 import { fitAndSort, plainW, sameLines, splitWords, syllabify, units, unitsText, type Layer } from './core/index.ts';
-import { S, conf, emit, ensureSync, fillLine, layerText, lineState, r3, setText, spreadLine, toast, viewWords, wordsOf, type ViewWord } from './state.ts';
+import { S, conf, doubtful, emit, ensureSync, fillLine, layerText, lineState, r3, setText, spreadLine, toast, viewWords, wordsOf, type ViewWord } from './state.ts';
 import { now, playWord } from './audio.ts';
 import { forgetWord, learnAndSpread } from './syllables.ts';
 import { buildPreview, refreshPreviewLine } from './preview.ts';
@@ -51,6 +51,18 @@ export function stepSel(d: number) {
   if (cur < 0) cur = 0; return L[Math.max(0, Math.min(L.length - 1, cur + d))];
 }
 export function stepWord(d: number) { const n = stepSel(d); if (n) selectWord(n.i, n.k); }
+/** Q / Shift+Q: the next / previous word auto-timing was unsure of, on any track; played so you can check it */
+export function stepDoubt(d: 1 | -1) {
+  const all: { i: number; k: number; layer: Layer; a: number }[] = [];
+  S.lines.forEach((l, i) => (['orig', 'tr', 'bgo', 'bg'] as Layer[]).forEach(layer => (l.sync?.[layer] || []).forEach((x, k) => { if (doubtful(x)) all.push({ i, k, layer, a: x.a! }); })));
+  if (!all.length) return toast('Сомнительных слов нет ✓ (их отмечает авто-тайминг; поправленное руками перестаёт быть сомнительным).', 'ok');
+  all.sort((p, q) => p.a - q.a);
+  const cur = S.sel ? S.lines[S.sel.i]?.sync?.[S.layer]?.[S.sel.k]?.a ?? now() : now();
+  const n = d > 0 ? all.find(q => q.a > cur + 1e-3) || all[0] : [...all].reverse().find(q => q.a < cur - 1e-3) || all[all.length - 1];
+  if (S.layer !== n.layer) S.layer = n.layer;
+  selectWord(n.i, n.k); const x = S.lines[n.i].sync![n.layer]![n.k]; if (x.a != null && x.b != null) playWord({ a: x.a, b: x.b });
+  toast(`Сомнительное слово ${all.indexOf(n) + 1} из ${all.length}: послушай и поправь (тронул — значит проверено). Q — дальше, Shift+Q — назад.`, 'ok');
+}
 export function flashBtn(id: string) { const b = document.getElementById(id); if (!b) return; b.classList.remove('hit'); void b.offsetWidth; b.classList.add('hit'); }
 function flashChip() { requestAnimationFrame(() => { const c = document.querySelector<HTMLElement>('#syncLines .chip.sel'); if (c) { c.classList.remove('hit'); void c.offsetWidth; c.classList.add('hit'); } }); }
 

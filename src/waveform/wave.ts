@@ -1,7 +1,7 @@
 // Waveform canvas: state W, peaks, drawing, zoom.
 import { mmss, plainW, secCategory, sectionsOf, type Section } from '../core/index.ts';
 import { JOIN, bandRows as coreBandRows, lineAt as coreLineAt, type Layer } from '../core/index.ts';
-import { S, clamp, emit, isBg, isTr, lineState, ls, mainLayerFor, mkLayer, status, viewWords } from '../state.ts';
+import { S, clamp, doubtful, emit, isBg, isTr, lineState, ls, mainLayerFor, mkLayer, status, viewWords } from '../state.ts';
 import { now } from '../audio.ts';
 import { computePeaks, onsets } from './peaks.ts';
 import PeaksWorker from './peaks.worker.ts?worker&inline';
@@ -202,6 +202,10 @@ export function drawWave() {
         g.save(); g.beginPath(); g.rect(x1 + 2, y, Math.max(0, x2 - x1 - 4), hh); g.clip();
         g.fillStyle = wd.real ? `rgb(${TH.t})` : `rgba(${TH.t},.45)`; g.fillText((wd.b - wd.a >= 1 ? '✦ ' : '') + plainW(wd.word) + (wd.sp === false ? '-' : ''), x1 + 5, y + hh / 2 + 1); g.restore();
         if (W.multi.some(m => m.i === i && m.k === k && m.layer === layer)) { g.globalAlpha = 1; g.strokeStyle = '#ffd166'; g.lineWidth = 2; g.strokeRect(x1 + 1, y + 1, bw - 2, hh - 2); g.lineWidth = 1; g.globalAlpha = on ? 1 : .5; }
+        if (doubtful(S.lines[i].sync?.[layer]?.[k])) { // auto-timing was unsure here: check by ear (Q)
+          g.strokeStyle = 'rgb(255,170,60)'; g.lineWidth = 1.5; g.strokeRect(x1 + 1, y + 1, bw - 2, hh - 2); g.lineWidth = 1;
+          g.fillStyle = 'rgb(255,170,60)'; g.font = '800 10px system-ui'; g.textBaseline = 'top'; g.fillText('?', x2 - 9, y + 1); g.font = laneFont(lane === 'bg' ? hh * 0.92 : hh); g.textBaseline = 'middle';
+        }
         W.boxes.push({ i, k, a: wd.a, b: wd.b, real: !!wd.real, g: !!wd.g, lane, layer });
       });
     }

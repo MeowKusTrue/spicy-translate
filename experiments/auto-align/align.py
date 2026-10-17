@@ -2,8 +2,10 @@
 
 python align.py song.mp3 project.spicy.json -o out.spicy.json [--device auto|cuda|xpu|dml|cpu] [--lang ru|en]
 
-Demucs (htdemucs) -> vocals; optional UVR karaoke model (audio-separator) -> backing;
-then CTC forced alignment (wav2vec2) of the KNOWN text of each line inside [t-pad, end+pad].
+Demucs (htdemucs; --sep roformer: MelBand-RoFormer) -> vocals; optional UVR karaoke model (audio-separator) -> backing;
+then CTC forced alignment of the KNOWN text of each line inside [t-pad, end+pad]: wav2vec2 xlsr-53 for the lead,
+torchaudio MMS-FA for backing vocals (what bench.py measured best). No lyrics: --transcribe (Whisper) writes them first.
+Each auto word gets c = the model's confidence (the editor marks low ones for checking).
 Fills lines[].sync.orig / .bgo with {a, b, g:1}; hand-marked spans (no g) are kept.
 """
 import argparse, json, os, re, subprocess, sys, wave
@@ -19,6 +21,8 @@ LRC_TOL = 0.3
 BACK_MIN = 0.1   # backing stem quieter than this x vocals in a line window = split failed there, use vocals
 MODELS = {'ru': 'jonatasgrosman/wav2vec2-large-xlsr-53-russian', 'en': 'jonatasgrosman/wav2vec2-large-xlsr-53-english'}
 KARAOKE = 'UVR_MDXNET_KARA_2.onnx'
+ROFORMER = 'vocals_mel_band_roformer.ckpt'
+WHISPER = 'openai/whisper-large-v3-turbo'  # lyrics when the project has none (then aligned like any text)  # MelBand-RoFormer (Kim): cleaner vocals than htdemucs, needs a GPU to be quick
 SLOT = 0.4       # s max slot for a unit without letters ("—", "2") in a long gap
 # alignment-only transliteration for words in the other alphabet ("Say ahh" in a Russian line)
 LAT2CYR = [('shch', 'щ'), ('sh', 'ш'), ('ch', 'ч'), ('zh', 'ж'), ('kh', 'х'), ('ts', 'ц'), ('ya', 'я'), ('yu', 'ю'), ('yo', 'ё'),
@@ -76,9 +80,9 @@ def viterbi(lp, toks, blank, free_pen=FREE_PEN, bias=None):
     for t in range(T - 1, -1, -1):
         st[t] = s
         if s == S:
-            k = pbp[t]; s = S if k == 0 else S - k
+            k = int(pbp[t]); s = S if k == 0 else S - k  # int(): numpy 2 keeps int8 and overflows on long lines
         elif s >= 0:
-            k = bp[t, s]; s = -1 if k == 3 else s - k
+            k = int(bp[t, s]); s = -1 if k == 3 else s - k
     spans = []
     for j in range(L):
         f = np.nonzero(st == 2 * j + 1)[0]
@@ -166,11 +170,29 @@ def on_device(device, fn, what):
         return fn('cpu')
 
 
-def separate(song, work, device, karaoke=True, emit=lambda **k: None):
-    """-> (vocals_16k, backing_16k or None); stems cached in `work`"""
+def roformer_vocals(song, voc, work):
+    """MelBand-RoFormer through audio-separator (torch, uses the GPU when torch has one)"""
+    from audio_separator.separator import Separator
+    # fp16, light overlap, 60 s pieces: the defaults (fp32, overlap 8, whole song) fill an 8 GB card and crawl in shared memory
+    sep = Separator(output_dir=work, output_format='WAV', output_single_stem='Vocals', use_autocast=True, chunk_duration=60,
+                    mdxc_params={'segment_size': 256, 'override_model_segment_size': False, 'batch_size': 1, 'overlap': 2, 'pitch_shift': 0})
+    sep.load_model(model_filename=ROFORMER)
+    for f in sep.separate(song):
+        f = f if os.path.isabs(f) else os.path.join(work, f)
+        if '(vocals)' in os.path.basename(f).lower(): os.replace(f, voc)  # the stem is named song_(vocals)_<model>.wav
+        elif os.path.exists(f): os.remove(f)
+    if not os.path.exists(voc): raise RuntimeError('RoFormer gave no vocal stem')
+
+
+def separate(song, work, device, karaoke=True, emit=lambda **k: None, sep='htdemucs'):
+    """-> (vocals_16k, backing_16k or None, vocals path); stems cached in `work`, per separator"""
     os.makedirs(work, exist_ok=True)
-    voc = os.path.join(work, 'vocals.wav')
+    tag = '' if sep == 'htdemucs' else '-' + sep
+    voc = os.path.join(work, f'vocals{tag}.wav')
     emit(stage='demucs', done=0, total=1)
+    if sep == 'roformer' and not os.path.exists(voc):
+        try: roformer_vocals(song, voc, work)
+        except Exception as e: print(f'roformer failed ({type(e).__name__}: {e}); using htdemucs', file=sys.stderr); voc = os.path.join(work, 'vocals.wav')
     if not os.path.exists(voc):
         import torch
         from demucs.pretrained import get_model
@@ -180,13 +202,13 @@ def separate(song, work, device, karaoke=True, emit=lambda **k: None):
             wav = torch.from_numpy(decode(song, m.samplerate, m.audio_channels))
             ref = wav.mean(0); mu, sd = ref.mean(), ref.std() + 1e-8
             with torch.no_grad():
-                out = apply_model(m, ((wav - mu) / sd)[None], device=dev, split=True, overlap=0.25, progress=True)[0]
+                out = apply_model(m, ((wav - mu) / sd)[None], device=dev, split=True, overlap=0.25, progress=True)[0]  # progress: tqdm -> hook_tqdm
             write_wav(voc, (out[m.sources.index('vocals')] * sd + mu).cpu().numpy(), m.samplerate)
             del m; torch.cuda.empty_cache() if str(dev) == 'cuda' else None
         # DirectML has no complex STFT, which htdemucs needs: Demucs goes to the CPU there right away
         on_device('cpu' if dev_name(device) == 'dml' else device, demucs, 'demucs')
     emit(stage='demucs', done=1, total=1)
-    back = os.path.join(work, 'backing.wav')
+    back = os.path.join(work, f'backing{tag}.wav')
     if karaoke: emit(stage='karaoke', done=0, total=1)
     if karaoke and not os.path.exists(back):
         try:
@@ -200,15 +222,43 @@ def separate(song, work, device, karaoke=True, emit=lambda **k: None):
         except Exception as e:  # optional: no package / no model / no GPU provider
             print(f'karaoke split skipped ({type(e).__name__}: {e}); backing vocals aligned on the full vocal stem', file=sys.stderr)
     if karaoke: emit(stage='karaoke', done=1, total=1)
-    return decode(voc)[0], (decode(back)[0] if karaoke and os.path.exists(back) else None)
+    return decode(voc)[0], (decode(back)[0] if karaoke and os.path.exists(back) else None), voc
 
 
 # ---- acoustic model ----
+class MmsProc:
+    """the bits of a HF processor the aligner uses, for torchaudio's MMS-FA"""
+    class tokenizer: pad_token_id = 0
+    def __call__(self, x, sampling_rate=SR, return_tensors='pt'):
+        import torch
+        class R: pass
+        r = R(); r.input_values = torch.from_numpy(np.ascontiguousarray(x, np.float32))[None]; return r
+
+
+class MmsModel:
+    def __init__(self, m): self.m = m
+    def to(self, d): self.m = self.m.to(d); return self
+    def eval(self): self.m.eval(); return self
+    def __call__(self, x):
+        class O: pass
+        o = O(); o.logits = self.m(x)[0]; return o
+
+
 class Aligner:
-    def __init__(self, device, model=None):
-        self.device, self.override, self.m = device, model, {}
+    def __init__(self, device, model=None, kind='w2v'):
+        self.device, self.override, self.m, self.kind = device, model, {}, kind
 
     def load(self, lang):
+        if self.kind == 'mms': lang = 'mms'  # one model for every language
+        if lang == 'mms' and lang not in self.m:
+            import torchaudio
+            b = torchaudio.pipelines.MMS_FA
+            mdl = MmsModel(b.get_model(with_star=False)).eval()
+            try: mdl = mdl.to(self.device)
+            except Exception as e:
+                print(f'mms: {type(e).__name__} on {dev_name(self.device)} ({e}); running on CPU', file=sys.stderr); self.device = 'cpu'
+            self.m[lang] = (MmsProc(), mdl, {c: i for i, c in enumerate(b.get_labels())})
+        if lang == 'mms': return self.m[lang]
         if lang not in self.m:
             from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
             name = self.override or MODELS[lang]
@@ -240,7 +290,7 @@ class Aligner:
         import torch
         us = units(text)
         proc, model, vocab = self.load(lang)
-        ids, owner = self.tokens(us, vocab, lang)
+        ids, owner = self.tokens(us, vocab, 'mms' if self.kind == 'mms' else lang)
         s0, s1 = max(0, int(t0 * SR)), min(len(audio), int(t1 * SR))
         if not ids or s1 - s0 < SR // 4: return None
         x = proc(audio[s0:s1], sampling_rate=SR, return_tensors='pt').input_values
@@ -252,7 +302,7 @@ class Aligner:
             print(f'wav2vec2: {type(e).__name__} on {dev_name(self.device)} ({e}); running on CPU', file=sys.stderr)
             self.device = 'cpu'
             for k, (p_, m_, v_) in list(self.m.items()): self.m[k] = (p_, m_.to('cpu'), v_)
-            model = self.m[lang][1]
+            model = self.m['mms' if self.kind == 'mms' else lang][1]
             with torch.no_grad():
                 lp = torch.log_softmax(model(x).logits[0].float(), -1).cpu().numpy()
         fdur = (s1 - s0) / SR / len(lp)
@@ -261,7 +311,138 @@ class Aligner:
             ft = s0 / SR + np.arange(len(lp)) * fdur
             bias = np.where((ft < core[0] - LRC_TOL) | (ft > core[1] + LRC_TOL), -OUT_PEN, 0.0)
         spans = viterbi(lp, ids, proc.tokenizer.pad_token_id, bias=bias)
-        return spans and to_units(us, owner, spans, fdur, s0 / SR, s1 / SR)
+        got = spans and to_units(us, owner, spans, fdur, s0 / SR, s1 / SR)
+        if not got: return got
+        # how sure the model is of each word: mean probability of its letters on the frames it got (no letters: unknown)
+        conf = [[] for _ in us]
+        for u, (s, e), tok in zip(owner, spans, ids): conf[u].append(float(np.exp(lp[s:e, tok]).mean()))
+        return [(a, b, round(float(np.mean(c)), 2) if c else None) for (a, b), c in zip(got, conf)]
+
+
+# ---- progress: the stage we are in + every tqdm bar inside it (model downloads, Demucs chunks, separator) ----
+PROG = {'stage': 'start', 'emit': lambda **k: None, 'last': 0.0}
+
+
+def stage(name, done=0, total=1, **extra):
+    PROG['stage'] = name; PROG['emit'](stage=name, done=done, total=total, **extra)
+
+
+def hook_tqdm():
+    """libraries report progress through tqdm: forward it (throttled) as `sub` progress of the current stage"""
+    import time, tqdm.std as T
+    if getattr(T.tqdm, '_spicy', False): return
+    upd, close = T.tqdm.update, T.tqdm.close
+    def send(bar, force=False):
+        now = time.time()
+        if not force and now - PROG['last'] < 0.4: return
+        PROG['last'] = now
+        try:
+            tot = bar.total or 0; desc = str(bar.desc or '').strip(': ')
+            byte = bar.unit in ('B', 'iB') or 'download' in desc.lower()
+            PROG['emit'](stage=PROG['stage'], sub=desc[:60] or ('загрузка' if byte else ''), sub_done=float(bar.n), sub_total=float(tot), bytes=byte)
+        except Exception: pass
+    def update(self, n=1):
+        r = upd(self, n); send(self); return r
+    def close_(self):
+        send(self, True); return close(self)
+    T.tqdm.update, T.tqdm.close, T.tqdm._spicy = update, close_, True
+    it = T.tqdm.__iter__
+    def iter_(self):
+        for x in it(self): send(self); yield x
+    T.tqdm.__iter__ = iter_
+
+
+# ---- lyrics from the voice when there are none: Whisper words -> lines ----
+HALLUCINATIONS = re.compile(r'субтитр|продолжение следует|спасибо за просмотр|подписывайтесь|редактор субтитров|amara\.org|thanks for watching', re.I)
+
+
+def windows(voc, most=28.0, least=18.0):
+    """cut the voice into pieces Whisper takes in one go (<= `most` s), each cut at the quietest 0.1 s after `least` s"""
+    n, fr, cuts = len(voc), SR // 10, [0]
+    while cuts[-1] + most * SR < n:
+        s, e = cuts[-1] + int(least * SR), cuts[-1] + int(most * SR)
+        rms = np.sqrt(np.mean(voc[s:e - (e - s) % fr].reshape(-1, fr) ** 2, 1))
+        cuts.append(s + int(np.argmin(rms)) * fr + fr // 2)
+    return list(zip(cuts, cuts[1:] + [n]))
+
+
+def transcribe(voc, device, lang=None):
+    """[(word, a, b)] from the vocal stem: piece by piece (long-form chunking in transformers crashes with word times)"""
+    import torch
+    from transformers import pipeline
+    d = dev_name(device); cuda = d == 'cuda'
+    asr = pipeline('automatic-speech-recognition', model=WHISPER, dtype=torch.float16 if cuda else torch.float32,
+                   device=device if d in ('cuda', 'xpu', 'cpu') else 'cpu')
+    gen = {'task': 'transcribe', **({'language': lang} if lang else {})}
+    loud = np.sqrt(np.mean(voc ** 2)) + 1e-9
+    words, ws = [], windows(voc)
+    for k, (s, e) in enumerate(ws):
+        stage('transcribe', k, len(ws))
+        x = voc[s:e]
+        if np.sqrt(np.mean(x ** 2)) < 0.08 * loud: continue  # no singing here: Whisper would make something up
+        out = asr({'raw': x, 'sampling_rate': SR}, return_timestamps='word', generate_kwargs=gen)
+        if HALLUCINATIONS.search(out.get('text') or ''): continue
+        for c in out.get('chunks') or []:
+            w = (c.get('text') or '').strip(); a, b = (c.get('timestamp') or (None, None))
+            if not w or a is None: continue
+            if words and w[0] in '-–' and not w.startswith('--'):  # «А-а-а» comes as «А», «-а», «-а»: one word
+                words[-1][0] += w; words[-1][2] = s / SR + float(b if b is not None else a + 0.3); continue
+            words.append([w, s / SR + float(a), s / SR + float(b) if b is not None else None])
+    for k, w in enumerate(words):  # whisper leaves some ends open
+        if w[2] is None or w[2] <= w[1]: w[2] = min(w[1] + 0.4, words[k + 1][1]) if k + 1 < len(words) else w[1] + 0.4
+    del asr; torch.cuda.empty_cache() if cuda else None
+    return words
+
+
+def words_to_lines(words, gap=0.6, most=9):
+    """break on a pause, after . ! ? (or , once the line is long enough), and at `most` words"""
+    lines, cur = [], []
+    def flush():
+        if cur: lines.append({'t': round(cur[0][1], 3), 'end': round(cur[-1][2], 3), 'text': ' '.join(w for w, _, _ in cur), 'tr': '',
+                              'sync': {'orig': [{'a': round(a, 3), 'b': round(b, 3), 'g': 1} for _, a, b in cur]}})
+        cur.clear()
+    for w in words:
+        if cur and (w[1] - cur[-1][2] > gap or cur[-1][0][-1:] in '.!?…' or (cur[-1][0][-1:] in ',;:' and len(cur) >= 4)): flush()
+        elif len(cur) >= most:  # too long: cut in its second half after a comma, else at the longest pause
+            k = max(range(len(cur) // 2, len(cur)), key=lambda j: (cur[j - 1][0][-1:] in ',;:', cur[j][1] - cur[j - 1][2]))
+            tail = cur[k:]; del cur[k:]; flush(); cur.extend(tail)
+        cur.append(w)
+    flush()
+    for ln in lines:  # lyrics style: no trailing comma / period at the end of a line
+        ln['text'] = re.sub(r'[,.;:]+$', '', ln['text'])
+    return lines
+
+
+# ---- attacks in the vocal stem: spectral flux (same idea as the editor's magnet) ----
+def flux_onsets(x, sr=SR):
+    n, hop = 512, sr // 100
+    if len(x) < n: return np.zeros(0)
+    fr = np.lib.stride_tricks.sliding_window_view(x, n)[::hop] * np.hanning(n)
+    mag = np.log10(1e-10 + np.abs(np.fft.rfft(fr, axis=1)) ** 2) * 10
+    lo, hi = int(60 * n / sr), int(8000 * n / sr)
+    d = np.r_[0, np.maximum(0, np.diff(mag[:, lo:hi], axis=0)).mean(1)]
+    w, gap, out, last = 50, 8, [], -8
+    cs = np.r_[0, np.cumsum(d)]
+    for i in range(1, len(d) - 1):
+        if d[i] < d[i - 1] or d[i] <= d[i + 1] or i - last < gap: continue
+        a, b = max(0, i - w), min(len(d), i + w)
+        if d[i] > 1.5 * (cs[b] - cs[a]) / (b - a) + 0.6: out.append((i * hop + n / 2) / sr); last = i
+    return np.array(out)
+
+
+def snap_starts(project, onsets, win, shift=0.0):
+    """auto word starts (g) move to the nearest attack within win s; then everything auto shifts by `shift` s"""
+    if not len(onsets) and not shift: return
+    for ln in project['lines']:
+        for layer in ('orig', 'bgo'):
+            for x in (ln.get('sync') or {}).get(layer) or []:
+                if not x or not x.get('g') or x.get('a') is None: continue
+                a = x['a']
+                if win and len(onsets):
+                    k = int(np.searchsorted(onsets, a)); c = [onsets[j] for j in (k - 1, k) if 0 <= j < len(onsets)]
+                    o = min(c, key=lambda v: abs(v - a)) if c else None
+                    if o is not None and abs(o - a) <= win: a = float(o)
+                x['a'] = round(max(0.0, a + shift), 3); x['b'] = round(max(x['b'] + shift, x['a'] + MIN_W), 3)
 
 
 # ---- project ----
@@ -275,10 +456,10 @@ def fill(project, aligned_for, force=False):
             if not n or (hand_done(cur, n) and not force): continue
             got = aligned_for(i, ln, layer, text)
             if not got: continue
-            if hand_done(cur, n): errs[layer] += [abs(g[0] - c['a']) for g, c in zip(got, cur)]
+            if hand_done(cur, n): errs[layer] += [abs(g[0] - c['a']) for g, c in zip(got, cur)]  # g: (a, b[, confidence])
             keep = cur if isinstance(cur, list) and len(cur) == n and not force else [None] * n
             new = [k if k and not k.get('g') and k.get('a') is not None and k.get('b') is not None
-                   else {'a': a, 'b': b, 'g': 1} for k, (a, b) in zip(keep, got)]
+                   else {'a': g[0], 'b': g[1], 'g': 1, **({'c': g[2]} if len(g) > 2 and g[2] is not None else {})} for k, g in zip(keep, got)]
             ln['sync'] = {**(ln.get('sync') or {}), layer: new}
     return errs
 
@@ -326,6 +507,13 @@ def main(argv=None):
     ap.add_argument('--no-karaoke', action='store_true', help='skip lead/backing split')
     ap.add_argument('--force', action='store_true', help='re-align hand-marked layers too and print error vs them')
     ap.add_argument('--json-progress', action='store_true', help='stdout: one JSON object per line (for the editor server)')
+    ap.add_argument('--sep', choices=['htdemucs', 'roformer'], default='htdemucs', help='vocal separator')
+    ap.add_argument('--transcribe', action='store_true', help='write the lyrics from the voice (Whisper) first; on by itself when the project has no lines')
+    ap.add_argument('--song-lang', help='language of the song for --transcribe (ru, en…); default: detect')
+    ap.add_argument('--aligner', choices=['w2v', 'mms'], default='w2v', help='w2v: wav2vec2 xlsr per language; mms: torchaudio MMS-FA (multilingual)')
+    ap.add_argument('--bg-aligner', choices=['w2v', 'mms'], default='mms', help='aligner for backing vocals (default mms: bench.py median 416 -> 137 ms on «Пальма»)')
+    ap.add_argument('--snap', type=float, default=0.0, help='s: move auto word starts to the nearest attack of the vocal stem within this window')
+    ap.add_argument('--shift', type=float, default=0.0, help='s added to every auto word (constant model delay)')
     a = ap.parse_args(argv)
     if not a.json_progress: return run(a, lambda **k: None)
     out, sys.stdout = sys.stdout, sys.stderr  # stdout carries only our JSON lines; library chatter goes to stderr
@@ -339,13 +527,24 @@ def main(argv=None):
 def run(a, emit):
     import torch
     dev = pick_device(a.device)
+    def stage_emit(**k): stage(k.pop('stage'), **k) if 'stage' in k else emit(**k)
     emit(stage='device', device=dev_name(dev), done=0, total=0)
+    PROG['emit'] = emit; hook_tqdm()
     with open(a.project, encoding='utf-8') as f: proj = json.load(f)
-    if not proj.get('lines'): raise ValueError('not a Spicy Translate project (no lines)')
+    if 'lines' not in proj: raise ValueError('not a Spicy Translate project (no lines)')
+    tr = a.transcribe or not proj['lines']
+    emit(plan=[s for s, on in (('demucs', not a.no_separation), ('karaoke', not a.no_separation and not a.no_karaoke and not tr), ('transcribe', tr), ('align', True)) if on])
     work = os.path.abspath(os.path.splitext(a.out)[0] + '.stems')
-    if a.no_separation: voc, back = decode(a.audio)[0], None
-    else: voc, back = separate(a.audio, work, dev, not a.no_karaoke, emit)
-    al, total = Aligner(dev, a.model), len(proj['lines'])
+    if a.no_separation: voc, back, vpath = decode(a.audio)[0], None, None
+    else: voc, back, vpath = separate(a.audio, work, dev, not a.no_karaoke and not tr, stage_emit, a.sep)
+    if tr:  # no lyrics: Whisper writes them, the aligner below then times every word precisely
+        stage('transcribe', 0, 1)
+        proj['lines'] = words_to_lines(transcribe(voc, dev, a.song_lang)); a.force = True
+        stage('transcribe', 1, 1, lines=len(proj['lines']))
+        if not proj['lines']: raise ValueError('в голосе не нашлось слов')
+    al, total = Aligner(dev, a.model, a.aligner), len(proj['lines'])
+    bal = al if a.bg_aligner == a.aligner else Aligner(dev, None, a.bg_aligner)  # backing vocals: its own model
+    nonlocal_bal = [bal]
 
     def aligned_for(i, ln, layer, text):
         t, end = float(ln['t']), float(ln.get('end') or ln['t'] + 10)
@@ -353,10 +552,20 @@ def run(a, emit):
         if layer == 'bgo' and back is not None:
             w = slice(max(0, int((t - a.pad) * SR)), int((end + a.pad) * SR))
             if np.sqrt(np.mean(back[w] ** 2)) >= BACK_MIN * np.sqrt(np.mean(voc[w] ** 2) + 1e-12): src = back
-        print(f'\r{i + 1}/{total} {layer}', end='', file=sys.stderr); emit(stage='align', done=i, total=total)
-        return al.align(src, t - a.pad, end + a.pad, text, a.lang or lang_of(text), (t, end))
+        print(f'\r{i + 1}/{total} {layer}', end='', file=sys.stderr); stage('align', i, total)
+        args = (src, t - a.pad, end + a.pad, text, a.lang or lang_of(text), (t, end))
+        if layer == 'bgo' and nonlocal_bal[0] is not al:
+            try: return nonlocal_bal[0].align(*args)
+            except Exception as e:  # MMS can't load (no internet on the first run, old torchaudio): the lead model does backing too
+                print(f'backing aligner failed ({type(e).__name__}: {e}); using the lead one', file=sys.stderr); nonlocal_bal[0] = al
+        return (nonlocal_bal[0] if layer == 'bgo' else al).align(*args)
 
     errs = fill(proj, aligned_for, a.force)
+    if tr:  # lines Whisper made: their ends follow their (now precisely aligned) words
+        for ln in proj['lines']:
+            ws = [x for x in (ln.get('sync') or {}).get('orig') or [] if x and x.get('a') is not None]
+            if ws: ln['t'], ln['end'] = ws[0]['a'], ws[-1]['b']
+    snap_starts(proj, flux_onsets(voc) if a.snap else np.zeros(0), a.snap, a.shift)
     untangle(proj)
     print(file=sys.stderr)
     with open(a.out, 'w', encoding='utf-8') as f: json.dump(proj, f, ensure_ascii=False, indent=1)
@@ -366,7 +575,7 @@ def run(a, emit):
     print('written', a.out, json.dumps(rep))
     emit(stage='align', done=total, total=total)
     # device: where it really ran (a GPU stage may have fallen back to the CPU)
-    emit(done=True, device=dev_name(al.device), out=os.path.abspath(a.out), vocals=None if a.no_separation else os.path.join(work, 'vocals.wav'), overlaps=rep['overlaps'])
+    emit(done=True, device=dev_name(al.device), out=os.path.abspath(a.out), vocals=vpath, overlaps=rep['overlaps'])
 
 
 if __name__ == '__main__':

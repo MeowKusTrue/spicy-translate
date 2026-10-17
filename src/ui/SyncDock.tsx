@@ -1,14 +1,14 @@
 // Bottom dock: top bar, waveform, word chips, F/G/H toolbar with "Строка ⋯" and ⚙ menus.
 import { useEffect, useRef, useState } from 'react';
 import { fmtTime, mmss, parseDur, plainW, units } from '../core/index.ts';
-import { S, isBg, isTr, layerText, lineState, ls, mkLayer, viewWords, wordsOf, emit } from '../state.ts';
+import { S, doubtful, isBg, isTr, layerText, lineState, ls, mkLayer, viewWords, wordsOf, emit } from '../state.ts';
 import { audio, playWord } from '../audio.ts';
 import { dockMouseDown, setLoop, setSnap, toggleDock } from '../hotkeys.ts';
 import { setupGrip } from '../dockSize.ts';
 import { SYL, forgetAll, setSylMem } from '../syllables.ts';
 import { setAgent } from '../agents.ts';
 import { stretchAll, copyTiming, fitLines, pasteTimingHere, repeatChorus, setAutoFit, setFitPad, shiftLines } from '../lineEdit.ts';
-import { DEVICES, alignLabel, alignPct, autoAlign, openAlignPanel, setupLabel } from '../autoAlign.ts';
+import { DEVICES, STAGES, alignEta, alignLabel, alignPct, autoAlign, cancelAlign, openAlignPanel, setupLabel, stageFrac } from '../autoAlign.ts';
 import { W, songLen, waveSpec } from '../waveform/wave.ts';
 const setWaveView = (v: typeof S.waveView) => { S.waveView = v; ls.set('waveView', v); emit(); drawWave(); };
 import {
@@ -49,6 +49,7 @@ function Chips() {
         let cls = 'chip' + (w.includes(' ') ? ' grp' : '');
         if (x && x.a != null && x.b != null && !x.g) cls += ' t'; else if (x && x.a != null && x.b != null) cls += ' half';
         if (S.sel && S.sel.i === i && S.sel.k === k) cls += ' sel';
+        if (x && doubtful(x)) cls += ' doubt';
         if (!us[k].sp && k < ws.length - 1) cls += ' syl'; if (k && !us[k - 1].sp) cls += ' cont';
         const v = vw[k], has = v && v.a != null;
         return <span key={k} className={cls} data-a={has ? v.a! : undefined} data-b={has ? v.b! : undefined}
@@ -69,6 +70,19 @@ function Stretch() {
     <span className="row"><input type="text" id="strFrom" placeholder={fmtTime(f0)} value={from} title="Длительность версии, под которую размечено" onChange={e => setFrom(e.target.value)} style={{ width: 82 }} />→
       <input type="text" id="strTo" placeholder={t0 ? fmtTime(t0) : 'м:сс'} value={to} title="Длительность новой версии (по умолчанию — загруженное аудио)" onChange={e => setTo(e.target.value)} style={{ width: 82 }} />
       <button className="sm" id="btnStretch" disabled={!(a > 0 && b > 0) || Math.abs(a - b) < 0.01} onClick={() => { stretchAll(a, b); setFrom(''); setTo(''); }}>{a > 0 && b > 0 && Math.abs(a - b) >= 0.01 ? `${b > a ? '+' : ''}${((b / a - 1) * 100).toFixed(1)}%` : 'Растянуть'}</button></span></div>;
+}
+
+const mb = (b = 0) => (b / 1048576).toFixed(b > 1e8 ? 0 : 1);
+/** a running auto-timing: its stages with ticks, the bar inside the current one (model download: MB), time left, cancel */
+function AlignCard() {
+  const a = S.align!, plan = a.plan?.length ? a.plan : ['demucs', 'karaoke', 'align'], cur = plan.indexOf(a.stage), f = stageFrac();
+  return <div className="alcard" id="alignCard">
+    <div className="row"><b>✨ {plan.includes('transcribe') ? 'Распознаю и расставляю' : 'Авто-тайминг'}</b><small>{a.device ? DEVICES[a.device] || a.device : ''}</small><span className="sp" />
+      <b className="pct">{alignPct()}%</b><small>{alignEta() && 'ещё ' + alignEta()}</small><button className="sm" id="btnAlignCancel" onClick={cancelAlign}>Отменить</button></div>
+    <div className="track"><i style={{ width: alignPct() + '%' }} /></div>
+    <div className="stg">{plan.map((s, k) => <span key={s} className={k < cur ? 'ok' : k === cur ? 'on' : ''}>{k < cur ? '✓' : k === cur ? '⏳' : '○'} {STAGES[s] || s}{k === cur && (s === 'align' && a.total ? ` ${a.done}/${a.total}` : f ? ` ${Math.round(f * 100)}%` : '')}</span>)}</div>
+    {a.sub && <small className="sub">{a.bytes ? `скачиваю модель${a.sub && !/^download/i.test(a.sub) ? ' ' + a.sub : ''} — ${mb(a.subDone)}${a.subTotal ? ' / ' + mb(a.subTotal) : ''} МБ (только в первый раз)` : a.sub}</small>}
+  </div>;
 }
 
 export function SyncDock() {
@@ -93,7 +107,7 @@ export function SyncDock() {
         <button className={isBg(S.layer) ? '' : 'on'} id="segMain" onClick={() => setLayer(mkLayer(false, isTr(S.layer)))}>Основа</button>
         <button className={isBg(S.layer) ? 'on bg' : ''} id="segBg" onClick={() => setLayer(mkLayer(true, isTr(S.layer)))}>Бэк</button>
       </span>
-      <button className={'sm' + (S.align || S.setup ? ' busy' : '')} id="btnAutoAlign" disabled={!!S.align || !!S.setup} title="Нейросеть расставит слова оригинала и бэка по аудио (черновик пунктиром; размеченное вручную не трогает). Нужен локальный сервер и Python-прототип." onClick={autoAlign}>{S.setup ? '⬇ ' + setupLabel() : S.align ? '⏳ ' + alignLabel() : '✨ Авто-тайминг'}</button>
+      <button className={'sm' + (S.align || S.setup ? ' busy' : '')} id="btnAutoAlign" disabled={!!S.align || !!S.setup} title="Нейросеть расставит слова оригинала и бэка по аудио (черновик пунктиром; размеченное вручную не трогает). Нужен локальный сервер и Python-прототип." onClick={autoAlign}>{S.setup ? '⬇ ' + setupLabel() : S.align ? '⏳ ' + alignLabel() : !S.lines.length ? '✨ Распознать текст' : S.picked.size ? `✨ Авто-тайминг (строк: ${S.picked.size})` : '✨ Авто-тайминг'}</button>
       <button className="sm ic" id="btnAlignPanel" title="Авто-тайминг: видеокарта, установка, удаление" onClick={openAlignPanel}>⋯</button>
       {W.peaks && <span className="tseg" title="Волна или спектрограмма: согласные и ноты видно лучше, магнит липнет к их атакам"><button className={S.waveView === 'wave' ? 'on' : ''} id="viewWave" onClick={() => setWaveView('wave')}>волна</button><button className={S.waveView === 'spec' ? 'on' : ''} id="viewSpec" disabled={!waveSpec()} title={waveSpec() ? '' : 'считаю спектрограмму…'} onClick={() => setWaveView('spec')}>{waveSpec() ? 'спектр' : 'спектр…'}</button></span>}
       {W.vpeaks && <span className="tseg" title="Волна по всему миксу или по вырезанному голосу"><button className={S.waveVoice ? '' : 'on'} onClick={() => { S.waveVoice = false; emit(); drawWave(); }}>микс</button><button className={S.waveVoice ? 'on' : ''} onClick={() => { S.waveVoice = true; emit(); drawWave(); }}>голос</button></span>}
@@ -120,7 +134,8 @@ export function SyncDock() {
       <button className="sm" id="btnHelp" title="Как размечать" onClick={() => { S.help = !S.help; emit(); }}>?</button>
       <button className="sm" id="btnDockClose" title="Закрыть" onClick={() => toggleDock(false)}>✕</button>
     </div>
-    {(S.align || S.setup) && <div className="runbar" title={S.align ? `Авто-тайминг: ${alignLabel()}${S.align.device ? ' · ' + (DEVICES[S.align.device] || S.align.device) : ''}` : 'Установка авто-тайминга: ' + setupLabel()}><i style={{ width: (S.align ? alignPct() : S.setup!.pct) + '%' }} /></div>}
+    {S.align && <AlignCard />}
+    {!S.align && S.setup && <div className="runbar" title={'Установка авто-тайминга: ' + setupLabel()}><i style={{ width: S.setup.pct + '%' }} /></div>}
     <canvas id="mini" ref={mini} title="Вся песня: клик/тяни — показать это место, 2× — играть отсюда. Зелёное — размечено, жёлтое — частично, розовое — отдельные бэки"></canvas>
     <canvas id="wave" ref={cv}></canvas>
     <div id="waveTip" className="wtip" hidden></div>

@@ -5,8 +5,9 @@ export type Mode = 'translation' | 'bilingual';
 /** Singer of a line (TTML ttm:agent). Spicy Lyrics: v1 = main (left), v2 = second (right, opposite-aligned), v1000 = together. */
 export type Agent = 'v1' | 'v2' | 'v1000';
 
-/** One timed unit. a/b in seconds, null = not marked yet. g:1 = auto-placed (spread), not confirmed by hand. */
-export interface WordSync { a: number | null; b: number | null; g?: 1 }
+/** One timed unit. a/b in seconds, null = not marked yet. g:1 = auto-placed (spread), not confirmed by hand.
+ * c = the auto-timing model's confidence (low = check this word by ear); gone once the word is touched. */
+export interface WordSync { a: number | null; b: number | null; g?: 1; c?: number } // c: how sure auto-timing was (0..1)
 
 export interface Line {
   t: number;      // line start from LRC (s)
