@@ -1,6 +1,6 @@
 // Editing texts and lines: the list inputs, the inline editor on the wave (double click / E), adding and removing
 // lines (own words, background vocals with no lead line), "(…)" -> background vocals. bg = bg translation, bgo = bg original.
-import { stretchLines, alignRows, findAll, fmtTime, insertLine, lineFromWords, lineRow, fitLineToWords, fitsWords, pasteTiming, repeatTranslations, timingOf, transferTiming, parensToBg, parseRow, plainW, remapSync, repeatTiming, replaceUnit, sameLines, shiftLine, type Layer, type Line } from './core/index.ts';
+import { stretchLines, alignRows, findAll, fmtTime, insertLine, lineFromWords, lineRow, fitLineToWords, fitsWords, pasteTiming, repeatTranslations, timingOf, transferTiming, parensToBg, parseRow, plainW, remapSync, repeatTiming, replaceUnit, sameLines, slashSyl, shiftLine, type Layer, type Line } from './core/index.ts';
 import { S, clamp, emit, ls, fillLine, isBg, isTr, layerText, lineState, r3, setText, toast, viewWords, wordsOf } from './state.ts';
 import { now } from './audio.ts';
 import { learnAndSpread, spreadSplits } from './syllables.ts';
@@ -29,7 +29,11 @@ export function delBg(i: number) {
   after();
 }
 /** focusing a text field in the list = work on that line and track; the wave follows */
+let slashBase = ''; // the field's text when focused: its own «AC/DC» stays a slash
+/** leaving a line field: «кра/си/вый» typed there -> syllables */
+export function slashCommit(i: number, layer: Layer) { const l = S.lines[i]; if (!l) return; const v = layerText(l, layer), w = slashSyl(v, slashBase); if (w !== v) editText(i, layer, w); }
 export function focusLine(i: number, layer: Layer) {
+  if (S.lines[i]) slashBase = layerText(S.lines[i], layer);
   if (S.sel?.i === i && S.layer === layer) return;
   setLayer(layer); selectWord(i, 0);
   const l = S.lines[i], w = document.getElementById('wave')?.clientWidth || 800;
@@ -99,7 +103,7 @@ export function closeEdit(commit: boolean) {
   const el = WE.el; if (!el) return;
   WE.el = null; el.onblur = null; el.remove();
   const { i, layer, k, fresh } = WE, l = S.lines[i]; if (!l) return;
-  const v = el.value.replace(/[^\S ]+/g, ' ').trim();
+  const v = slashSyl(el.value.replace(/[^\S ]+/g, ' ').trim(), WE.k >= 0 && S.lines[WE.i] ? wordsOf(WE.i, WE.layer)[WE.k] || '' : '');
   if (fresh && (!commit || !v)) { const u = S.undo.pop(); if (u) restore(u); return; } // empty new line = never mind
   if (!commit) return;
   if (k >= 0) {
@@ -135,7 +139,8 @@ export function fullRows() {
  */
 export function applyFull() {
   if (!S.full) return;
-  const { o, t } = fullRows(), hasT = t.some(Boolean);
+  const was = S.lines.map(l => lineRow(l, false) + ' ' + lineRow(l, true)).join(' '), sl = (r: string) => slashSyl(r, was);
+  const { o: o0, t: t0 } = fullRows(), o = o0.map(sl), t = t0.map(sl), hasT = t.some(Boolean);
   while (hasT && t.length < o.length) t.push(''); // the last lines may just be untranslated
   if (hasT && t.length !== o.length) return toast(`Строк: оригинал ${o.length}, перевод ${t.length}. Выровняй столбцы: строка перевода стоит напротив своей строки (пустая — без перевода).`, 'err');
   const rows = o.map((x, j) => ({ o: x, t: t[j] || '' })).filter(r => r.o || r.t);

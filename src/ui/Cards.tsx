@@ -13,6 +13,8 @@ import { agentOf, cycleAgent, pickLine } from '../agents.ts';
 import { Fragment, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { secPick } from '../waveform/edit.ts';
 import { secColor } from '../waveform/wave.ts';
+import { focusRow, slashCommit } from '../lineEdit.ts';
+import { spellCheck, spellFix, spellIgnore, spellLeft } from '../spell.ts';
 import { addBg, addBgHere, addLineAfter, addLineHere, applyFull, bracketsToBg, delBg, delLine, editText, fillRepeats, findOpts, focusLine, fullRows, replaceEverywhere, resetFull } from '../lineEdit.ts';
 import { setPage } from '../hotkeys.ts';
 import { META_KEYS, openMeta } from './MetaModal.tsx';
@@ -112,13 +114,13 @@ function LineRow({ i }: { i: number }) {
       <button className="ag" data-agent={agentOf(i).id} title={agentOf(i).title + ' (клик или V — сменить)'} onClick={e => { e.stopPropagation(); cycleAgent(i); }}>{agentOf(i).label}</button>
     </div>
     <div className="txt">
-      <input className="o" type="text" title="Оригинал — можно править" placeholder="(без основной строки — только бэк)" value={l.text} onFocus={() => focusLine(i, 'orig')} onChange={e => editText(i, 'orig', e.target.value)} />
-      <input className="tr" type="text" placeholder="перевод…" value={l.tr || ''} onFocus={() => focusLine(i, 'tr')} onChange={e => editText(i, 'tr', e.target.value)} onBlur={() => fillRepeats(i)} />
+      <input className="o" type="text" title="Оригинал — можно править" placeholder="(без основной строки — только бэк)" value={l.text} onFocus={() => focusLine(i, 'orig')} onChange={e => editText(i, 'orig', e.target.value)} onBlur={() => slashCommit(i, 'orig')} />
+      <input className="tr" type="text" lang={S.meta.lang} spellCheck placeholder="перевод…" value={l.tr || ''} onFocus={() => focusLine(i, 'tr')} onChange={e => editText(i, 'tr', e.target.value)} onBlur={() => { slashCommit(i, 'tr'); fillRepeats(i); }} />
       {l.bg
         ? <div className="bgrow">
             <span className="bglab" title="Фоновый вокал: в Spicy мелкой строкой под основной">бэк</span>
-            <input type="text" placeholder="бэк: оригинал" value={l.bg.text} onFocus={() => focusLine(i, 'bgo')} onChange={e => editText(i, 'bgo', e.target.value)} />
-            <input type="text" placeholder="бэк: перевод" value={l.bg.tr} onFocus={() => focusLine(i, 'bg')} onChange={e => editText(i, 'bg', e.target.value)} />
+            <input type="text" placeholder="бэк: оригинал" value={l.bg.text} onFocus={() => focusLine(i, 'bgo')} onChange={e => editText(i, 'bgo', e.target.value)} onBlur={() => slashCommit(i, 'bgo')} />
+            <input type="text" placeholder="бэк: перевод" value={l.bg.tr} onFocus={() => focusLine(i, 'bg')} onChange={e => editText(i, 'bg', e.target.value)} onBlur={() => slashCommit(i, 'bg')} />
             <button className="sm ic" title="Убрать бэк" onClick={e => { e.stopPropagation(); delBg(i); }}>✕</button>
           </div>
         : <button className="addbg" title="Добавить фоновый вокал (бэки, ад-либы) к этой строке" onClick={e => { e.stopPropagation(); addBg(i); }}>+ бэк</button>}
@@ -146,7 +148,9 @@ export function TranslateCard() {
       <button id="btnClear" className="danger" title="Стереть весь перевод (Ctrl+Z — вернуть)" onClick={clearTr}>Очистить</button>
       <button id="btnRepeats" title="Повторы строк (припев) получают уже сделанный перевод, если у них его нет" disabled={!S.lines.length} onClick={() => fillRepeats()}>↻ Перевод на повторы</button>
       <button id="btnFind" title="Найти и заменить по всей песне" disabled={!S.lines.length} onClick={() => set(() => S.find = S.find ? null : { q: '', r: '', where: 'all', cs: false, word: true })}>🔎 Заменить</button>
+      <button id="btnSpell" title="Орфография перевода (или оригинала, если перевода нет), английские слова тоже. Текст уходит в Яндекс.Спеллер." disabled={!S.lines.length || S.spell?.busy} onClick={spellCheck}>{S.spell?.busy ? 'Проверяю…' : '✓ Орфография'}</button>
     </div>
+    <SpellBox />
     <details className="llm" id="llmBox">
       <summary>🤖 Перевод через LLM (с контекстом всей песни)</summary>
       <div className="grid2">
@@ -170,6 +174,19 @@ export function TranslateCard() {
 }
 
 /** the lines list (translation and sync tabs): texts, singers, background vocals, add / delete lines */
+function SpellBox() {
+  const sp = S.spell; if (!sp || sp.busy) return null;
+  const left = spellLeft();
+  return <div className="spell">
+    <div className="row"><b>{sp.msg || (left.length ? `Орфография: ${left.length}` : 'Орфография: ошибок не нашёл ✓')}</b><span style={{ flex: 1 }} /><button className="sm ic" title="Закрыть" onClick={() => set(() => S.spell = null)}>✕</button></div>
+    {left.slice(0, 60).map((h, k) => <div className="sp" key={k}>
+      <button className="sm ln-n" title="К строке" onClick={() => focusRow(h.i, h.layer === 'tr' || h.layer === 'bg' ? 'input.tr' : 'input.o')}>{h.i + 1}</button>
+      <s>{h.word}</s>→{h.s.length ? h.s.map(v => <button key={v} className="sm ok" title="Заменить в строке" onClick={() => spellFix(h, v)}>{v}</button>) : <small>нет вариантов</small>}
+      <button className="sm ic" title="Это не ошибка (до конца сеанса)" onClick={() => spellIgnore(h)}>не ошибка</button>
+    </div>)}
+  </div>;
+}
+
 export function LinesCard() {
   if (!S.lines.length) return null;
   return <section className="card linescard">

@@ -150,7 +150,7 @@ async function setupAlign(want?: Backend) {
   step('готово', 100); SETUP.done = true;
 }
 /** bump when the editor needs new server endpoints (3: auto-timing install / GPU / open folder) */
-const API = 11; // 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes · 10: install pins torch, Python found without LOCALAPPDATA · 11: installs noted for each other (python-path.txt)
+const API = 12; // 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes · 10: install pins torch, Python found without LOCALAPPDATA · 11: installs noted for each other (python-path.txt) · 12: /api/spell
 /* ---------- Genius (lyrics makers take the text from there). No CORS for pages, so the server fetches them. ---------- */
 const GH = { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', 'accept-language': 'en-US,en;q=0.9' };
 type GeniusHit = { id: number; title: string; artist: string; url: string; art: string };
@@ -165,6 +165,23 @@ async function geniusText(url: string) {
   const r = await fetch(url, { headers: GH }); if (!r.ok) throw new Error('Genius HTTP ' + r.status);
   const text = C.geniusLyrics(await r.text(), true); if (!text) throw new Error('на странице нет текста (инструментал или Genius поменял вёрстку)');
   return text;
+}
+/**
+ * Spelling of each text (Yandex Speller: ru / uk / en, free, no key; LanguageTool's public API has no Russian dictionary).
+ * English is always on, so anglicisms are checked too. Ignored: digits, links, capitalization.
+ */
+async function spell({ texts, lang }: { texts: string[]; lang: string }) {
+  const L = ['ru', 'uk', 'en'].includes(lang) ? lang : '';
+  if (!L) throw new Error('орфография есть для русского, украинского и английского');
+  const out: { pos: number; len: number; word: string; s: string[] }[][] = [];
+  for (let k = 0; k < texts.length;) { // the service takes up to 10 000 characters a request
+    const b = new URLSearchParams({ lang: L === 'en' ? 'en' : L + ',en', options: '518' }); let n = 0;
+    for (; k < texts.length && (n === 0 || n + texts[k].length < 9000); k++) { b.append('text', texts[k]); n += texts[k].length + 1; }
+    const r = await fetch('https://speller.yandex.net/services/spellservice.json/checkTexts', { method: 'POST', body: b });
+    if (!r.ok) throw new Error('спеллер: HTTP ' + r.status);
+    out.push(...(await r.json() as { pos: number; len: number; word: string; s: string[] }[][]).map(a => a.map(({ pos, len, word, s }) => ({ pos, len, word, s }))));
+  }
+  return out;
 }
 /** songwriters (Genius «Written By») and album of a song by its Genius id */
 async function geniusWriters(id: string): Promise<{ writers: string[]; album: string }> {
@@ -281,6 +298,7 @@ const server = http.createServer((req, res) => {
     }
   }
   if (u.pathname === '/api/genius/search') { geniusSearch(u.searchParams.get('q') || '').then(h => json(res, h), e => json(res, { error: e.message }, 502)); return; }
+  if (u.pathname === '/api/spell' && req.method === 'POST') { readBody(req).then(b => spell(JSON.parse(String(b)))).then(r => json(res, r), e => json(res, { error: e.message }, 502)); return; }
   if (u.pathname === '/api/genius/writers') { geniusWriters(u.searchParams.get('id') || '').then(r => json(res, r), e => json(res, { error: e.message }, 502)); return; }
   if (u.pathname === '/api/genius/lyrics') { geniusText(u.searchParams.get('url') || '').then(text => json(res, { text }), e => json(res, { error: e.message }, 502)); return; }
   if (u.pathname.startsWith('/api/align')) { alignRoute(req, res, u).catch(e => json(res, { error: String(e?.message || e) }, 500)); return; }

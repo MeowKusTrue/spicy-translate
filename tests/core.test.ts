@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildLRC, buildSRT, buildTTML, entriesToLines, getWords, NBSP, parseLRC, parsePlain, plainW,
-  qaCheck, splitWords, syllabify, ttmlMeta, units, unitsText, wordList, type Line,
+  qaCheck, splitWords, slashSyl, syllabify, ttmlMeta, units, unitsText, wordList, type Line,
 } from '../src/core/index.ts';
 
 const line = (o: Partial<Line>): Line => ({ t: 1, end: 3, text: 'one two', tr: '', ...o });
@@ -27,6 +27,12 @@ describe('units / NBSP / syllables', () => {
     expect(syllabify('кто-нибудь')).toEqual(['кто-', 'ни', 'будь']);
     expect(syllabify('hol-up')).toEqual(['hol-', 'up']);
     expect([syllabify('-то'), syllabify('эй-')]).toEqual([['-то'], ['эй-']]);
+  });
+  it('slashSyl: / and \\ between letters are syllable marks, doubled or already in the lyrics = the sign', () => {
+    expect(slashSyl('кра/си/вый мо\\я')).toBe('кра|си|вый мо|я');
+    expect(slashSyl('AC//DC 24/7 a / b')).toBe('AC/DC 24/7 a / b');
+    expect(slashSyl('AC/DC и/или кра/си/во', 'слушаю AC/DC и/или')).toBe('AC/DC и/или кра|си|во');
+    expect(slashSyl('при|вет')).toBe('при|вет');
   });
 
   it('syllabify en (silent e, vowel pairs stay together)', () => {
@@ -115,5 +121,19 @@ describe('qaCheck', () => {
     expect(msgs.some(m => m.startsWith('2:warn:«раз»: слишком короткое (20 мс)'))).toBe(true);
     expect(msgs).toContain('2:err:«два»: перекрывает предыдущее слово');
     expect(msgs.some(m => m.startsWith('3:warn:начинается раньше конца строки 3'))).toBe(true);
+  });
+});
+
+describe('textIssues', () => {
+  it('mixed alphabets, Latin in a Russian translation, lowercase start', async () => {
+    const { textIssues, qaCheck } = await import('../src/core/index.ts');
+    expect(textIssues('пpивет мир')[0]).toContain('«пpивет»');
+    expect(textIssues('я сказал baby, DJ', { tr: true })).toEqual(['латиница в переводе: «baby» — перевести или транслитерировать?']);
+    expect(textIssues('baby baby', { tr: true })).toEqual([]);
+    expect(textIssues('«и снова»', { capsMost: true })).toEqual(['строка с маленькой буквы, а остальные с заглавной']);
+    expect(textIssues('Снова', { capsMost: true })).toEqual([]);
+    const L = (t: number, tr: string) => ({ t, end: t + 1, text: 'x', tr });
+    const q = qaCheck([L(0, 'Раз'), L(1, 'Два'), L(2, 'три')]).filter(x => x.msg.includes('маленькой'));
+    expect(q.map(x => x.i)).toEqual([2]);
   });
 });

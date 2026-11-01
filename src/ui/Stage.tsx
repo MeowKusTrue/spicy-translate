@@ -1,7 +1,7 @@
 // Right column: Spicy-like preview (content painted by preview.ts into #lyrIn) over the album cover,
 // its settings in the top-right corner, the player at the bottom.
 import { memo, useEffect, type CSSProperties } from 'react';
-import { S, emit, ls } from '../state.ts';
+import { S, emit, ls, setVoff } from '../state.ts';
 import { pause, play, seekTo, setRate, setVolume } from '../audio.ts';
 import { PV } from '../preview.ts';
 import { loadAudioFile } from '../load.ts';
@@ -28,7 +28,7 @@ function Seg<T extends string | number>({ items, value, set }: { items: [T, stri
 }
 
 function Settings() {
-  const voff = S.voff || 0, setVoff = (v: number) => { S.voff = v; ls.set('voff', String(v)); emit(); };
+  const voff = S.voff || 0;
   return <details className="menu stset">
     <summary className="sbtn" title="Настройки превью и плеера">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 6h10M19 6h1M4 12h3M12 12h8M4 18h12M20 18h0" /><circle cx="16.5" cy="6" r="2.2" /><circle cx="9.5" cy="12" r="2.2" /><circle cx="18" cy="18" r="2.2" /></svg>
@@ -80,6 +80,7 @@ export function Stage() {
       <button className="round" id="btnPlay" title="Играть / пауза (Space)" onClick={() => S.playing ? pause() : play()}>{S.playing ? '❚❚' : '▶'}</button>
       <input type="range" id="seek" min="0" max={S.duration} step="0.05" defaultValue="0" onChange={e => seekTo(parseFloat(e.target.value))} />
       <div className="time" id="clock">0:00 / 0:00</div>
+      <button className={'sm voffb' + (S.voff ? ' on' : '')} title={'Синхронизация текста со звуком, на слух во время проигрывания: текст отстаёт — «=», спешит — «-» (по 20 мс). Клик — сбросить.'} onClick={() => setVoff(0)}>⇆ {S.voff > 0 ? '+' : ''}{S.voff || 0} мс</button>
       <label className="btn sm" title="Свой аудиофайл (можно просто перетащить на страницу)">♪ аудио<input type="file" id="fileAudio" accept="audio/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) loadAudioFile(f); }} /></label>
     </div>
   </div>;

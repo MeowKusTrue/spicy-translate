@@ -507,3 +507,15 @@ button:active:not(:disabled),.btn:active,.nav button:active:not(:disabled){trans
 .alcard .sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chip.doubt{border-color:rgb(255,170,60);box-shadow:inset 0 -2px 0 rgb(255,170,60)}
 .chip.doubt::after{content:'?';margin-left:3px;color:rgb(255,170,60);font-size:.75em;font-weight:800}
+/* translation / sync tabs: the cards and buttons stay put, only the line list scrolls */
+@media (min-width:981px){
+  main:is(.page-tr,.page-sync)>.col:first-child{overflow:hidden}
+  main:is(.page-tr,.page-sync) .linescard{flex:1 1 0;min-height:220px;display:flex;flex-direction:column}
+  main:is(.page-tr,.page-sync) .linescard .lines,body.dock-open main.page-sync .linescard .lines{flex:1 1 0;min-height:0;max-height:none;overflow:auto;overscroll-behavior:contain}
+}
+html.app main:is(.page-tr,.page-sync)>.col:first-child{overflow:hidden}
+html.app main:is(.page-tr,.page-sync) .linescard{flex:1 1 0;min-height:220px;display:flex;flex-direction:column}
+html.app main:is(.page-tr,.page-sync) .linescard .lines{flex:1 1 0;min-height:0;overflow:auto;overscroll-behavior:contain}
+.spell{margin-top:10px;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--field);display:flex;flex-direction:column;gap:4px;max-height:260px;overflow:auto;font-size:13px}
+.spell .sp{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.spell s{color:#ff9a9a}.spell .ln-n{min-width:34px;font:12px ui-monospace,monospace}.spell .ok{color:var(--ok)}.spell .ic{margin-left:auto;color:var(--mut)}
+.player .voffb{flex:none;font:12px ui-monospace,monospace;color:var(--mut);padding:5px 8px}.player .voffb.on{color:var(--acc);border-color:color-mix(in srgb,var(--acc) 45%,transparent)}

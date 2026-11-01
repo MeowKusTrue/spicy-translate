@@ -1,5 +1,5 @@
 // Sync dock toggling + keyboard: F/G/H, A/D, Space, arrows, [ ] ', , . nudge, M/U join/split, N magnet, L loop, R, Del, Ctrl+Z.
-import { S, emit, isBg, isTr, ls, mkLayer, toast, viewWords, wordsOf, type Page } from './state.ts';
+import { S, emit, isBg, isTr, ls, mkLayer, setVoff, toast, viewWords, wordsOf, type Page } from './state.ts';
 import { now, pause, play, seekTo, setRate } from './audio.ts';
 import { PV } from './preview.ts';
 import { doRedo, doUndo, joinWords, mark, nudgeWord, resetWord, setLayer, splitWord, stepWord, stepDoubt } from './sync.ts';
@@ -101,6 +101,12 @@ export function installHotkeys() {
   document.addEventListener('keydown', e => { // Alt+1..5 = tabs
     const n = /^Digit([1-5])$/.exec(e.code); if (!n || !e.altKey || e.ctrlKey || e.metaKey) return;
     e.preventDefault(); setPage(PAGES[+n[1] - 1][0]);
+  });
+  document.addEventListener('keydown', e => { // «=» / «-»: the preview ahead / behind by 20 ms, by ear while it plays
+    if ((e.code !== 'Equal' && e.code !== 'Minus') || e.ctrlKey || e.metaKey || e.altKey || S.help || S.metaEd || S.palette) return;
+    const tg = e.target as HTMLElement; if (/^(INPUT|TEXTAREA|SELECT)$/.test(tg.tagName) || tg.isContentEditable) return;
+    e.preventDefault(); setVoff((S.voff || 0) + (e.code === 'Equal' ? 20 : -20));
+    toast(`Текст в превью: ${S.voff > 0 ? 'на ' + S.voff + ' мс раньше' : S.voff < 0 ? 'на ' + -S.voff + ' мс позже' : 'без сдвига'} (на экспорт не влияет)`, 'ok');
   });
   document.addEventListener('keydown', e => { // Ctrl+Z / Ctrl+Shift+Z on every tab; the dock has its own; in a field — the field's own undo
     if (S.dock || !(e.ctrlKey || e.metaKey) || e.code !== 'KeyZ' || S.help || S.metaEd || S.palette) return;

@@ -46,6 +46,7 @@ export const S = {
   palette: null as null | { q: string; i: number }, // Ctrl+K
   maxed: false, // desktop app window maximized
   page: 'track' as Page, prevPage: 'tr' as Page, // the tab shown; the sync tab opens the dock
+  spell: null as null | { busy: boolean; hits: import('./spell.ts').SpellHit[]; msg: string; ignored: string[] }, // spelling check of the lyrics
   genius: null as null | { q: string; hits: import('./genius.ts').GeniusHit[]; busy: boolean; msg: string; cls: string; text?: string; heads?: { row: number; label: string }[]; title?: string; id?: number; ignored: string[] }, // «Текст с Genius» + its check
   full: null as null | { o: string; t: string; dirty: boolean }, // «Текст» tab draft
   find: null as null | { q: string; r: string; where: 'tr' | 'orig' | 'all'; cs: boolean; word: boolean },
@@ -59,6 +60,8 @@ export function useS() { return useSyncExternalStore(cb => { subs.add(cb); retur
 
 export const r3 = (x: number) => Math.round(x * 1000) / 1000;
 export const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+/** preview / word chips ahead of the clock by v ms (speakers and Bluetooth delay the sound; set by ear) */
+export function setVoff(v: number) { S.voff = clamp(Math.round(v), -1000, 1000); ls.set('voff', String(S.voff)); emit(); }
 export function status(which: 'st1' | 'st2', msg?: string, cls?: string) { S[which] = { msg: msg || '', cls: cls || '' }; emit(); }
 let toastT: ReturnType<typeof setTimeout> | undefined;
 export function toast(msg: string, cls?: string) {

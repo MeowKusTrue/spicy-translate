@@ -38,10 +38,33 @@ export function stopLine(lines: Line[], mode: Mode = 'translation') {
   return { i: first, done, n };
 }
 
+const CYR = /\p{Script=Cyrillic}/u, LATN = /\p{Script=Latin}/u;
+/** first letter of a line (after quotes, brackets, dashes) */
+const firstLetter = (t: string) => plainW(t).match(/\p{L}/u)?.[0] || '';
+/**
+ * Text checks of one exported line: a word mixing Cyrillic and Latin letters (keyboard layout slip, «пpивет»),
+ * Latin words in a Russian translation (anglicisms left untranslated), lowercase start when the song starts lines
+ * with a capital (capsMost).
+ */
+export function textIssues(text: string, o: { tr?: boolean; capsMost?: boolean } = {}): string[] {
+  const out: string[] = [], ws = wordList(text).map(w => plainW(w).replace(/^[^\p{L}\d]+|[^\p{L}\d]+$/gu, '')).filter(Boolean);
+  const mixed = ws.filter(w => CYR.test(w) && LATN.test(w));
+  if (mixed.length) out.push(`${mixed.map(w => '«' + w + '»').join(', ')}: латиница и кириллица в одном слове — опечатка раскладки?`);
+  if (o.tr && ws.some(w => CYR.test(w))) {
+    const lat = ws.filter(w => LATN.test(w) && !CYR.test(w) && !/^[A-Z0-9]{2,}$/.test(w)); // «DJ», «BMW» — names, fine
+    if (lat.length) out.push(`латиница в переводе: ${lat.map(w => '«' + w + '»').join(', ')} — перевести или транслитерировать?`);
+  }
+  const c = firstLetter(text);
+  if (o.capsMost && c && c !== c.toUpperCase()) out.push('строка с маленькой буквы, а остальные с заглавной');
+  return out;
+}
+
 // pre-export checks (shared with the MCP server)
 export function qaCheck(lines: Line[], mode: Mode = 'translation', o: { wordSpread?: boolean } = {}): QaItem[] {
   const words = mode === 'bilingual' || o.wordSpread !== false;
   const out: QaItem[] = [], bil = mode === 'bilingual'; let prevEnd: number | null = null, prevI = -1;
+  const mains = lines.map(l => bil || !(l.tr && l.tr.trim()) ? l.text : l.tr).map(firstLetter).filter(Boolean);
+  const capsMost = mains.filter(c => c !== c.toLowerCase()).length >= mains.length * 0.6;
   lines.forEach((l, i) => {
     const hasTr = l.tr && l.tr.trim(), layer = bil ? 'orig' : (hasTr ? 'tr' : 'orig');
     const text = layer === 'tr' ? l.tr.trim() : l.text;
@@ -53,6 +76,7 @@ export function qaCheck(lines: Line[], mode: Mode = 'translation', o: { wordSpre
     if (plainW(text || '').length > 70) out.push({ i, sev: 'warn', msg: `длинная строка (${plainW(text).length} символов) — в Spicy займёт 2–3 ряда, может, разбить?` });
     if (!text || !text.trim()) { if (!(l.bg && (l.bg.text.trim() || l.bg.tr.trim()))) out.push({ i, sev: 'err', msg: 'пустая строка — Spicy не загрузит файл' }); return; } // bg-only line is fine
     if (!hasTr) out.push({ i, sev: 'warn', msg: 'нет перевода — пойдёт оригинал' });
+    for (const msg of textIssues(text, { tr: layer === 'tr', capsMost })) out.push({ i, sev: 'warn', msg });
     const sy = l.sync && l.sync[layer];
     if (!wordIssues(out, i, text, sy)) out.push({ i, sev: 'warn', msg: 'слова не размечены — будет равномерный спред' });
     else if (sy!.some(x => x.g)) out.push({ i, sev: 'warn', msg: 'слова только раскиданы, не проверены вручную' });

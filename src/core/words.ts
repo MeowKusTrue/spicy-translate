@@ -40,6 +40,16 @@ function syllables(word: string): string[] {
   return out.filter(Boolean);
 }
 
+const SLASH = /(\/\/|\\\\)|(?<=\p{L})[/\\](?=\p{L})/gu;
+/**
+ * Typed syllable marks: «/» or «\» between letters -> «|» (кра/си/вый). Doubled («AC//DC») = the sign itself.
+ * Words already in `old` (the text before editing: «AC/DC», «и/или» from the lyrics) stay as they are.
+ */
+export function slashSyl(text: string, old = '') {
+  const keep = new Set(old.split(/\s+/).filter(w => /[/\\]/.test(w)));
+  return text.split(/(\s+)/).map(w => keep.has(w) ? w : w.replace(SLASH, (_m, dbl?: string) => dbl ? dbl[0] : '|')).join('');
+}
+
 /** display form of a unit: NBSP -> space, syllable bars removed */
 export const plainW = (w: string) => String(w).replace(/ /g, ' ').replace(/\|/g, '');
 
