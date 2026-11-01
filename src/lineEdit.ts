@@ -268,6 +268,16 @@ export function shiftLines(ms: number, all = false) {
   toast(`${ms > 0 ? '+' : ''}${ms} мс: сдвинуто строк ${n}${all ? ' (вся песня)' : ' после курсора'}, со всеми словами. Ctrl+Z — отмена.`, 'ok');
 }
 
+/** the picked lines (list: click / Shift / Ctrl, wave band: box) move by ms with all their words; they stay picked */
+export function shiftPicked(ms: number) {
+  const ls = [...S.picked].map(i => S.lines[i]).filter(Boolean); if (!ms || !ls.length) return;
+  const dd = Math.max(ms / 1000, -Math.min(...ls.map(l => l.t)));
+  if (!dd) return toast('Дальше влево некуда: строка уже в 0:00.', 'err');
+  snap(); for (const l of ls) shiftLine(l, clone(l), dd);
+  S.lines.sort((x, y) => x.t - y.t); afterLines();
+  S.picked = new Set(ls.map(l => S.lines.indexOf(l))); emit(); drawWave();
+}
+
 /** fit the timings to another version of the track: old length -> new length (s) */
 export function stretchAll(from: number, to: number) {
   if (!S.lines.length || !(from > 0) || !(to > 0)) return toast('Укажи обе длительности, например 3:42 и 3:31.', 'err');

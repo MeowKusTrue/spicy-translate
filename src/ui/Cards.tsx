@@ -9,11 +9,11 @@ import { selectWord } from '../sync.ts';
 import { LANGS, applyPaste, autoTranslate, clearTr, copyPrompt, llmTranslate } from '../translate.ts';
 import { copyTTML, download, gotoQa, runQa, saveLRC, saveProjectFile, saveSRT, toggleCode } from '../exporting.ts';
 import { drawWave } from '../waveform/wave.ts';
-import { agentOf, cycleAgent, pickLine } from '../agents.ts';
+import { agentOf, clearPicked, cycleAgent, pickLine } from '../agents.ts';
 import { Fragment, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { secPick } from '../waveform/edit.ts';
 import { secColor } from '../waveform/wave.ts';
-import { focusRow, slashCommit } from '../lineEdit.ts';
+import { focusRow, shiftPicked, slashCommit } from '../lineEdit.ts';
 import { spellCheck, spellFix, spellIgnore, spellLeft } from '../spell.ts';
 import { addBg, addBgHere, addLineAfter, addLineHere, applyFull, bracketsToBg, delBg, delLine, editText, fillRepeats, findOpts, focusLine, fullRows, replaceEverywhere, resetFull } from '../lineEdit.ts';
 import { setPage } from '../hotkeys.ts';
@@ -187,6 +187,23 @@ function SpellBox() {
   </div>;
 }
 
+/** picked lines: move them together (all words of every track) */
+function PickBar() {
+  const [ms, setMs] = useState('');
+  const n = S.picked.size;
+  if (!n) return <p className="hint" style={{ margin: '6px 0 0' }}>Клик по строке — выбрать, Shift — диапазон, Ctrl — добавить (в полосе строк под волной — рамкой). Выбранные двигаются вместе.</p>;
+  const go = (v: number) => shiftPicked(v);
+  return <div className="pickbar">
+    <b>Строк: {n}</b>
+    <button className="sm" title="На 1 с раньше" onClick={() => go(-1000)}>−1 с</button>
+    <button className="sm" title="На 100 мс раньше" onClick={() => go(-100)}>−0.1</button>
+    <button className="sm" title="На 100 мс позже" onClick={() => go(100)}>+0.1</button>
+    <button className="sm" title="На 1 с позже" onClick={() => go(1000)}>+1 с</button>
+    <input type="number" step="10" placeholder="мс" value={ms} onChange={e => setMs(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && +ms) { go(+ms); setMs(''); } }} title="Сдвиг в мс (минус — раньше), Enter" />
+    <button className="sm ic" title="Снять выбор (Esc)" onClick={() => clearPicked()}>✕</button>
+  </div>;
+}
+
 export function LinesCard() {
   if (!S.lines.length) return null;
   return <section className="card linescard">
@@ -196,6 +213,7 @@ export function LinesCard() {
       <button className="sm" id="btnAddBg" title="Отдельный бэк (без основной строки) в точке воспроизведения" onClick={addBgHere}>+ бэк у курсора</button>
       <button className="sm" id="btnParens" title="«текст (бэк)» → «(бэк)» уходит в фоновый вокал строки, тайминги слов переезжают вместе со словами" onClick={bracketsToBg}>( ) → бэки</button>
     </div>
+    <PickBar />
     <div className="lines" id="lines" style={{ marginTop: 10 }}>{S.lines.map((l, i) => <Fragment key={i}>
       {l.sec && <button className="sechd" style={{ '--sc': secColor(l.sec) } as CSSProperties} title="Секция до следующей: клик — сменить / убрать" onClick={e => secPick(e.nativeEvent, i)}>{l.sec}</button>}
       <LineRow i={i} />
