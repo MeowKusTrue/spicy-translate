@@ -26,7 +26,7 @@ import { W } from '../waveform/wave.ts';
 import type { Page } from '../state.ts';
 import { findAll } from '../core/index.ts';
 import { folderSupported, openProjectFolder, pickFolder, saveToFolder, unlinkFolder } from '../folder.ts';
-import { acceptDiff, canUndoGenius, geniusDiff, geniusPick, geniusQuery, geniusSearch, geniusToText, ignoreDiff, resetIgnored, undoGenius } from '../genius.ts';
+import { acceptDiff, canUndoGenius, geniusDiff, geniusPaste, geniusPick, geniusQuery, geniusSearch, geniusToText, ignoreDiff, resetIgnored, undoGenius } from '../genius.ts';
 import { selectGeniusChanges, type GeniusMode } from '../core/geniusImport.ts';
 
 const set = (f: () => void) => { f(); emit(); };
@@ -74,12 +74,19 @@ export function SearchCard() {
 
 function Genius() {
   const g = S.genius;
+  const [paste, setPaste] = useState<string | null>(null);
   return <div className="genius">
     <h3><span className="gl">G</span>Текст с Genius<small>сначала сверка, затем импорт: тайминги совпавших слов и перевод сохраняются</small></h3>
     <div className="row">
       <input type="text" id="gq" placeholder="Исполнитель название" value={geniusQuery()} onChange={e => set(() => S.genius = { hits: [], busy: false, msg: '', cls: '', ignored: [], ...S.genius, q: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') geniusSearch(); }} />
       <button id="btnGenius" disabled={g?.busy} onClick={() => geniusSearch()}>{g?.busy ? '…' : 'Найти на Genius'}</button>
     </div>
+    <button className="sm" id="btnGeniusPaste" style={{ marginTop: 8 }} onClick={() => setPaste(paste === null ? '' : null)}>Вставить текст с Genius</button>
+    {paste !== null && <div className="gimport">
+      <label className="fld"><small>Текст со страницы Genius</small><textarea id="geniusPaste" value={paste} onChange={e => setPaste(e.target.value)} placeholder="Скопируй текст песни из браузера. Заголовки [Куплет] и [Припев] можно оставить." /></label>
+      <p className="hint">Откроется сверка с проектом: ничего не заменится без применения.</p>
+      <div className="row"><button className="sm pri" id="btnGeniusPastePreview" disabled={!paste.trim() || g?.busy} onClick={() => { if (geniusPaste(paste)) setPaste(null); }}>Сверить с проектом</button><button className="sm" onClick={() => setPaste(null)}>Отмена</button></div>
+    </div>}
     {!!g?.hits.length && <div className="res" id="gres">{g.hits.map(h => <div className="item" key={h.id} onClick={() => !g.busy && geniusPick(h)}>
       {h.art ? <img src={h.art} alt="" /> : <span className="noart" />}<div><b>{h.title}</b><small>{h.artist}</small></div><span className="tag">взять текст</span>
     </div>)}</div>}

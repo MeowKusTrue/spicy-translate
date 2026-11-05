@@ -31,3 +31,12 @@ export function geniusLyrics(html: string, keepHeaders = false): string {
   const text = decode(body.replace(/<br\s*\/?>/gi, '\n').replace(/<\/div>/gi, '\n').replace(/<[^>]+>/g, ''));
   return text.split('\n').map(r => r.replace(/[ \t ]+/g, ' ').trim()).filter(r => r && (keepHeaders || !/^\[[^\]]*\]$/.test(r))).join('\n');
 }
+
+/** Genius redirects some song pages to a regional restriction page with HTTP 200. */
+export function geniusAccessError(html: string, url = ''): string | null {
+  if (url.includes('/a/the-page-you-re-attempting-to-visit-is-not-available-in-your-region')
+      || /<title>[^<]*not available in your region/i.test(html)) {
+    return 'Genius ограничил доступ к этой песне из региона приложения. Если страница открывается в браузере, скопируй текст и нажми «Вставить текст с Genius».';
+  }
+  return null;
+}

@@ -82,6 +82,17 @@ export async function geniusPick(h: GeniusHit) {
   done(n ? `Сверка с «${h.title}»: отличий ${n}. Выбери режим и проверь изменения перед импортом.` : `Текст совпадает с Genius («${h.title}»). Можно отдельно импортировать секции.`);
 }
 
+/** A browser may have access through its own VPN/proxy; pasted lyrics use the same safe preview. */
+export function geniusPaste(text: string): boolean {
+  const { rows, heads } = splitHeaders(text);
+  if (!rows.length) { toast('Вставь текст песни со страницы Genius.', 'err'); return false; }
+  pickRequest++;
+  S.genius = { q: geniusQuery(), hits: S.genius?.hits || [], busy: false, cls: 'ok',
+    text: rows.join('\n'), heads, seed: [], title: 'Текст из браузера', ignored: [],
+    msg: 'Текст вставлен для сверки. Проект не изменён — выбери режим и примени нужные отличия.' };
+  emit(); return true;
+}
+
 /* ---------- line-by-line check of the current text against Genius ---------- */
 export type DiffItem = GeniusChange;
 /** what differs, word by word: our lines keep their breaks; edit = new words for line m, add = a new line after m, del = line m */

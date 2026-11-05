@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { geniusLyrics } from '../src/core/genius.ts';
+import { geniusAccessError, geniusLyrics } from '../src/core/genius.ts';
 
 const page = `<html><body><div class="x"><div data-lyrics-container="true" class="Lyrics">
 <div data-exclude-from-selection="true" class="Header"><button><span>29 Contributors</span></button><div><div>Translations</div></div></div>
@@ -12,5 +12,10 @@ describe('geniusLyrics', () => {
   });
   it('empty for a page without lyrics', () => {
     expect(geniusLyrics('<html><div>nothing</div></html>')).toBe('');
+  });
+  it('recognizes the regional redirect even though Genius returns HTTP 200', () => {
+    expect(geniusAccessError('<title>The Page You&#39;re Attempting to Visit Is Not Available in Your Region | Genius</title>')).toContain('регион');
+    expect(geniusAccessError('', 'https://genius.com/a/the-page-you-re-attempting-to-visit-is-not-available-in-your-region')).toContain('Вставить текст');
+    expect(geniusAccessError(page)).toBeNull();
   });
 });

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { geniusAccessError } from '../src/core/genius.ts';
 
 const fixture = {
   v: 1, meta: { title: 'Import fixture', artist: 'Test artist', lang: 'ru', mode: 'translation', md: [] },
@@ -98,4 +99,21 @@ test('Genius import: undo of first import stays empty after reload', async ({ pa
   await expect.poll(() => project.lines.length).toBe(0);
   await page.reload();
   await expect(page.locator('#nav-text')).toBeDisabled();
+});
+
+test('Genius regional restriction: pasted browser text previews safely and supports rollback', async ({ page, request }) => {
+  const error = geniusAccessError('<title>Not Available in Your Region | Genius</title>');
+  await page.route('**/api/genius/lyrics?*', route => route.fulfill({ status: 502, json: { error } }));
+  await page.locator('#gres .item').click();
+  await expect(page.locator('.genius .status')).toContainText('регион');
+  await page.locator('#btnGeniusPaste').click();
+  await page.locator('#geniusPaste').fill('[Куплет]\nморе, песок\nлишняя строка\nдальше идём');
+  await page.locator('#btnGeniusPastePreview').click();
+  await expect(page.locator('.genius .status')).toContainText('Проект не изменён');
+  expect((await (await request.get('/api/project')).json()).project).toEqual(fixture);
+  await page.locator('#geniusMode').selectOption('edit');
+  await page.locator('#btnGeniusAll').click();
+  await expect.poll(async () => (await (await request.get('/api/project')).json()).project.lines[0].text).toBe('мо|ре, песок');
+  await page.locator('#btnGeniusUndo').click();
+  await expect.poll(async () => (await (await request.get('/api/project')).json()).project.lines[0].text).toBe('мо|ре песок');
 });

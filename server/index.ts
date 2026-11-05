@@ -162,8 +162,10 @@ async function geniusSearch(q: string): Promise<GeniusHit[]> {
 }
 async function geniusText(url: string) {
   if (!/^https:\/\/genius\.com\/[\w%.-]+-lyrics$/.test(url)) throw new Error('нужна ссылка на песню genius.com/…-lyrics');
-  const r = await fetch(url, { headers: GH }); if (!r.ok) throw new Error('Genius HTTP ' + r.status);
-  const text = C.geniusLyrics(await r.text(), true); if (!text) throw new Error('на странице нет текста (инструментал или Genius поменял вёрстку)');
+  const r = await fetch(url, { headers: GH }), html = await r.text();
+  const accessError = C.geniusAccessError(html, r.url); if (accessError) throw new Error(accessError);
+  if (!r.ok) throw new Error('Genius HTTP ' + r.status);
+  const text = C.geniusLyrics(html, true); if (!text) throw new Error('на странице нет текста (инструментал или Genius поменял вёрстку)');
   return text;
 }
 /**
@@ -451,7 +453,7 @@ if (!process.argv.includes('--http')) {
     const { id, method, params } = msg;
     if (id === undefined) return; // notification
     try {
-      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.0.6' } } });
+      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.0.7' } } });
       if (method === 'ping') return send({ id, result: {} });
       if (method === 'tools/list') return send({ id, result: { tools: Object.entries(tools).map(([name, t]) => ({ name, description: t.description, inputSchema: t.schema })) } });
       if (method === 'tools/call') {
