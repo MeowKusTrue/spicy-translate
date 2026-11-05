@@ -302,7 +302,14 @@ export function repeatTranslations(lines: Line[], from?: number) {
  */
 export function mergeMarkup(oldRow: string, newRow: string) {
   const A = oldRow.split(' ').filter(Boolean), B = newRow.split(' ').filter(Boolean), out = B.slice();
-  lcsWalk(A.map(w => w.replace(/\|/g, '')), B, (i, j) => { out[j] = A[i]; }, () => {});
+  const letter = (c: string) => /[\p{L}\p{N}]/u.test(c), key = (w: string) => w.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase() || w;
+  lcsWalk(A.map(key), B.map(key), (i, j) => {
+    if (B[j].includes('|')) return;
+    if (A[i].replace(/\|/g, '') === B[j]) { out[j] = A[i]; return; }
+    const cuts = new Set<number>(); let n = 0;
+    for (const c of A[i]) { if (c === '|') cuts.add(n); else if (letter(c)) n++; }
+    let k = 0; out[j] = [...B[j]].map(c => c + (letter(c) && cuts.has(++k) && k < n ? '|' : '')).join('');
+  }, () => {});
   return out.join(' ');
 }
 

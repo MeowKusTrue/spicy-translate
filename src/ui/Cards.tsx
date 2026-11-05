@@ -26,7 +26,8 @@ import { W } from '../waveform/wave.ts';
 import type { Page } from '../state.ts';
 import { findAll } from '../core/index.ts';
 import { folderSupported, openProjectFolder, pickFolder, saveToFolder, unlinkFolder } from '../folder.ts';
-import { acceptDiff, geniusDiff, geniusPick, geniusQuery, geniusSearch, geniusToText, ignoreDiff } from '../genius.ts';
+import { acceptDiff, canUndoGenius, geniusDiff, geniusPick, geniusQuery, geniusSearch, geniusToText, ignoreDiff, resetIgnored, undoGenius } from '../genius.ts';
+import { selectGeniusChanges, type GeniusMode } from '../core/geniusImport.ts';
 
 const set = (f: () => void) => { f(); emit(); };
 /** the audio is cached in IndexedDB under «artist - title»: after renaming, keep it under the new name too */
@@ -74,7 +75,7 @@ export function SearchCard() {
 function Genius() {
   const g = S.genius;
   return <div className="genius">
-    <h3><span className="gl">G</span>Текст с Genius<small>эталонный текст для Spicy: ляжет на тайминги, совпавшие строки сохранят разметку и перевод</small></h3>
+    <h3><span className="gl">G</span>Текст с Genius<small>сначала сверка, затем импорт: тайминги совпавших слов и перевод сохраняются</small></h3>
     <div className="row">
       <input type="text" id="gq" placeholder="Исполнитель название" value={geniusQuery()} onChange={e => set(() => S.genius = { hits: [], busy: false, msg: '', cls: '', ignored: [], ...S.genius, q: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') geniusSearch(); }} />
       <button id="btnGenius" disabled={g?.busy} onClick={() => geniusSearch()}>{g?.busy ? '…' : 'Найти на Genius'}</button>
@@ -83,24 +84,43 @@ function Genius() {
       {h.art ? <img src={h.art} alt="" /> : <span className="noart" />}<div><b>{h.title}</b><small>{h.artist}</small></div><span className="tag">взять текст</span>
     </div>)}</div>}
     {g?.msg && <div className={'status ' + g.cls}>{g.msg}</div>}
-    {g?.text && <GeniusDiff />}
+    {g?.text && <GeniusDiff key={g.id} />}
   </div>;
 }
 const KIND = { edit: 'правка', add: 'нет у нас', del: 'нет на Genius' };
 function GeniusDiff() {
   const ds = geniusDiff();
+  const [mode, setMode] = useState<GeniusMode>('merge');
+  const [removeMissing, setRemoveMissing] = useState(false), [sections, setSections] = useState(false);
+  const selected = selectGeniusChanges(ds, mode, removeMissing);
+  const count = (kind: 'add' | 'edit' | 'del') => selected.filter(d => d.kind === kind).length;
+  const missing = ds.filter(d => d.kind === 'del').length;
   return <div className="gdiff">
     <div className="row"><b>Сверка с Genius{S.genius?.title ? ` · ${S.genius.title}` : ''}</b><span className="sp" />
-      <button className="sm pri" id="btnGeniusAll" disabled={!ds.length} onClick={() => acceptDiff(ds)}>✓ Принять все ({ds.length})</button>
+      <button className="sm" id="btnGeniusUndo" disabled={!canUndoGenius()} title="Отменить последний импорт. После других правок используй Ctrl+Z." onClick={undoGenius}>↶ Отменить импорт</button>
       <button className="sm" title="Весь текст Genius во вкладку «Текст» — править руками" onClick={geniusToText}>В «Текст»</button>
-      <button className="sm ic" title="Закрыть сверку" onClick={() => set(() => { S.genius = { ...S.genius!, text: undefined, msg: '' }; })}>✕</button></div>
-    {ds.map((d, x) => <div key={x + d.key} className={'gd ' + d.kind}>
+      <button className="sm ic" aria-label="Закрыть сверку" title="Закрыть сверку" onClick={() => set(() => { S.genius = { ...S.genius!, text: undefined, msg: '' }; })}>✕</button></div>
+    <div className="gimport">
+      <label className="fld"><small>Режим импорта</small><select id="geniusMode" value={mode} onChange={e => setMode(e.target.value as GeniusMode)}>
+        <option value="merge">Добавить и заменить</option><option value="add">Только новые строки</option><option value="edit">Только замены существующих</option>
+      </select></label>
+      <label><input type="checkbox" id="geniusRemove" checked={removeMissing} disabled={mode !== 'merge' || !missing} onChange={e => setRemoveMissing(e.target.checked)} /> Удалить строки, которых нет на Genius ({missing})</label>
+      <label><input type="checkbox" id="geniusSections" checked={sections} disabled={!S.genius?.heads?.length} onChange={e => setSections(e.target.checked)} /> Заменить секции по Genius ({S.genius?.heads?.length || 0})</label>
+      <p className="hint" aria-live="polite">Будет добавлено: {count('add')} · заменено: {count('edit')} · удалено: {count('del')}. Остальные строки сохранятся.
+        {count('add') > 0 && ' У новых строк время примерное — проверь на волне.'}</p>
+      <div className="row">
+        <button className="sm pri" id="btnGeniusAll" disabled={S.genius?.busy || (!selected.length && !sections)} onClick={() => acceptDiff(selected, sections)}>Применить изменения ({selected.length})</button>
+        {!!S.genius?.ignored.length && <button className="sm" id="btnGeniusResetIgnored" onClick={resetIgnored}>Вернуть пропущенные ({S.genius.ignored.length})</button>}
+      </div>
+    </div>
+    {!selected.length && <p className="hint">В выбранном режиме нет текстовых изменений.</p>}
+    <div className="gdiff-list">{selected.map(d => <div key={d.key} className={'gd ' + d.kind}>
       <span className="k">{KIND[d.kind]}{d.kind !== 'add' && <small> · стр. {d.m + 1}</small>}</span>
       <span className="tx">{d.from && <s>{d.from}</s>}{d.to && <ins>{d.to}</ins>}</span>
       {d.kind !== 'add' && <button className="sm ic" title="Показать строку" onClick={() => { seekTo(S.lines[d.m].t); focusLine(d.m, 'orig'); }}>▶</button>}
-      <button className="sm ic ok" title={d.kind === 'del' ? 'Удалить строку' : d.kind === 'add' ? 'Добавить строку (время — между соседями)' : 'Принять текст Genius; разметка совпавших слов останется'} onClick={() => acceptDiff([d])}>✓</button>
-      <button className="sm ic" title="Оставить как у нас" onClick={() => ignoreDiff(d)}>✕</button>
-    </div>)}
+      <button className="sm ic ok" aria-label={d.kind === 'del' ? 'Удалить эту строку' : d.kind === 'add' ? 'Добавить эту строку' : 'Заменить эту строку'} title={d.kind === 'del' ? 'Удалить строку' : d.kind === 'add' ? 'Добавить строку (время — между соседями)' : 'Принять текст Genius; разметка совпавших слов останется'} onClick={() => acceptDiff([d])}>✓</button>
+      <button className="sm ic" aria-label="Пропустить это отличие" title="Оставить как у нас" onClick={() => ignoreDiff(d)}>✕</button>
+    </div>)}</div>
   </div>;
 }
 

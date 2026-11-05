@@ -1,15 +1,16 @@
 // Text from Genius (where Spicy Lyrics makers take lyrics from). Genius has no timings, so its text is laid
 // over the lines we have (LRCLIB / LRC / auto-timing) through the «Текст» tab: rows are matched by similarity,
 // timings of matched lines stay, translations follow their lines. The server fetches Genius (no CORS there).
-import { alignRows, lineRow, splitHeaders, textDiff } from './core/index.ts';
-import { snap } from './sync.ts';
-import { scheduleSave } from './persist.ts';
-import { drawWave } from './waveform/wave.ts';
+import { alignRows, entriesToLines, lineRow, parseLRC, splitHeaders } from './core/index.ts';
+import { applyGeniusChanges, geniusChanges, setGeniusSections, type GeniusChange } from './core/geniusImport.ts';
+import { doUndo, snap } from './sync.ts';
+import { scheduleSave, snapshot } from './persist.ts';
+import { drawWave, W } from './waveform/wave.ts';
+import { buildPreview } from './preview.ts';
 import { S, emit, toast } from './state.ts';
-import { fetchSearch, loadManual, loadTrack } from './load.ts';
+import { fetchSearch } from './load.ts';
 import { setPage } from './hotkeys.ts';
-import { applyFull } from './lineEdit.ts';
-import { setMeta, splitArtists } from './metadata.ts';
+import { setMeta } from './metadata.ts';
 
 export interface GeniusHit { id: number; title: string; artist: string; url: string; art: string }
 const api = async <T,>(path: string): Promise<T> => {
@@ -21,9 +22,11 @@ const api = async <T,>(path: string): Promise<T> => {
 };
 const busy = (msg: string) => { S.genius = { ...S.genius!, busy: true, msg, cls: '' }; emit(); };
 const done = (msg: string, cls = 'ok') => { S.genius = { ...S.genius!, busy: false, msg, cls }; emit(); };
+let pickRequest = 0;
 
 export function geniusQuery() { return S.genius?.q ?? [S.meta.artist, S.meta.title].filter(Boolean).join(' ') ?? ''; }
 export async function geniusSearch(q = geniusQuery()) {
+  pickRequest++;
   q = q.trim(); S.genius = { q, hits: S.genius?.hits || [], busy: true, msg: 'Ищу на Genius…', cls: '', ignored: [] }; emit();
   if (!q) return done('Впиши исполнителя и название', 'err');
   try {
@@ -59,68 +62,61 @@ export async function geniusWriters(id = S.genius?.id, title = S.genius?.title, 
 /** Genius title without the translated name in brackets: «Буду твоей пальмой! (I'll Be Your Palm!)» */
 const bare = (t: string) => t.replace(/\s*[([][^)\]]*[)\]]\s*$/, '').trim() || t;
 export async function geniusPick(h: GeniusHit) {
+  const request = ++pickRequest;
   busy(`Беру текст «${h.title}»…`);
   let text: string;
   try { text = (await api<{ text: string }>('/api/genius/lyrics?url=' + encodeURIComponent(h.url))).text; }
-  catch (e) { return done('Genius: ' + (e as Error).message, 'err'); }
+  catch (e) { if (request === pickRequest) return done('Genius: ' + (e as Error).message, 'err'); return; }
+  if (request !== pickRequest) return;
   const { rows, heads } = splitHeaders(text); text = rows.join('\n'); // [Припев] headers -> sections
-  if (!S.lines.length) { // nothing to lay the text on yet: timings from LRCLIB, else the text spread evenly
+  let seed: typeof S.lines = [];
+  if (!S.lines.length) { // prepare optional timing references without modifying the project
     busy('Ищу тайминги этой песни в LRCLIB…');
     const synced = (await fetchSearch(`${h.artist} ${bare(h.title)}`).catch(() => [])).filter(d => d.syncedLyrics);
     if (S.hasAudio) synced.sort((a, b) => Math.abs((a.duration || 0) - S.duration) - Math.abs((b.duration || 0) - S.duration));
-    if (synced.length) loadTrack(synced[0]);
-    else {
-      loadManual(text); S.meta.title = bare(h.title); S.meta.artist = h.artist;
-      return done('Тайминги в LRCLIB не нашлись: текст Genius разложен по времени ровно. Подгони строки на волне или запусти ✨ Авто-тайминг.', 'err');
-    }
+    if (synced.length) seed = entriesToLines(parseLRC(synced[0].syncedLyrics!), synced[0].duration);
   }
-  S.genius = { ...S.genius!, text, heads, title: h.title, id: h.id, ignored: [] };
-  setMeta('musicName', [bare(h.title)]); setMeta('artists', splitArtists(h.artist)); emit(); scheduleSave();
-  geniusWriters(h.id, h.title, true);
-  if (heads.length) snap();
-  const ns = applySections(), n = geniusDiff().length, sec = ns ? ` Секции с Genius: ${ns} — цветные блоки над волной.` : '';
-  done((n ? `Сверка с «${h.title}»: отличий ${n}. Принимай по строке (✓) или все сразу — разметка совпавших слов сохранится.` : `Текст совпадает с Genius («${h.title}») — править нечего.`) + sec);
-}
-/** Genius section headers onto our lines (the line where the header's first row starts); returns how many */
-export function applySections() {
-  const g = S.genius; if (!g?.text || !g.heads?.length) return 0;
-  const rows = g.text.split('\n'), map = textDiff(S.lines.map(l => lineRow(l, false)), rows).rowLine;
-  S.lines.forEach(l => { delete l.sec; });
-  let n = 0;
-  g.heads.forEach((h, x) => {
-    const end = x + 1 < g.heads!.length ? g.heads![x + 1].row : rows.length;
-    for (let r = h.row; r < end; r++) if (map[r] >= 0) { const l = S.lines[map[r]]; if (!l.sec) { l.sec = h.label; n++; } break; }
-  });
-  emit(); drawWave(); scheduleSave();
-  return n;
+  if (request !== pickRequest) return;
+  S.genius = { ...S.genius!, text, heads, seed, title: h.title, id: h.id, ignored: [] };
+  const n = geniusDiff().length;
+  done(n ? `Сверка с «${h.title}»: отличий ${n}. Выбери режим и проверь изменения перед импортом.` : `Текст совпадает с Genius («${h.title}»). Можно отдельно импортировать секции.`);
 }
 
 /* ---------- line-by-line check of the current text against Genius ---------- */
-export interface DiffItem { kind: 'edit' | 'add' | 'del'; m: number; to: string; from: string; key: string; j: number }
+export type DiffItem = GeniusChange;
 /** what differs, word by word: our lines keep their breaks; edit = new words for line m, add = a new line after m, del = line m */
 export function geniusDiff(): DiffItem[] {
   const g = S.genius; if (!g?.text) return [];
-  const old = S.lines.map(l => lineRow(l, false)), d = textDiff(old, g.text.split('\n')), out: DiffItem[] = [];
-  d.edits.forEach(e => out.push({ kind: 'edit', m: e.m, to: e.row, from: old[e.m], key: 'edit:' + old[e.m] + '→' + e.row, j: 0 }));
-  d.adds.forEach((e, j) => out.push({ kind: 'add', m: e.after, to: e.row, from: '', key: 'add:' + e.row, j }));
-  d.dels.forEach(m => out.push({ kind: 'del', m, to: '', from: old[m], key: 'del:' + old[m], j: 0 }));
-  return out.filter(x => !g.ignored.includes(x.key)).sort((a, b) => a.m - b.m || (a.kind === 'add' ? 1 : -1) || a.j - b.j);
+  return geniusChanges(S.lines, g.text.split('\n')).filter(d => !g.ignored.includes(d.key));
 }
-/** apply some differences through the «Текст» machinery (timings of unchanged words, translations, bg stay) */
-export function acceptDiff(items: DiffItem[]) {
-  if (!items.length) return;
-  const o = S.lines.map(l => lineRow(l, false)), t = S.lines.map(l => lineRow(l, true));
-  // bottom-up so earlier indexes stay valid; additions after a line go in before it changes, last first
-  for (const d of [...items].sort((a, b) => b.m - a.m || (a.kind === 'add' ? -1 : 1) || b.j - a.j)) {
-    if (d.kind === 'edit') o[d.m] = d.to;
-    else if (d.kind === 'add') { o.splice(d.m + 1, 0, d.to); t.splice(d.m + 1, 0, ''); }
-    else { o.splice(d.m, 1); t.splice(d.m, 1); }
-  }
-  S.full = { o: o.join('\n'), t: t.some(Boolean) ? t.join('\n') : '', dirty: true };
-  applyFull(); applySections();
-  const left = geniusDiff().length; S.genius = { ...S.genius!, msg: left ? `Осталось отличий: ${left}` : 'Текст совпадает с Genius ✓', cls: 'ok' }; emit();
+let lastImport: { before: string; after: string; full: typeof S.full } | null = null;
+export function canUndoGenius() {
+  return !!lastImport && JSON.stringify(S.lines) === lastImport.after && S.undo.at(-1) === lastImport.before;
+}
+export function undoGenius() {
+  if (!canUndoGenius()) return;
+  doUndo(); S.full = lastImport!.full;
+  done('Импорт Genius отменён. Ctrl+Shift+Z — вернуть.');
+}
+/** Each import is one undo step; untouched rows bypass whole-song rematching entirely. */
+export function acceptDiff(items: DiffItem[], sections = false) {
+  const g = S.genius; if (!g?.text || (!items.length && !sections)) return;
+  if (S.full?.dirty) return toast('Во вкладке «Текст» есть неприменённые правки. Примени или сбрось их перед импортом Genius.', 'err');
+  const valid = new Set(geniusDiff().map(d => d.key)); items = items.filter(d => valid.has(d.key));
+  const next = applyGeniusChanges(S.lines, items, g.seed);
+  if (sections && g.heads?.length) setGeniusSections(next, g.text.split('\n'), g.heads);
+  const before = JSON.stringify(S.lines), after = JSON.stringify(next);
+  if (before === after) return done('В выбранном режиме изменений нет.');
+  snapshot('перед импортом Genius');
+  lastImport = { before, after, full: S.full ? structuredClone(S.full) : null };
+  snap(); S.lines = next; S.full = null; S.sel = null; S.picked.clear(); W.multi = [];
+  S.duration = Math.max(S.duration, ...next.map(l => l.end + 2));
+  buildPreview(true); drawWave(); scheduleSave();
+  const count = (kind: DiffItem['kind']) => items.filter(d => d.kind === kind).length;
+  done(`Импортировано: добавлено ${count('add')}, заменено ${count('edit')}, удалено ${count('del')}. Ctrl+Z — отмена.`);
 }
 export function ignoreDiff(d: DiffItem) { S.genius = { ...S.genius!, ignored: [...S.genius!.ignored, d.key] }; emit(); }
+export function resetIgnored() { if (S.genius) { S.genius.ignored = []; emit(); } }
 /** the whole Genius text into the «Текст» tab, to edit by hand */
 export function geniusToText() { if (S.genius?.text) layOver(S.genius.text); }
 /** Genius rows into the «Текст» draft; each row brings the translation of the line it matched */

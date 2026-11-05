@@ -1,10 +1,11 @@
 // Word sync actions (hotkeys AND toolbar buttons use these) + undo/redo on text+sync snapshots.
 import { fitAndSort, plainW, sameLines, splitWords, syllabify, units, unitsText, type Layer } from './core/index.ts';
-import { S, conf, doubtful, emit, ensureSync, fillLine, layerText, lineState, r3, setText, spreadLine, toast, viewWords, wordsOf, type ViewWord } from './state.ts';
+import { S, conf, doubtful, emit, ensureSync, fillLine, layerText, lineState, ls, r3, setText, spreadLine, toast, viewWords, wordsOf, type ViewWord } from './state.ts';
 import { now, playWord } from './audio.ts';
 import { forgetWord, learnAndSpread } from './syllables.ts';
 import { buildPreview, refreshPreviewLine } from './preview.ts';
-import { scheduleSave } from './persist.ts';
+import { projectJSON, scheduleSave } from './persist.ts';
+import { pushLive } from './live.ts';
 import { W, drawWave } from './waveform/wave.ts';
 
 /* ---------- undo ---------- */
@@ -17,6 +18,8 @@ export function restore(json: string) {
   if (S.sel && S.sel.i >= S.lines.length) S.sel = S.lines.length ? { i: S.lines.length - 1, k: 0 } : null;
   if (txt(S.lines) !== before) { S.picked.clear(); buildPreview(true); }
   afterSyncChange(true);
+  // Explicit undo to an empty project must not resurrect the imported text on reload.
+  if (!S.lines.length) { ls.set('last', projectJSON()); pushLive(); }
 }
 export function doUndo() { if (!S.undo.length) return; S.redo.push(stateJSON()); restore(S.undo.pop()!); }
 export function doRedo() { if (!S.redo.length) return; S.undo.push(stateJSON()); restore(S.redo.pop()!); }
