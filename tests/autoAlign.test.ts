@@ -1,9 +1,15 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { addBacking, alignArgs } from '../src/core/autoAlign.ts';
+import { addBacking, alignArgs, recommendedModels } from '../src/core/autoAlign.ts';
 import type { Line } from '../src/core/types.ts';
 
 describe('auto alignment models and backing import', () => {
+  it('suggests a starting point for the selected hardware and song language', () => {
+    expect(recommendedModels('cuda', 'ru')).toEqual({ sep: 'roformer', asr: 'turbo', aligner: 'w2v' });
+    expect(recommendedModels('cpu', 'en')).toEqual({ sep: 'htdemucs', asr: 'turbo', aligner: 'w2v' });
+    expect(recommendedModels('dml', 'fr')).toEqual({ sep: 'htdemucs', asr: 'turbo', aligner: 'mms' });
+    expect(recommendedModels('xpu', 'ru').sep).toBe('htdemucs');
+  });
   it('forwards supported models and backing recognition only', () => {
     expect(alignArgs(new URLSearchParams('sep=roformer&asr=large-v3&aligner=mms&detectBack=1&transcribe=1&lang=ru')))
       .toEqual(['--sep', 'roformer', '--asr', 'large-v3', '--aligner', 'mms', '--transcribe', '--detect-back', '--song-lang', 'ru']);

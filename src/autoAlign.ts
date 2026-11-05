@@ -113,7 +113,7 @@ function merge(res: Line[], only: number[] | null = null) {
 }
 
 /* ---------- the «Авто-тайминг» panel: GPU found, which PyTorch build, install with progress, cancel, remove ---------- */
-export type Gpu = { names: string[]; backend: string; why: string; cu?: string };
+export type Gpu = { names: string[]; backend: string; why: string; cu?: string; memoryTotal?: number; memoryFree?: number };
 export type SetupState = { running: boolean; step: string; pct: number; error: string; installed: boolean; backend: string; file: string; got: number; size: number; last: string; bytes?: number; dir: string; external: boolean };
 let polling = false;
 async function refresh(withSize = false) {

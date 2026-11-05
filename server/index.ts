@@ -10,13 +10,14 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { dataDirectory } from './paths.ts';
 import * as C from '../src/core/index.ts';
 import type { Layer, Mode, Project } from '../src/core/index.ts';
 
 // desktop app (single exe): the bundle runs as CommonJS, paths come from SPICY_ROOT / SPICY_HTML / SPICY_DIR
 const root = process.env.SPICY_ROOT || path.resolve(path.dirname(typeof __filename === 'string' ? __filename : fileURLToPath(import.meta.url)), '..');
 const PORT = +(process.env.SPICY_PORT || 0) || 8787;
-const DATA = process.env.SPICY_DIR || root;
+const DATA = dataDirectory(process.env.SPICY_DIR || root);
 const FILE = path.join(DATA, 'spicy-project.json');
 const htmlPath = process.env.SPICY_HTML || path.join(root, 'dist', 'index.html');
 
@@ -56,14 +57,14 @@ function alignEnv(): { dir: string; py: string } | null {
 // ffmpeg.exe is copied next to python.exe, which goes first on PATH for align.py).
 // the browser launcher keeps its data in the repo; the desktop app installs into %LOCALAPPDATA%: one install serves both
 // (LOCALAPPDATA can be missing in the environment of a launched process: the profile path is the same thing)
-const APP_PY = process.platform === 'win32' ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'dev.spicytranslate.editor', 'python') : '';
+const APP_PY = process.platform === 'win32' ? dataDirectory(path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'dev.spicytranslate.editor', 'python')) : '';
 // Installs know about each other: a server with a ready install notes its folder next to the app's data
 // (python-path.txt), so the app and the browser launcher use whichever one exists instead of downloading ~3 GB again.
 const NOTE = APP_PY ? path.join(path.dirname(APP_PY), 'python-path.txt') : '';
 const ready = (d: string) => !!d && fs.existsSync(path.join(d, '.ready')) && fs.existsSync(path.join(d, process.platform === 'win32' ? 'python.exe' : path.join('bin', 'python3')));
 const noted = () => { try { return fs.readFileSync(NOTE, 'utf8').trim(); } catch { return ''; } };
 /** this server's own install, else the app's, else one noted by another server; a new install goes to the app's folder */
-const pyHome = () => { const own = path.join(DATA, 'python'); return ready(own) || !APP_PY ? own : ready(APP_PY) ? APP_PY : ready(noted()) ? noted() : APP_PY; };
+const pyHome = () => { const own = path.join(DATA, 'python'); return ready(own) || !APP_PY ? own : ready(APP_PY) ? APP_PY : ready(noted()) ? dataDirectory(noted()) : APP_PY; };
 function notePython() { const h = pyHome(); if (NOTE && ready(h) && noted() !== h) try { fs.mkdirSync(path.dirname(NOTE), { recursive: true }); fs.writeFileSync(NOTE, h); } catch {} }
 const pyExe = () => path.join(pyHome(), process.platform === 'win32' ? 'python.exe' : path.join('bin', 'python3'));
 type Backend = 'cuda' | 'xpu' | 'dml' | 'cpu';
@@ -91,7 +92,9 @@ async function detectGpu() {
     : amd ? { backend: 'dml', why: `${amd} → DirectML (Demucs на процессоре)` }
     : nv ? { backend: 'cpu', why: `${nv}: драйвер слишком старый для CUDA (обнови драйвер) → процессор` }
     : { backend: 'cpu', why: 'подходящей видеокарты нет → процессор' };
-  return { names, cuda, cu: cu || 'cu124', ...pick };
+  const memory = (await out1('nvidia-smi', ['--query-gpu=memory.total,memory.free', '--format=csv,noheader,nounits'])).trim().split(/\r?\n/)[0]?.split(',').map(x => Number(x.trim()));
+  return { names, cuda, cu: cu || 'cu124', ...pick,
+    ...(memory?.length === 2 && memory.every(n => Number.isFinite(n) && n >= 0) ? { memoryTotal: memory[0], memoryFree: memory[1] } : {}) };
 }
 // torchvision comes from the same index: otherwise a later dependency pulls the newest one from PyPI, and with it a
 // CPU-only torch that replaces the GPU build (torchaudio then fails to load and auto-timing dies at start)
@@ -150,7 +153,7 @@ async function setupAlign(want?: Backend) {
   step('готово', 100); SETUP.done = true;
 }
 /** bump when the editor needs new server endpoints (3: auto-timing install / GPU / open folder) */
-const API = 13; // 13: selectable ASR / aligner and backing candidates · 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes · 10: install pins torch, Python found without LOCALAPPDATA · 11: installs noted for each other (python-path.txt) · 12: /api/spell
+const API = 14; // 14: moved data paths and GPU memory · 13: selectable ASR / aligner and backing candidates · 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes · 10: install pins torch, Python found without LOCALAPPDATA · 11: installs noted for each other (python-path.txt) · 12: /api/spell
 /* ---------- Genius (lyrics makers take the text from there). No CORS for pages, so the server fetches them. ---------- */
 const GH = { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', 'accept-language': 'en-US,en;q=0.9' };
 type GeniusHit = { id: number; title: string; artist: string; url: string; art: string };
@@ -250,7 +253,8 @@ async function alignRoute(req: http.IncomingMessage, res: http.ServerResponse, u
   }
   if (u.pathname === '/api/align/setup') {
     const info = readyInfo(), installed = !!info || (SETUP.done && fs.existsSync(pyExe()));
-    return json(res, { running: SETUP.running, step: SETUP.step, pct: SETUP.pct, error: installed && !SETUP.running ? '' : SETUP.error, done: SETUP.done || !!alignEnv(), installed, // an old failed attempt is no news once it is installed backend: info?.backend || SETUP.backend,
+    return json(res, { running: SETUP.running, step: SETUP.step, pct: SETUP.pct, error: installed && !SETUP.running ? '' : SETUP.error, done: SETUP.done || !!alignEnv(), installed, // an old failed attempt is no news once it is installed
+      backend: info?.backend || SETUP.backend,
       file: SETUP.file, got: SETUP.got, size: SETUP.size, last: SETUP.log.slice(-1)[0] || '', bytes: u.searchParams.has('size') && installed ? dirSize(pyHome()) : undefined, dir: pyHome(),
       external: !installed && !!alignEnv() }); // a dev venv (worktree / experiments) is in use instead
   }
@@ -448,7 +452,7 @@ if (!process.argv.includes('--http')) {
     const { id, method, params } = msg;
     if (id === undefined) return; // notification
     try {
-      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.0.8' } } });
+      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.0.9' } } });
       if (method === 'ping') return send({ id, result: {} });
       if (method === 'tools/list') return send({ id, result: { tools: Object.entries(tools).map(([name, t]) => ({ name, description: t.description, inputSchema: t.schema })) } });
       if (method === 'tools/call') {

@@ -1,7 +1,7 @@
 // «Авто-тайминг» panel: the GPU that was found, which PyTorch build to install, install progress, cancel / remove.
 import { S, emit } from '../state.ts';
 import { DEVICES, acceptBacking, cancelOrRemoveAlign, closeAlignPanel, installAlign, modelOptions, openFolder, setModelOptions } from '../autoAlign.ts';
-import { fmtTime } from '../core/index.ts';
+import { fmtTime, recommendedModels } from '../core/index.ts';
 import { pause, playWord } from '../audio.ts';
 
 const GB = (b: number) => b >= 1e9 ? (b / 1e9).toFixed(2) + ' ГБ' : Math.round(b / 1e6) + ' МБ';
@@ -10,12 +10,14 @@ const OPTS: [string, string, string][] = [
   ['cuda', 'NVIDIA (CUDA)', '≈3 ГБ, быстро; RTX 50xx тоже'],
   ['xpu', 'Intel Arc (XPU)', '≈2.5 ГБ'],
   ['dml', 'AMD / другая (DirectML)', '≈1 ГБ; голос режется на процессоре'],
-  ['cpu', 'Только процессор', '≈1 ГБ, медленнее в 5–10 раз'],
+  ['cpu', 'Только процессор', '≈1 ГБ, обработка дольше'],
 ];
 
 export function AlignPanel() {
   const p = S.alignPanel; if (!p) return null;
   const st = p.st, gpu = p.gpu, busy = !!st?.running;
+  const backend = p.pick === 'auto' ? gpu?.backend || '' : p.pick;
+  const rec = recommendedModels(backend, S.meta.lang);
   return <div className="modal" id="alignPanel" onMouseDown={e => { if ((e.target as Element).id === 'alignPanel' && !busy) closeAlignPanel(); }}>
     <div className="help apanel">
       <button className="sm ic close" title="Закрыть (установка продолжится)" onClick={closeAlignPanel}>✕</button>
@@ -23,11 +25,20 @@ export function AlignPanel() {
       <p>Нейросеть вырезает голос и расставляет слова оригинала и бэка — черновиком (пунктир), размеченное вручную не трогает. Ставится в папку приложения: свой Python, PyTorch и модели, система не меняется.</p>
       <fieldset disabled={!!S.align}>
         <legend>Модели следующего запуска</legend>
-        <label className="fld">Выделение вокала<select id="alignSeparator" value={modelOptions.sep} onChange={e => setModelOptions({ sep: e.target.value as typeof modelOptions.sep })}><option value="htdemucs">HTDemucs</option><option value="roformer">MelBand-RoFormer</option></select></label>
-        <label className="fld">Распознавание текста и новых бэков<select id="alignAsr" value={modelOptions.asr} onChange={e => setModelOptions({ asr: e.target.value as typeof modelOptions.asr })}><option value="turbo">Whisper large-v3-turbo — быстрее</option><option value="large-v3">Whisper large-v3 — полная модель, медленнее</option></select></label>
-        <label className="fld">Тайминги известного текста<select id="alignModel" value={modelOptions.aligner} onChange={e => setModelOptions({ aligner: e.target.value as typeof modelOptions.aligner })}><option value="w2v">wav2vec2 — русский / английский</option><option value="mms">MMS-FA — многоязычный</option></select></label>
+        <div className="aprog" id="alignRecommendation">
+          <b>С чего начать</b>
+          <p>{backend ? `Для ${DEVICES[backend] || backend}: ${rec.sep === 'roformer' ? 'MelBand-RoFormer' : 'HTDemucs'} + Whisper Turbo + ${rec.aligner === 'w2v' ? 'wav2vec2' : 'MMS-FA'}.` : 'Определяю оборудование — затем предложу стартовый набор.'} Это начальные настройки, качество проверь на слух.</p>
+          <button className="sm" id="btnAlignRecommended" disabled={!backend} onClick={() => setModelOptions(rec)}>Выбрать стартовый набор</button>
+        </div>
+        <label className="fld">Выделение вокала<select id="alignSeparator" aria-describedby="alignSepHint" value={modelOptions.sep} onChange={e => setModelOptions({ sep: e.target.value as typeof modelOptions.sep })}><option value="htdemucs">HTDemucs</option><option value="roformer">MelBand-RoFormer</option></select></label>
+        <p className="hint" id="alignSepHint">{modelOptions.sep === 'roformer' ? 'Попробуй на NVIDIA, если инструменты мешают слышать слова. Сравни с HTDemucs; на процессоре обработка может быть долгой.' : 'Начни с него на процессоре, AMD или Intel. Выделяет весь вокал; для поиска бэков дополнительно включи опцию ниже.'}</p>
+        <label className="fld">Распознавание текста и новых бэков<select id="alignAsr" aria-describedby="alignAsrHint" value={modelOptions.asr} onChange={e => setModelOptions({ asr: e.target.value as typeof modelOptions.asr })}><option value="turbo">Whisper large-v3-turbo — быстрее</option><option value="large-v3">Whisper large-v3 — полная модель, медленнее</option></select></label>
+        <p className="hint" id="alignAsrHint">{modelOptions.asr === 'turbo' ? 'Первый выбор для быстрого черновика и поиска бэков. Если пропускает слова — сравни с полной large-v3.' : 'Попробуй, если Turbo ошибается в словах. Требует больше памяти и времени; при нехватке памяти верни Turbo.'} На тайминги уже введённого текста этот выбор не влияет.</p>
+        {gpu?.memoryTotal != null && <p className="hint" id="alignMemory">Память NVIDIA: {(gpu.memoryTotal / 1024).toFixed(1)} ГБ всего, {((gpu.memoryFree || 0) / 1024).toFixed(1)} ГБ свободно на момент проверки. Свободная память меняется; это не гарантия, что модель поместится.</p>}
+        <label className="fld">Тайминги известного текста<select id="alignModel" aria-describedby="alignTimingHint" value={modelOptions.aligner} onChange={e => setModelOptions({ aligner: e.target.value as typeof modelOptions.aligner })}><option value="w2v">wav2vec2 — русский / английский</option><option value="mms">MMS-FA — многоязычный</option></select></label>
+        <p className="hint" id="alignTimingHint">{modelOptions.aligner === 'w2v' ? 'Начни с него для русского или английского текста. Если тайминги съезжают, сравни ту же строку с MMS-FA.' : 'Попробуй для других языков или как альтернативу при неточных таймингах. Для русско-английского текста сравни с wav2vec2.'} Расставляет известные слова, новые слова не распознаёт.</p>
         <label className="row"><input id="alignDetectBack" type="checkbox" checked={modelOptions.detectBack} onChange={e => setModelOptions({ detectBack: e.target.checked })} />Искать новые бэки по аудио</label>
-        <p className="hint">Бэки: отдельная дорожка UVR Karaoke → Whisper → сверка перед добавлением. Возможны пропуски и просачивание основного голоса. Модели скачиваются при первом запуске; полная Whisper занимает больше памяти. Более крупная модель не гарантирует лучший результат на каждом треке.</p>
+        <p className="hint">Включи, если нужны новые ад-либы и фоновые фразы. Выключи, если нужны только тайминги готового текста: обработка будет короче. Найденные бэки сначала откроются для прослушивания и выбора; существующие бэки размечаются и без поиска новых. Модели скачиваются при первом запуске.</p>
       </fieldset>
       {p.err && <div className="aprog"><small className="aerr">{p.err}</small></div>}
       <div className="arow"><b>Видеокарта</b><span>{gpu ? <>{gpu.names.join(', ') || '—'}<small>{gpu.why}</small></> : 'определяю…'}</span></div>

@@ -66,3 +66,25 @@ test('desktop asynchronous confirmation: Cancel prevents deleting the timing ins
   expect(deletes).toBe(0);
   await expect(page.locator('#btnAlignRemove')).toBeVisible();
 });
+
+test('inline model hints and hardware preset explain the choice and preserve backing preference', async ({ page, request }) => {
+  await request.put('/api/project?by=page', { data: fixture });
+  await page.route('**/api/align/gpu', route => route.fulfill({ json: { names: ['NVIDIA RTX test'], backend: 'cuda', why: 'test', memoryTotal: 10240, memoryFree: 5120 } }));
+  await page.goto('/');
+  await page.locator('#nav-sync').click(); await page.locator('#helpClose').click();
+  await page.locator('#btnAlignPanel').click();
+  await expect(page.locator('#alignRecommendation')).toContainText('MelBand-RoFormer + Whisper Turbo + wav2vec2');
+  await expect(page.locator('#alignMemory')).toContainText('10.0 ГБ всего, 5.0 ГБ свободно');
+  await page.locator('#alignDetectBack').check();
+  await page.locator('#btnAlignRecommended').click();
+  await expect(page.locator('#alignSeparator')).toHaveValue('roformer');
+  await expect(page.locator('#alignAsr')).toHaveValue('turbo');
+  await expect(page.locator('#alignDetectBack')).toBeChecked();
+  await page.locator('#alignAsr').selectOption('large-v3');
+  await expect(page.locator('#alignAsrHint')).toContainText('при нехватке памяти верни Turbo');
+  await expect(page.locator('#alignAsrHint')).toContainText('На тайминги уже введённого текста этот выбор не влияет');
+  await page.getByRole('radio', { name: 'Только процессор', exact: false }).check();
+  await expect(page.locator('#alignRecommendation')).toContainText('HTDemucs + Whisper Turbo');
+  await page.locator('#btnAlignRecommended').click();
+  await expect(page.locator('#alignSeparator')).toHaveValue('htdemucs');
+});
