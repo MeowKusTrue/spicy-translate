@@ -81,7 +81,7 @@ export function newLineEdit(t: number, layer: Layer) {
 export function openEdit(i: number, layer: Layer, k = -1, fresh = false) {
   closeEdit(true);
   const cv = document.getElementById('wave'), l = S.lines[i]; if (!cv || !l) return;
-  const r = cv.getBoundingClientRect(), [y, hh] = laneY(isBg(layer) ? 'bg' : 'main');
+  const r = cv.getBoundingClientRect(), [y, hh] = laneY(isBg(layer) ? 'bg' : 'main', i);
   const vw = viewWords(i, layer).filter(x => x.a != null), one = k >= 0 ? viewWords(i, layer)[k] : null;
   const a = one && one.a != null ? one.a : vw.length ? vw[0].a! : l.t, b = one && one.b != null ? one.b : vw.length ? vw[vw.length - 1].b! : l.end;
   const X = (t: number) => (t - W.start) * W.px;

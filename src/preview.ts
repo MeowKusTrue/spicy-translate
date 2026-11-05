@@ -118,7 +118,7 @@ export function buildPreview(keepPos?: boolean) {
     el.onclick = () => seekTo(l.t);
     box.appendChild(el); LINES.push({ el, a: R[i].a, b: R[i].b, words, i });
   });
-  lastBlur = -2;
+  lastBlur = '';
   if (!keepPos) PV.lastAct = -2;
 }
 /** a line's words or timings changed: rebuilt on the next frame (several edits in one frame cost one rebuild) */
@@ -187,7 +187,7 @@ function paintWord(w: Word, T: number, dt: number, fx: boolean) {
   });
 }
 
-let lastT = performance.now(), lastBlur = -2, scrCur = -2, wheelOn = false;
+let lastT = performance.now(), lastBlur = '', scrCur = -2, wheelOn = false;
 const LOOK = 0.3; // scroll to a line slightly before its first word
 /* wheel over the preview scrolls it by hand; it returns to the current line 3 s after the last wheel */
 const SCR = { base: 0, manual: 0, until: 0 };
@@ -207,9 +207,11 @@ export function previewFrame(t: number) {
     if (L.st !== cls) { L.st = cls; L.el.className = cls; }
   });
   if (cur < 0) cur = LINES.reduce((m, L, k) => L.a <= T ? k : m, -1);
-  if (cur !== lastBlur) {
-    lastBlur = cur;
-    LINES.forEach((L, k) => { const d = Math.abs(k - cur); L.el.style.setProperty('--blur', S.blur && d && cur >= 0 ? Math.min(BLUR * d, BLUR * 5.465).toFixed(2) + 'px' : '0px'); });
+  const sounding = LINES.flatMap((line, k) => T >= line.a && T < line.b ? [k] : []);
+  const blurKey = `${cur}:${sounding.join(',')}:${S.blur}`;
+  if (blurKey !== lastBlur) {
+    lastBlur = blurKey;
+    LINES.forEach((L, k) => { const d = sounding.length ? Math.min(...sounding.map(i => Math.abs(k - i))) : Math.abs(k - cur); L.el.style.setProperty('--blur', S.blur && d && cur >= 0 ? Math.min(BLUR * d, BLUR * 5.465).toFixed(2) + 'px' : '0px'); });
   }
   const { act, active, idx } = liveLines(R, T, LOOK), key = idx + ':' + cur;
   if (key !== PV.lastAct + ':' + scrCur) {

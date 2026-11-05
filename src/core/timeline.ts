@@ -1,5 +1,5 @@
 // Timeline maths shared by the web editor's wave and the Spicetify extension's timeline (pure: no DOM, no canvas).
-// DaVinci-style editing: touching ("glued") edges roll together, Alt detaches, no overlaps, magnet snapping.
+// Touching words within a line roll together; different lines can overlap independently.
 import type { Layer, Line, WordSync } from './types.ts';
 import { fitBgOnly } from './edit.ts';
 import { wordList } from './words.ts';
@@ -31,10 +31,27 @@ export function nearest(t: number, cands: number[], tol: number) {
 export function lineAt(lines: Line[], t: number) {
   let r = -1; lines.forEach((l, i) => { if (t >= l.t && t <= l.end && (r < 0 || l.text.trim() || !lines[r].text.trim())) r = i; }); return r;
 }
-/** overlapping lines (duets, background-only lines) get their own rows in the lines band, up to 3 */
-export function bandRows(lines: Line[]) {
+/** Interval packing keeps overlapping phrases independently visible, including unsorted input. */
+export function intervalRows(spans: { a: number; b: number }[]) {
   const ends: number[] = [];
-  return lines.map(l => { let r = ends.findIndex(e => e <= l.t + 0.01); if (r < 0) { r = Math.min(2, ends.length); if (r === ends.length) ends.push(0); } ends[r] = Math.max(ends[r], l.end); return r; });
+  const rows = spans.map(() => 0);
+  spans.map((span, i) => ({ ...span, i })).sort((a, b) => a.a - b.a || a.i - b.i).forEach(span => {
+    let row = ends.findIndex(end => end <= span.a + JOIN);
+    if (row < 0) { row = ends.length; ends.push(0); }
+    ends[row] = span.b; rows[span.i] = row;
+  });
+  return rows;
+}
+export const bandRows = (lines: Line[]) => intervalRows(lines.map(l => ({ a: l.t, b: l.end })));
+/** Words extending beyond the source line's span still reserve space in their own row. */
+export function trackRows(lines: Line[], layer: Layer) {
+  const spans = lines.map((line, i) => {
+    const times = line.sync?.[layer] || [];
+    return { i, a: Math.min(line.t, ...times.flatMap(x => x.a == null ? [] : [x.a])),
+      b: Math.max(line.end, ...times.flatMap(x => x.b == null ? [] : [x.b])) };
+  }).filter(span => txt(lines[span.i], layer).trim());
+  const packed = intervalRows(spans), rows = lines.map(() => -1);
+  spans.forEach((span, j) => { rows[span.i] = packed[j]; }); return rows;
 }
 /** background-only lines follow their words and lines stay ordered by start; returns the new index of `keep` (or -1) */
 export function fitAndSort(lines: Line[], keep?: Line | null, auto?: Pad | null) {
@@ -49,8 +66,8 @@ export interface EdgeDrag { roll: boolean; me: Seq; partner: Seq | null; target:
 /** grab the edge of word sq[idx]; a glued neighbour rolls with it unless `detach` (Alt), then the cursor side is trimmed */
 export function startEdge(sq: Seq[], idx: number, edge: 'a' | 'b', detach: boolean, tCursor: number): EdgeDrag {
   const me = sq[idx], x = me.x; let partner: Seq | null = null;
-  if (edge === 'b') { const n = sq[idx + 1]; if (n && Math.abs(n.x.a - x.b) <= JOIN) partner = n; }
-  else { const p = sq[idx - 1]; if (p && Math.abs(p.x.b - x.a) <= JOIN) partner = p; }
+  if (edge === 'b') { const n = sq[idx + 1]; if (n && n.i === me.i && Math.abs(n.x.a - x.b) <= JOIN) partner = n; }
+  else { const p = sq[idx - 1]; if (p && p.i === me.i && Math.abs(p.x.b - x.a) <= JOIN) partner = p; }
   let target = { e: me, edge };
   if (partner && detach) {
     const bt = edge === 'b' ? x.b : x.a, left = edge === 'b' ? me : partner, right = edge === 'b' ? partner : me;
@@ -65,7 +82,9 @@ export function moveEdge(d: EdgeDrag & { edge: 'a' | 'b' }, t: number) {
     const L = d.edge === 'b' ? d.me : d.partner!, R = d.edge === 'b' ? d.partner! : d.me;
     T = clamp(t, L.x.a + 0.02, R.x.b - 0.02); L.x.b = T; R.x.a = T; conf(L.x, R.x);
   } else {
-    const te = d.target.e, ti = d.sq.indexOf(te), pv = d.sq[ti - 1], nx = d.sq[ti + 1];
+    const te = d.target.e, ti = d.sq.indexOf(te);
+    const pv = d.sq[ti - 1]?.i === te.i ? d.sq[ti - 1] : undefined;
+    const nx = d.sq[ti + 1]?.i === te.i ? d.sq[ti + 1] : undefined;
     if (d.target.edge === 'a') { T = clamp(t, pv ? pv.x.b : 0, te.x.b - 0.02); te.x.a = T; }
     else { T = clamp(t, te.x.a + 0.02, nx ? nx.x.a : 1e9); te.x.b = T; }
     conf(te.x);
@@ -76,10 +95,11 @@ export function moveEdge(d: EdgeDrag & { edge: 'a' | 'b' }, t: number) {
 /* ---------- dragging a whole word ---------- */
 export interface MoveDrag { me: Seq; pv?: Seq; nx?: Seq; jp: boolean; jn: boolean; len: number }
 export function startMove(sq: Seq[], idx: number): MoveDrag {
-  const me = sq[idx], pv = sq[idx - 1], nx = sq[idx + 1];
+  const me = sq[idx], pv = sq[idx - 1]?.i === me.i ? sq[idx - 1] : undefined;
+  const nx = sq[idx + 1]?.i === me.i ? sq[idx + 1] : undefined;
   return { me, pv, nx, jp: !!(pv && Math.abs(pv.x.b - me.x.a) <= JOIN), jn: !!(nx && Math.abs(nx.x.a - me.x.b) <= JOIN), len: me.x.b - me.x.a };
 }
-/** put the word's start at a; glued neighbours follow (stretch) unless `alone` (Shift); never overlaps. false = clamped */
+/** Same-line neighbours constrain the move; other vocal lines remain independent. */
 export function moveWord(d: MoveDrag, a: number, alone: boolean) {
   const w = d.me.x, len = d.len, follow = !alone, pv = d.pv, nx = d.nx;
   const lo = follow && d.jp ? pv!.x.a + 0.02 : (pv ? pv.x.b : 0);

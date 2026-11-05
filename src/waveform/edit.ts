@@ -1,5 +1,5 @@
 // DaVinci-style mouse editing on the wave: magnet snapping, roll (joined edges move together),
-// Alt = detach, no overlaps, move with glued neighbours, Alt+drag in the lane paints, a drag on empty space draws a
+// Alt = detach, words in different vocal lines can overlap, Alt+drag in the lane paints, a drag on empty space draws a
 // pick box (words and lines, like in Explorer), pan/seek on the wave, Ctrl+wheel zoom.
 // Two word lanes (main track, background vocals): clicking the other lane switches to it. The lines band at the
 // bottom drags a whole line (all its words on every track). Double click edits text in place.
@@ -11,11 +11,11 @@ import { scheduleSave } from '../persist.ts';
 import { fitLines, selectWord, setLayer, snap, stepSel } from '../sync.ts';
 import { pickLine } from '../agents.ts';
 import { clearTiming, fitLines as fitToWords, closeEdit, copyTiming, delLine, dropCopies, dropTimingOnto, duplicateLine, editing, focusRow, newLineEdit, openEdit, pasteTimingHere } from '../lineEdit.ts';
-import { SEC_H, SEC_Y, JOIN, LANES, LANES_DEF, W, drawWave, waveOnsets, laneLayer, laneY, lineAt, songLen, zoomAt, type Box, type Lane } from './wave.ts';
+import { SEC_H, SEC_Y, JOIN, LANES, LANES_DEF, W, drawWave, waveOnsets, laneLayer, laneY, songLen, zoomAt, type Box, type Lane } from './wave.ts';
 import { fmtTime, plainW, secCategory, type Section } from '../core/index.ts';
 
 type Hit = { type: 'edge'; t: number; lane: Lane; d: number; b: Box; edge: 'a' | 'b' } | { type: 'word'; t: number; lane: Lane; b: Box }
-  | { type: 'lane'; t: number; lane: Lane; b?: undefined } | { type: 'split'; t: number; which: 'm' | 'b' | 'l'; lane?: undefined; b?: undefined } | { type: 'wave'; t: number; lane?: undefined; b?: undefined } | { type: 'band'; t: number; i: number; lane?: undefined; b?: undefined } | { type: 'ledge'; t: number; i: number; edge: 'a' | 'b'; lane?: undefined; b?: undefined } | { type: 'sec'; t: number; s: Section; lane?: undefined; b?: undefined };
+  | { type: 'lane'; t: number; lane: Lane; i: number; b?: undefined } | { type: 'split'; t: number; which: 'm' | 'b' | 'l'; lane?: undefined; b?: undefined } | { type: 'wave'; t: number; lane?: undefined; b?: undefined } | { type: 'band'; t: number; i: number; lane?: undefined; b?: undefined } | { type: 'ledge'; t: number; i: number; edge: 'a' | 'b'; lane?: undefined; b?: undefined } | { type: 'sec'; t: number; s: Section; lane?: undefined; b?: undefined };
 
 function waveHit(mx: number, my: number): Hit {
   const t = W.start + mx / W.px, tol = 9 / W.px, G = W.G;
@@ -31,15 +31,20 @@ function waveHit(mx: number, my: number): Hit {
   }
   if (W.secs.length && my >= G.wY + SEC_Y && my <= G.wY + SEC_Y + SEC_H) { const s = W.secs.find(q => t >= q.a && t <= q.b); if (s) return { type: 'sec', t, s }; }
   if (my >= G.wY - 1) return { type: 'wave', t };
-  const lane: Lane = my < G.bY - 1 ? 'main' : 'bg', bs = W.boxes.filter(b => b.lane === lane);
+  const lane: Lane = my < G.bY - 1 ? 'main' : 'bg', bs = W.boxes.filter(b => b.lane === lane && my >= b.y && my < b.y + b.h);
   let best: { d: number; b: Box; edge: 'a' | 'b' } | null = null;
   for (const b of bs) {
     if (!b.real) continue;
-    for (const edge of ['a', 'b'] as const) { const d = Math.abs(b[edge] - t); if (d <= tol && (!best || d < best.d)) best = { d, b, edge }; }
+    for (const edge of ['a', 'b'] as const) {
+      const d = Math.abs(b[edge] - t), cursorSide = edge === 'a' ? t >= b.a : t < b.b;
+      if (d <= tol && (!best || d < best.d || (Math.abs(d - best.d) < 1e-9 && cursorSide))) best = { d, b, edge };
+    }
   }
   if (best) return { type: 'edge', t, lane, ...best };
   for (const b of bs) if (t >= b.a && t <= b.b) return { type: 'word', t, lane, b };
-  return { type: 'lane', t, lane };
+  const [top, height] = laneY(lane), row = Math.floor((my - top) / (height / W.wordN[lane]));
+  const i = S.lines.findIndex((line, index) => W.wordRows[lane][index] === row && t >= line.t && t <= line.end);
+  return { type: 'lane', t, lane, i };
 }
 const seqWords = (layer: Layer = S.layer) => coreSeq(S.lines, layer);
 // magnet targets: other words of this track, words of the other track (align backing to lead), line starts
@@ -67,7 +72,7 @@ function tip(e: MouseEvent, h: Hit | null) {
     } else if (h.type === 'ledge') { const l = S.lines[h.i]; html = `<b>${h.edge === 'a' ? 'начало' : 'конец'} строки</b> ${fmtTime(h.edge === 'a' ? l.t : l.end)}<br><small>тяни — длиннее / короче (липнет к словам) · 2× — подогнать под слова</small>`; }
     else if (h.type === 'split') html = '<small>тяни — выше / ниже · 2× — как было</small>';
     else if (h.type === 'sec') html = `<b>${esc(h.s.label)}</b> ${fmtTime(h.s.a)}–${fmtTime(h.s.b)} · строки ${h.s.from + 1}–${h.s.to + 1}<br><small>тащи — сдвинуть всю секцию со словами · клик — играть отсюда · ПКМ — меню</small>`;
-    else if (h.type === 'lane') html = `<small>2× — ${lineAt(h.t) >= 0 ? 'вписать текст строки' : 'новая строка'} на дорожке «${h.lane === 'bg' ? 'бэк' : 'основа'}» · тащи — выбрать рамкой (Ctrl — добавить) · Alt+тащи — нарисовать выбранное слово</small>`;
+    else if (h.type === 'lane') html = `<small>2× — ${h.i >= 0 ? 'вписать текст строки' : 'новая строка'} на дорожке «${h.lane === 'bg' ? 'бэк' : 'основа'}» · тащи — выбрать рамкой (Ctrl — добавить) · Alt+тащи — нарисовать выбранное слово</small>`;
   }
   el.hidden = !html; if (!html) return;
   el.innerHTML = html; el.style.left = Math.min(innerWidth - el.offsetWidth - 8, e.clientX + 14) + 'px'; el.style.top = (e.clientY - el.offsetHeight - 12) + 'px';
@@ -282,7 +287,7 @@ export function setupWave(cv: HTMLCanvasElement) {
         const t0 = W.start + Math.min(d.x0, d.x1) / W.px, t1 = W.start + Math.max(d.x0, d.x1) / W.px, y0 = Math.min(d.y0, d.y1), y1 = Math.max(d.y0, d.y1);
         const lanes = (['main', 'bg'] as Lane[]).filter(l => { const [y, hh] = laneY(l); return y1 >= y && y0 <= y + hh; });
         const G = W.G, band = y1 >= G.lY && y0 <= G.lY + G.lH, onlyBand = band && y0 >= G.lY - 2, hh = G.lH / W.nr;
-        const words = onlyBand ? [] : W.boxes.filter(b => b.real && b.b >= t0 && b.a <= t1 && (!lanes.length || lanes.includes(b.lane))).map(b => ({ i: b.i, k: b.k, layer: b.layer }));
+        const words = onlyBand ? [] : W.boxes.filter(b => b.real && b.b >= t0 && b.a <= t1 && (!lanes.length || (lanes.includes(b.lane) && y1 >= b.y && y0 <= b.y + b.h))).map(b => ({ i: b.i, k: b.k, layer: b.layer }));
         W.multi = d.add ? [...W.multi, ...words.filter(q => !W.multi.some(m => m.i === q.i && m.k === q.k && m.layer === q.layer))] : words;
         if (band) { // lines whose bar in the band meets the box
           const got = S.lines.map((l, i) => ({ l, i })).filter(({ l, i }) => l.end >= t0 && l.t <= t1 && y1 >= G.lY + W.rows[i] * hh && y0 <= G.lY + (W.rows[i] + 1) * hh).map(x => x.i);
@@ -327,7 +332,7 @@ export function setupWave(cv: HTMLCanvasElement) {
     if (h.type === 'wave') return;
     if (h.type === 'sec') return setSec(h.s.from, h.s.label); // double click on a section = rename it
     if (h.type === 'ledge') return fitToWords(h.i); // double click on an end of a line = fit it to its words
-    const layer = laneLayer(h.lane), i = lineAt(h.t);
+    const layer = laneLayer(h.lane), i = h.i;
     if (i < 0) return newLineEdit(h.t, layer);
     setLayer(layer); selectWord(i, 0); openEdit(i, layer);
   };

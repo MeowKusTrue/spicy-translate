@@ -1,6 +1,6 @@
 // Waveform canvas: state W, peaks, drawing, zoom.
 import { mmss, plainW, secCategory, sectionsOf, type Section } from '../core/index.ts';
-import { JOIN, bandRows as coreBandRows, lineAt as coreLineAt, type Layer } from '../core/index.ts';
+import { JOIN, bandRows as coreBandRows, lineAt as coreLineAt, trackRows, type Layer } from '../core/index.ts';
 import { S, clamp, doubtful, emit, isBg, isTr, lineState, ls, mainLayerFor, mkLayer, status, viewWords } from '../state.ts';
 import { now } from '../audio.ts';
 import { computePeaks, onsets } from './peaks.ts';
@@ -10,10 +10,11 @@ import { ROWS, SPEC_FPS, fluxOnsets, spectrogram } from './spec.ts';
 
 export type Lane = 'main' | 'bg';
 type Spec = { data: Uint8Array; cols: number; tiles: (HTMLCanvasElement | null)[] };
-export type Box = { i: number; k: number; a: number; b: number; real: boolean; g: boolean; lane: Lane; layer: Layer };
+export type Box = { i: number; k: number; a: number; b: number; y: number; h: number; real: boolean; g: boolean; lane: Lane; layer: Layer };
 export const W = {
   peaks: null as Float32Array | null, pps: 200, px: 140, start: 0,
   G: { mY: 3, mH: 44, bY: 50, bH: 32, wY: 85, lY: 140, lH: 24 }, rows: [] as number[], nr: 1,
+  wordRows: { main: [] as number[], bg: [] as number[] }, wordN: { main: 1, bg: 1 },
   multi: [] as { i: number; k: number; layer: Layer }[], // words picked with a Shift+drag box / Shift+click
   onsets: [] as number[], // note attacks found in the waveform (magnet targets)
   vpeaks: null as Float32Array | null, vonsets: [] as number[], // the same for the separated voice
@@ -111,6 +112,7 @@ export const LANES_DEF = { m: 44, b: 34, l: 26 };
 export const LANES: typeof LANES_DEF = (() => { try { return { ...LANES_DEF, ...JSON.parse(ls.get('lanes', '{}') || '{}') }; } catch { return { ...LANES_DEF }; } })();
 function geo(h: number) {
   let mH = clamp(LANES.m, 22, 200), bH = clamp(LANES.b, 16, 160), lH = clamp(LANES.l, 16, 90);
+  mH = Math.max(mH, W.wordN.main * 30); bH = Math.max(bH, W.wordN.bg * 24);
   const room = h - 17 - 9 - 40, sum = mH + bH + lH; // 40 px of waveform at least
   if (sum > room) { const k = Math.max(0.3, room / sum); mH *= k; bH *= k; lH *= k; }
   mH = Math.round(mH); bH = Math.round(bH); lH = Math.round(lH);
@@ -119,7 +121,12 @@ function geo(h: number) {
 }
 const laneFont = (hh: number, w = 600) => `${w} ${Math.round(clamp(hh * 0.36, 11, 24))}px system-ui`;
 export const laneLayer = (lane: Lane): Layer => mkLayer(lane === 'bg', isTr(S.layer));
-export const laneY = (lane: Lane) => lane === 'bg' ? [W.G.bY, W.G.bH] : [W.G.mY, W.G.mH];
+export function laneY(lane: Lane, line?: number) {
+  const [y, h] = lane === 'bg' ? [W.G.bY, W.G.bH] : [W.G.mY, W.G.mH];
+  if (line == null) return [y, h];
+  const count = W.wordN[lane], row = Math.max(0, W.wordRows[lane][line] || 0);
+  return [y + row * h / count, h / count];
+}
 export const lineAt = (t: number) => coreLineAt(S.lines, t);
 export const bandRows = () => coreBandRows(S.lines);
 export function drawWave() {
@@ -128,6 +135,10 @@ export function drawWave() {
   if (!w || !h) return;
   if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
   const g = cv.getContext('2d')!; g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  for (const lane of ['main', 'bg'] as const) {
+    W.wordRows[lane] = trackRows(S.lines, laneLayer(lane));
+    W.wordN[lane] = Math.max(1, ...W.wordRows[lane].map(row => row + 1));
+  }
   const t = now(), G = W.G = geo(h);
   if (S.playing && !W.drag) { if (t < W.start || t > W.start + w / W.px * 0.8) W.start = Math.max(0, t - w / W.px * 0.25); }
   const t0 = W.start, t1 = t0 + w / W.px, X = (tt: number) => (tt - t0) * W.px;
@@ -167,7 +178,13 @@ export function drawWave() {
     g.fillStyle = on ? `rgba(${col},.09)` : `rgba(${TH.t},.03)`; g.fillRect(0, y, w, hh);
     if (on) { g.fillStyle = `rgb(${col})`; g.fillRect(0, y, 3, hh); }
     g.fillStyle = `rgba(${on ? col : TH.t},${on ? .6 : .3})`; g.font = '700 9px ui-monospace,monospace'; g.textBaseline = 'top';
-    g.fillText(lane === 'bg' ? 'БЭК' : isTr(S.layer) ? 'ПЕРЕВОД' : 'ОРИГИНАЛ', 7, y + 2);
+    const label = lane === 'bg' ? 'БЭК' : isTr(S.layer) ? 'ПЕРЕВОД' : 'ОРИГИНАЛ';
+    for (let row = 0; row < W.wordN[lane]; row++) {
+      const top = y + row * hh / W.wordN[lane];
+      if (row) { g.fillStyle = `rgba(${TH.t},.15)`; g.fillRect(0, top, w, 1); }
+      g.fillStyle = `rgba(${on ? col : TH.t},${on ? .6 : .3})`;
+      g.fillText(label + (W.wordN[lane] > 1 ? ' · ' + (row + 1) : ''), 7, top + 2);
+    }
   }
   // source lines band (drag = move the whole line with all its words, double click = edit it in the list)
   g.font = '12px system-ui'; g.textBaseline = 'middle';
@@ -187,9 +204,11 @@ export function drawWave() {
   // word boxes of both tracks; the inactive one is dimmed but clickable (click = switch to it)
   W.boxes = [];
   for (const lane of ['main', 'bg'] as const) {
-    const layer = laneLayer(lane), on = layer === S.layer, [y, hh] = laneY(lane), col = lane === 'bg' ? TH.a2 : TH.a;
-    g.font = laneFont(lane === 'bg' ? hh * 0.92 : hh); g.textBaseline = 'middle'; g.globalAlpha = on ? 1 : .5;
+    const layer = laneLayer(lane), on = layer === S.layer;
+    g.textBaseline = 'middle'; g.globalAlpha = on ? 1 : .5;
     for (let i = 0; i < S.lines.length; i++) {
+      const [y, hh] = laneY(lane, i), col = lane === 'bg' || S.lines[i].agent === 'v2' ? TH.a2 : TH.a;
+      g.font = laneFont(lane === 'bg' ? hh * 0.92 : hh);
       const l = S.lines[i]; let lo = l.t, hi = l.end; // words may sit outside the line's own span: cull by their real timings
       for (const s of l.sync?.[layer] || []) { if (s.a != null && s.a < lo) lo = s.a; if (s.b != null && s.b > hi) hi = s.b; }
       if (hi < t0 || lo > t1) continue;
@@ -210,12 +229,12 @@ export function drawWave() {
           g.strokeStyle = 'rgb(255,170,60)'; g.lineWidth = 1.5; g.strokeRect(x1 + 1, y + 1, bw - 2, hh - 2); g.lineWidth = 1;
           g.fillStyle = 'rgb(255,170,60)'; g.font = '800 10px system-ui'; g.textBaseline = 'top'; g.fillText('?', x2 - 9, y + 1); g.font = laneFont(lane === 'bg' ? hh * 0.92 : hh); g.textBaseline = 'middle';
         }
-        W.boxes.push({ i, k, a: wd.a, b: wd.b, real: !!wd.real, g: !!wd.g, lane, layer });
+        W.boxes.push({ i, k, a: wd.a, b: wd.b, y, h: hh, real: !!wd.real, g: !!wd.g, lane, layer });
       });
     }
     // joined edges (touching words) get a bright joint so you can see what moves together
-    const rb = W.boxes.filter(b => b.real && b.lane === lane).sort((p, q) => p.a - q.a);
-    for (let q = 0; q + 1 < rb.length; q++) if (Math.abs(rb[q].b - rb[q + 1].a) <= JOIN) { g.fillStyle = `rgb(${TH.t})`; g.fillRect(X(rb[q].b) - 1, y, 2, hh); }
+    const rb = W.boxes.filter(b => b.real && b.lane === lane).sort((p, q) => p.i - q.i || p.k - q.k);
+    for (let q = 0; q + 1 < rb.length; q++) if (rb[q].i === rb[q + 1].i && Math.abs(rb[q].b - rb[q + 1].a) <= JOIN) { g.fillStyle = `rgb(${TH.t})`; g.fillRect(X(rb[q].b) - 1, rb[q].y, 2, rb[q].h); }
     g.globalAlpha = 1;
   }
   if (W.drag?.type === 'box') { // Shift+drag selection rectangle
@@ -224,7 +243,7 @@ export function drawWave() {
     g.strokeStyle = '#ffd166'; g.setLineDash([4, 3]); g.strokeRect(x + .5, y + .5, Math.abs(d.x1 - d.x0), Math.abs(d.y1 - d.y0)); g.setLineDash([]);
   }
   if (W.drag?.type === 'mcopy') for (const c of W.drag.items) { // ghosts of a multi-copy
-    const [y, hh] = laneY(isBg(c.layer) ? 'bg' : 'main'), x1 = X(c.a + W.drag.d), x2 = X(c.b + W.drag.d);
+    const [y, hh] = laneY(isBg(c.layer) ? 'bg' : 'main', c.i), x1 = X(c.a + W.drag.d), x2 = X(c.b + W.drag.d);
     g.fillStyle = `rgba(${TH.t},.15)`; g.fillRect(x1, y, Math.max(2, x2 - x1), hh); g.setLineDash([4, 3]); g.strokeStyle = `rgb(${TH.t})`; g.strokeRect(x1 + .5, y + .5, Math.max(2, x2 - x1) - 1, hh - 1); g.setLineDash([]);
   }
   // Alt+drag: ghost of the word copy under the cursor
