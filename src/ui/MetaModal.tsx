@@ -76,7 +76,7 @@ export function MetaModal() {
       <div className="row mfoot">
         <button className="sm pri" title={S.genius?.id ? `Песня с Genius: «${S.genius.title}»` : 'Поиск на Genius по исполнителю и названию трека'} onClick={() => geniusWriters()}>🔍 Авторы песни с Genius</button>
         <button className="sm" onClick={presets}>Все стандартные поля</button>
-        <button className="sm danger" disabled={!md.length} onClick={() => { if (confirm('Удалить все метаданные?')) change(() => { S.meta.md = []; }); }}>Очистить</button>
+        <button className="sm danger" disabled={!md.length} onClick={async () => { if (await confirm('Удалить все метаданные?')) change(() => { S.meta.md = []; }); }}>Очистить</button>
       </div>
       <p className="hint">«Автор песни» Spicy Lyrics покажет как «Written by». Остальное пишется в TTML как в AMLL (<code>amll:meta</code>). Enter — ещё значение, Backspace в пустом — удалить.</p>
     </div>

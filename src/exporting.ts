@@ -21,16 +21,16 @@ function checkExport() {
   return buildTTML(opts());
 }
 /** the check before a file goes out: errors ask first, short words and unfinished lines are said after */
-export function preflight() {
+export async function preflight() {
   runQa();
   const qa = S.qa!, errs = qa.filter(x => x.sev === 'err'), short = qa.filter(x => x.msg.includes('слишком короткое')), st = stopLine(S.lines, S.meta.mode);
-  if (errs.length && !confirm(`Ошибок: ${errs.length} (первая — строка ${errs[0].i + 1}: ${errs[0].msg}).\nSpicy может не загрузить такой файл. Всё равно сохранить?`)) return null;
+  if (errs.length && !await confirm(`Ошибок: ${errs.length} (первая — строка ${errs[0].i + 1}: ${errs[0].msg}).\nSpicy может не загрузить такой файл. Всё равно сохранить?`)) return null;
   const notes = [st.i >= 0 && `размечено строк ${st.done} из ${st.n}, остановился на строке ${st.i + 1}`, short.length && `слов короче ${SHORT_WORD * 1000} мс: ${short.length}`].filter(Boolean);
   return notes.length ? 'Сохранено, но ' + notes.join('; ') + ' — список во вкладке «Экспорт».' : '';
 }
 export async function download() {
   const x = checkExport(); if (!x) return;
-  const note = preflight(); if (note == null) return;
+  const note = await preflight(); if (note == null) return;
   const ok = await saveText(`${fileBase()} (${S.meta.lang}).ttml`, x, 'application/xml');
   if (ok && note) status('st2', note, 'err');
   return ok;

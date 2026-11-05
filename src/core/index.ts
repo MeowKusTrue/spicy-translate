@@ -11,3 +11,4 @@ export * from './roman.ts';
 export * from './timeline.ts';
 export * from './genius.ts';
 export * from './sections.ts';
+export * from './autoAlign.ts';

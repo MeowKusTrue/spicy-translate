@@ -1,6 +1,8 @@
 // «Авто-тайминг» panel: the GPU that was found, which PyTorch build to install, install progress, cancel / remove.
 import { S, emit } from '../state.ts';
-import { DEVICES, cancelOrRemoveAlign, closeAlignPanel, installAlign, openFolder } from '../autoAlign.ts';
+import { DEVICES, acceptBacking, cancelOrRemoveAlign, closeAlignPanel, installAlign, modelOptions, openFolder, setModelOptions } from '../autoAlign.ts';
+import { fmtTime } from '../core/index.ts';
+import { pause, playWord } from '../audio.ts';
 
 const GB = (b: number) => b >= 1e9 ? (b / 1e9).toFixed(2) + ' ГБ' : Math.round(b / 1e6) + ' МБ';
 const OPTS: [string, string, string][] = [
@@ -19,6 +21,14 @@ export function AlignPanel() {
       <button className="sm ic close" title="Закрыть (установка продолжится)" onClick={closeAlignPanel}>✕</button>
       <h3>✨ Авто-тайминг</h3>
       <p>Нейросеть вырезает голос и расставляет слова оригинала и бэка — черновиком (пунктир), размеченное вручную не трогает. Ставится в папку приложения: свой Python, PyTorch и модели, система не меняется.</p>
+      <fieldset disabled={!!S.align}>
+        <legend>Модели следующего запуска</legend>
+        <label className="fld">Выделение вокала<select id="alignSeparator" value={modelOptions.sep} onChange={e => setModelOptions({ sep: e.target.value as typeof modelOptions.sep })}><option value="htdemucs">HTDemucs</option><option value="roformer">MelBand-RoFormer</option></select></label>
+        <label className="fld">Распознавание текста и новых бэков<select id="alignAsr" value={modelOptions.asr} onChange={e => setModelOptions({ asr: e.target.value as typeof modelOptions.asr })}><option value="turbo">Whisper large-v3-turbo — быстрее</option><option value="large-v3">Whisper large-v3 — полная модель, медленнее</option></select></label>
+        <label className="fld">Тайминги известного текста<select id="alignModel" value={modelOptions.aligner} onChange={e => setModelOptions({ aligner: e.target.value as typeof modelOptions.aligner })}><option value="w2v">wav2vec2 — русский / английский</option><option value="mms">MMS-FA — многоязычный</option></select></label>
+        <label className="row"><input id="alignDetectBack" type="checkbox" checked={modelOptions.detectBack} onChange={e => setModelOptions({ detectBack: e.target.checked })} />Искать новые бэки по аудио</label>
+        <p className="hint">Бэки: отдельная дорожка UVR Karaoke → Whisper → сверка перед добавлением. Возможны пропуски и просачивание основного голоса. Модели скачиваются при первом запуске; полная Whisper занимает больше памяти. Более крупная модель не гарантирует лучший результат на каждом треке.</p>
+      </fieldset>
       {p.err && <div className="aprog"><small className="aerr">{p.err}</small></div>}
       <div className="arow"><b>Видеокарта</b><span>{gpu ? <>{gpu.names.join(', ') || '—'}<small>{gpu.why}</small></> : 'определяю…'}</span></div>
       <div className="arow"><b>Состояние</b><span>{!st ? '…' : st.external ? 'используется Python-окружение разработчика (experiments/auto-align/.venv)'
@@ -46,4 +56,14 @@ export function AlignPanel() {
       </>}
     </div>
   </div>;
+}
+
+export function BackingReview() {
+  const r = S.backingReview; if (!r) return null;
+  return <div className="modal" id="backingReview" role="dialog" aria-modal="true" aria-labelledby="backingTitle"><div className="help apanel">
+    <h3 id="backingTitle">Найденные бэки — проверь на слух</h3>
+    <p>Ничего из этого списка ещё не добавлено. Выбери нужные фразы: они появятся отдельными бэк-строками. Существующий текст и бэки сохранятся; Ctrl+Z отменит добавление.</p>
+    {r.candidates.map((c, i) => <div className="row" key={i}><label className="row"><input type="checkbox" checked={r.picked.has(i)} onChange={e => { if (e.target.checked) r.picked.add(i); else r.picked.delete(i); emit(); }} /><span><small>{fmtTime(c.t)}–{fmtTime(c.end)}</small> {c.bg?.text}</span></label><button className="sm" onClick={() => playWord({ a: c.t, b: c.end })}>Слушать</button></div>)}
+    <div className="row"><button className="sm" onClick={pause}>Стоп</button><button className="pri" id="btnBackingApply" disabled={!r.picked.size} onClick={acceptBacking}>Добавить выбранные ({r.picked.size})</button><button id="btnBackingCancel" onClick={() => { pause(); S.backingReview = null; emit(); }}>Закрыть без добавления</button></div>
+  </div></div>;
 }

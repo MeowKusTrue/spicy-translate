@@ -28,16 +28,18 @@ function applyLive(j: { project: unknown }) {
   snap(); // Ctrl+Z takes the agent's edit back
   try { loadProject(JSON.stringify(j.project), true); idbGet(trackKey()).then(b => { if (b && !S.hasAudio) loadAudioFile(b, true); }); } finally { setTimeout(() => { LIVE.applying = false; }, 300); }
 }
+let livePolling = false;
 async function livePoll() {
-  if (W.drag || W.pend) return;
+  if (livePolling || W.drag || W.pend) return;
+  livePolling = true;
   try {
     const j = await (await fetch('/api/project')).json(); LIVE.on = true;
     if (j.rev !== LIVE.rev) { const fromAgent = j.by === 'mcp' && LIVE.rev >= 0; LIVE.rev = j.rev; if (fromAgent || (!S.lines.length && j.project && j.project.lines)) {
-        if (otherSong(j.project) && !confirm(`Агент (MCP) открыл другой проект: «${name(j.project)}». Заменить им «${name({ meta: S.meta })}»? (текущий сохранится в снимках)`)) { snapshot('проект агента (не открыт)', JSON.stringify(j.project)); return; }
+        if (otherSong(j.project) && !await confirm(`Агент (MCP) открыл другой проект: «${name(j.project)}». Заменить им «${name({ meta: S.meta })}»? (текущий сохранится в снимках)`)) { snapshot('проект агента (не открыт)', JSON.stringify(j.project)); return; }
         applyLive(j); toast('Агент (MCP) обновил проект. Отменить его правку — Ctrl+Z.', 'ok');
       } }
     livePill(true, OK);
-  } catch { if (LIVE.on) livePill(false, BAD); }
+  } catch { if (LIVE.on) livePill(false, BAD); } finally { livePolling = false; }
 }
 export async function liveInit() {
   if (!/^https?:$/.test(location.protocol)) return;
@@ -45,7 +47,7 @@ export async function liveInit() {
   try {
     const r = await fetch('/api/project'); if (!r.ok) return; const j = await r.json(); LIVE.on = true; LIVE.rev = j.rev;
     if (j.project && j.project.lines && j.project.lines.length) {
-      if (otherSong(j.project) && !confirm(`На сервере (MCP) открыт другой проект: «${name(j.project)}».\nЗдесь сейчас: «${name({ meta: S.meta })}».\n\nOK — открыть проект с сервера (твой сохранится в снимках).\nОтмена — оставить свой и отправить его на сервер (серверный сохранится в снимках).`)) {
+      if (otherSong(j.project) && !await confirm(`На сервере (MCP) открыт другой проект: «${name(j.project)}».\nЗдесь сейчас: «${name({ meta: S.meta })}».\n\nOK — открыть проект с сервера (твой сохранится в снимках).\nОтмена — оставить свой и отправить его на сервер (серверный сохранится в снимках).`)) {
         snapshot('проект с сервера (не открыт)', JSON.stringify(j.project)); pushLive();
       } else applyLive(j);
     } else if (S.lines.length) pushLive();
@@ -55,7 +57,7 @@ export async function liveInit() {
 }
 
 /** the editor is newer than the running server (e.g. the MCP server started before an update): say so and how to fix */
-export const SERVER_API = 12; // Genius (text, songwriters) goes through the server
+export const SERVER_API = 13; // Genius (text, songwriters) goes through the server
 export async function checkServer() {
   const api = await fetch('/api/version').then(r => r.ok ? r.json() : {}).then((j: { api?: number }) => +(j.api || 0)).catch(() => 0);
   if (api >= SERVER_API) return true;

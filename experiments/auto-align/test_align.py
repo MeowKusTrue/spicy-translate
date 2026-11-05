@@ -73,6 +73,47 @@ print('ok')
 
 # words_to_lines(): Whisper words -> lyric lines: break at pauses / sentence ends, no one-word tail of a long run
 from align import words_to_lines
+from align import backing_candidates, WHISPER_MODELS
+assert WHISPER_MODELS['large-v3'] == 'openai/whisper-large-v3'
+source = [{'t': 2, 'end': 4, 'text': 'lead', 'bg': {'text': 'эй', 'tr': 'hey'}}]
+assert not backing_candidates([['эй', 2.1, 2.4]], source)  # existing backing stays
+assert not backing_candidates([['outside', 10, 11]], source)  # selected lines only
+bc = backing_candidates([['новый', 2.1, 2.4], ['бэк', 2.5, 2.8]], source)
+assert len(bc) == 1 and bc[0]['bg']['text'] == 'новый бэк' and bc[0]['text'] == ''
+assert bc[0]['sync']['bgo'][0] == {'a': 2.1, 'b': 2.4, 'g': 1}
+assert len(backing_candidates([['эй', 0, .5]], [])) == 1
+
+# Exercise the runner without downloading models: selected ASR, separate backing input and safe failure.
+import align as runner
+import tempfile, json, os, sys, types
+from contextlib import ExitStack
+from unittest.mock import patch
+from argparse import Namespace
+with tempfile.TemporaryDirectory() as tmp:
+    inp, out = os.path.join(tmp, 'in.json'), os.path.join(tmp, 'out.json')
+    original = {'lines': [{'t': 0, 'end': 1, 'text': 'lead', 'tr': 'translation'}]}
+    with open(inp, 'w', encoding='utf-8') as f: json.dump(original, f)
+    args = dict(device='cpu', project=inp, out=out, audio='unused.wav', transcribe=False, detect_back=True,
+                no_separation=False, no_karaoke=False, sep='roformer', asr='large-v3', song_lang='ru',
+                model=None, aligner='w2v', bg_aligner='mms', snap=0, shift=0, force=False)
+    voice, backing = np.ones(16000), np.full(16000, .5)
+    with ExitStack() as stack:
+        stack.enter_context(patch.dict(sys.modules, {'torch': types.ModuleType('torch')}))
+        stack.enter_context(patch.object(runner, 'pick_device', return_value='cpu'))
+        stack.enter_context(patch.object(runner, 'hook_tqdm'))
+        split = stack.enter_context(patch.object(runner, 'separate', return_value=(voice, backing, 'voice.wav')))
+        asr = stack.enter_context(patch.object(runner, 'transcribe', return_value=[['эй', .2, .4]]))
+        stack.enter_context(patch.object(runner, 'Aligner', return_value=types.SimpleNamespace(device='cpu')))
+        stack.enter_context(patch.object(runner, 'fill', return_value={}))
+        runner.run(Namespace(**args), lambda **k: None)
+        assert split.call_args.args[-1] == 'roformer'
+        assert asr.call_args.args[0] is backing and asr.call_args.args[3:] == ('large-v3', 'backing')
+        result = json.load(open(out, encoding='utf-8'))
+        assert result['lines'] == original['lines'] and result['backingCandidates'][0]['bg']['text'] == 'эй'
+        split.return_value = (voice, None, 'voice.wav'); asr.reset_mock()
+        runner.run(Namespace(**args), lambda **k: None)
+        result = json.load(open(out, encoding='utf-8'))
+        assert not asr.called and result['warnings'] and result['backingCandidates'] == []
 W = [[w, i * 0.3, i * 0.3 + 0.25] for i, w in enumerate('раз два три, четыре пять шесть семь восемь девять десять'.split())]
 L = words_to_lines(W)
 assert all(2 <= len(l['text'].split()) <= 9 for l in L) and sum(len(l['sync']['orig']) for l in L) == 10, [l['text'] for l in L]

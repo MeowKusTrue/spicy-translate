@@ -150,7 +150,7 @@ async function setupAlign(want?: Backend) {
   step('готово', 100); SETUP.done = true;
 }
 /** bump when the editor needs new server endpoints (3: auto-timing install / GPU / open folder) */
-const API = 12; // 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes · 10: install pins torch, Python found without LOCALAPPDATA · 11: installs noted for each other (python-path.txt) · 12: /api/spell
+const API = 13; // 13: selectable ASR / aligner and backing candidates · 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes · 10: install pins torch, Python found without LOCALAPPDATA · 11: installs noted for each other (python-path.txt) · 12: /api/spell
 /* ---------- Genius (lyrics makers take the text from there). No CORS for pages, so the server fetches them. ---------- */
 const GH = { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', 'accept-language': 'en-US,en;q=0.9' };
 type GeniusHit = { id: number; title: string; artist: string; url: string; art: string };
@@ -213,12 +213,7 @@ async function alignRoute(req: http.IncomingMessage, res: http.ServerResponse, u
     const inp = path.join(alDir(), 'in.spicy.json'), out = path.join(alDir(), 'out.spicy.json');
     fs.writeFileSync(inp, await readBody(req)); try { fs.unlinkSync(out); } catch {}
     Object.assign(AL, { running: true, stage: 'start', done: 0, total: 0, error: '', out: '', vocals: '', device: '', log: [], plan: [], sub: '', subDone: 0, subTotal: 0, bytes: false, t0: Date.now(), cancel: false });
-    // options from the editor, whitelisted: transcribe (no lyrics yet), separator, aligner, snap to attacks
-    const q = u.searchParams, opt: string[] = [];
-    if (q.get('transcribe') === '1') opt.push('--transcribe');
-    if (/^(ru|en|uk|de|fr|es|it|pt|ja|ko|zh)$/.test(q.get('lang') || '')) opt.push('--song-lang', q.get('lang')!);
-    if (/^(htdemucs|roformer)$/.test(q.get('sep') || '')) opt.push('--sep', q.get('sep')!);
-    if (/^(w2v|mms)$/.test(q.get('aligner') || '')) opt.push('--aligner', q.get('aligner')!);
+    const opt = C.alignArgs(u.searchParams);
     const p = spawn(env.py, [path.join(env.dir, 'align.py'), AL.audio, inp, '-o', out, '--json-progress', ...opt], { cwd: env.dir, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8', PATH: path.dirname(env.py) + path.delimiter + (process.env.PATH || '') } });
     let buf = '';
     p.stdout.on('data', d => {
@@ -453,7 +448,7 @@ if (!process.argv.includes('--http')) {
     const { id, method, params } = msg;
     if (id === undefined) return; // notification
     try {
-      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.0.7' } } });
+      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.0.8' } } });
       if (method === 'ping') return send({ id, result: {} });
       if (method === 'tools/list') return send({ id, result: { tools: Object.entries(tools).map(([name, t]) => ({ name, description: t.description, inputSchema: t.schema })) } });
       if (method === 'tools/call') {

@@ -22,7 +22,7 @@ BACK_MIN = 0.1   # backing stem quieter than this x vocals in a line window = sp
 MODELS = {'ru': 'jonatasgrosman/wav2vec2-large-xlsr-53-russian', 'en': 'jonatasgrosman/wav2vec2-large-xlsr-53-english'}
 KARAOKE = 'UVR_MDXNET_KARA_2.onnx'
 ROFORMER = 'vocals_mel_band_roformer.ckpt'
-WHISPER = 'openai/whisper-large-v3-turbo'  # lyrics when the project has none (then aligned like any text)  # MelBand-RoFormer (Kim): cleaner vocals than htdemucs, needs a GPU to be quick
+WHISPER_MODELS = {'turbo': 'openai/whisper-large-v3-turbo', 'large-v3': 'openai/whisper-large-v3'}
 SLOT = 0.4       # s max slot for a unit without letters ("—", "2") in a long gap
 # alignment-only transliteration for words in the other alphabet ("Say ahh" in a Russian line)
 LAT2CYR = [('shch', 'щ'), ('sh', 'ш'), ('ch', 'ч'), ('zh', 'ж'), ('kh', 'х'), ('ts', 'ц'), ('ya', 'я'), ('yu', 'ю'), ('yo', 'ё'),
@@ -209,16 +209,18 @@ def separate(song, work, device, karaoke=True, emit=lambda **k: None, sep='htdem
         on_device('cpu' if dev_name(device) == 'dml' else device, demucs, 'demucs')
     emit(stage='demucs', done=1, total=1)
     back = os.path.join(work, f'backing{tag}.wav')
+    lead = os.path.join(work, f'lead{tag}.wav')
     if karaoke: emit(stage='karaoke', done=0, total=1)
-    if karaoke and not os.path.exists(back):
+    if karaoke and (not os.path.exists(back) or not os.path.exists(lead)):
         try:
             from audio_separator.separator import Separator
             sep = Separator(output_dir=work, output_format='WAV')
             sep.load_model(model_filename=KARAOKE)
             for f in sep.separate(voc):
                 f = f if os.path.isabs(f) else os.path.join(work, f)
-                if '(Instrumental)' in f: os.replace(f, back)
-                else: os.remove(f)  # lead: the full vocal stem is safer for the main text
+                name = os.path.basename(f).lower()
+                if '(instrumental)' in name or '(backing vocals)' in name: os.replace(f, back)
+                elif '(vocals)' in name or '(lead vocals)' in name: os.replace(f, lead)
         except Exception as e:  # optional: no package / no model / no GPU provider
             print(f'karaoke split skipped ({type(e).__name__}: {e}); backing vocals aligned on the full vocal stem', file=sys.stderr)
     if karaoke: emit(stage='karaoke', done=1, total=1)
@@ -366,18 +368,18 @@ def windows(voc, most=28.0, least=18.0):
     return list(zip(cuts, cuts[1:] + [n]))
 
 
-def transcribe(voc, device, lang=None):
+def transcribe(voc, device, lang=None, model='turbo', progress_stage='transcribe'):
     """[(word, a, b)] from the vocal stem: piece by piece (long-form chunking in transformers crashes with word times)"""
     import torch
     from transformers import pipeline
     d = dev_name(device); cuda = d == 'cuda'
-    asr = pipeline('automatic-speech-recognition', model=WHISPER, dtype=torch.float16 if cuda else torch.float32,
+    asr = pipeline('automatic-speech-recognition', model=WHISPER_MODELS[model], dtype=torch.float16 if cuda else torch.float32,
                    device=device if d in ('cuda', 'xpu', 'cpu') else 'cpu')
     gen = {'task': 'transcribe', **({'language': lang} if lang else {})}
     loud = np.sqrt(np.mean(voc ** 2)) + 1e-9
     words, ws = [], windows(voc)
     for k, (s, e) in enumerate(ws):
-        stage('transcribe', k, len(ws))
+        stage(progress_stage, k, len(ws))
         x = voc[s:e]
         if np.sqrt(np.mean(x ** 2)) < 0.08 * loud: continue  # no singing here: Whisper would make something up
         out = asr({'raw': x, 'sampling_rate': SR}, return_timestamps='word', generate_kwargs=gen)
@@ -411,6 +413,19 @@ def words_to_lines(words, gap=0.6, most=9):
     for ln in lines:  # lyrics style: no trailing comma / period at the end of a line
         ln['text'] = re.sub(r'[,.;:]+$', '', ln['text'])
     return lines
+
+
+def backing_candidates(words, lines):
+    """Review-only phrases from the backing stem, limited to the requested line windows."""
+    def norm(text): return re.sub(r'[^\w]+', ' ', text.replace('|', '').casefold()).strip()
+    out = []
+    for ln in words_to_lines(words):
+        if lines and not any(ln['t'] < l['end'] and l['t'] < ln['end'] for l in lines): continue
+        if any(norm((l.get('bg') or {}).get('text', '')) == norm(ln['text'])
+               and ln['t'] < l['end'] and l['t'] < ln['end'] for l in lines): continue
+        out.append({'t': ln['t'], 'end': ln['end'], 'text': '', 'tr': '', 'bg': {'text': ln['text'], 'tr': ''},
+                    'sync': {'bgo': [{**w, 'g': 1} for w in ln['sync']['orig']]}})
+    return out
 
 
 # ---- attacks in the vocal stem: spectral flux (same idea as the editor's magnet) ----
@@ -509,6 +524,8 @@ def main(argv=None):
     ap.add_argument('--json-progress', action='store_true', help='stdout: one JSON object per line (for the editor server)')
     ap.add_argument('--sep', choices=['htdemucs', 'roformer'], default='htdemucs', help='vocal separator')
     ap.add_argument('--transcribe', action='store_true', help='write the lyrics from the voice (Whisper) first; on by itself when the project has no lines')
+    ap.add_argument('--asr', choices=list(WHISPER_MODELS), default='turbo', help='Whisper model for lyrics and backing recognition')
+    ap.add_argument('--detect-back', action='store_true', help='recognize new backing phrases; return review candidates, do not insert them')
     ap.add_argument('--song-lang', help='language of the song for --transcribe (ru, en…); default: detect')
     ap.add_argument('--aligner', choices=['w2v', 'mms'], default='w2v', help='w2v: wav2vec2 xlsr per language; mms: torchaudio MMS-FA (multilingual)')
     ap.add_argument('--bg-aligner', choices=['w2v', 'mms'], default='mms', help='aligner for backing vocals (default mms: bench.py median 416 -> 137 ms on «Пальма»)')
@@ -533,15 +550,32 @@ def run(a, emit):
     with open(a.project, encoding='utf-8') as f: proj = json.load(f)
     if 'lines' not in proj: raise ValueError('not a Spicy Translate project (no lines)')
     tr = a.transcribe or not proj['lines']
-    emit(plan=[s for s, on in (('demucs', not a.no_separation), ('karaoke', not a.no_separation and not a.no_karaoke and not tr), ('transcribe', tr), ('align', True)) if on])
+    if a.detect_back and (a.no_separation or a.no_karaoke): raise ValueError('для поиска бэков нужно разделение вокала и бэка')
+    karaoke = not a.no_karaoke and (not tr or a.detect_back)
+    source_lines = list(proj['lines'])
+    emit(plan=[s for s, on in (('demucs', not a.no_separation), ('karaoke', not a.no_separation and karaoke), ('transcribe', tr), ('backing', a.detect_back), ('align', True)) if on])
     work = os.path.abspath(os.path.splitext(a.out)[0] + '.stems')
     if a.no_separation: voc, back, vpath = decode(a.audio)[0], None, None
-    else: voc, back, vpath = separate(a.audio, work, dev, not a.no_karaoke and not tr, stage_emit, a.sep)
+    else: voc, back, vpath = separate(a.audio, work, dev, karaoke, stage_emit, a.sep)
     if tr:  # no lyrics: Whisper writes them, the aligner below then times every word precisely
         stage('transcribe', 0, 1)
-        proj['lines'] = words_to_lines(transcribe(voc, dev, a.song_lang)); a.force = True
+        lead_path = os.path.join(work, 'lead' + ('' if a.sep == 'htdemucs' else '-' + a.sep) + '.wav')
+        lead = decode(lead_path)[0] if a.detect_back and os.path.exists(lead_path) else voc
+        proj['lines'] = words_to_lines(transcribe(lead, dev, a.song_lang, a.asr)); a.force = True
         stage('transcribe', 1, 1, lines=len(proj['lines']))
         if not proj['lines']: raise ValueError('в голосе не нашлось слов')
+    if a.detect_back:
+        stage('backing', 0, 1)
+        if back is None:
+            proj['warnings'] = ['Не удалось выделить отдельную дорожку бэков. Новые бэки не распознавались; существующие строки обработаны.']
+            proj['backingCandidates'] = []
+        else:
+            # The separator leaks lead vocals; candidates stay outside lines[] until reviewed.
+            try: proj['backingCandidates'] = backing_candidates(transcribe(back, dev, a.song_lang, a.asr, 'backing'), source_lines)
+            except Exception as e:
+                proj['warnings'] = [f'Распознавание новых бэков не удалось: {type(e).__name__}: {e}']
+                proj['backingCandidates'] = []
+        stage('backing', 1, 1, candidates=len(proj['backingCandidates']))
     al, total = Aligner(dev, a.model, a.aligner), len(proj['lines'])
     bal = al if a.bg_aligner == a.aligner else Aligner(dev, None, a.bg_aligner)  # backing vocals: its own model
     nonlocal_bal = [bal]

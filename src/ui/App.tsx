@@ -7,7 +7,7 @@ import { SyncDock } from './SyncDock.tsx';
 import { HelpModal } from './HelpModal.tsx';
 import { Drop } from './Drop.tsx';
 import { Palette, openPalette } from './Palette.tsx';
-import { AlignPanel } from './AlignPanel.tsx';
+import { AlignPanel, BackingReview } from './AlignPanel.tsx';
 import { isApp, winClose, winMax, winMin } from '../desktop.ts';
 
 export function stepInfo() {
@@ -67,6 +67,7 @@ export function App() {
     <MetaModal />
     <Palette />
     <AlignPanel />
+    <BackingReview />
     <Drop />
   </>;
 }
