@@ -18,3 +18,5 @@ export * from './fitExport.ts';
 export * from './russianSyllables.ts';
 export * from './textDraft.ts';
 export * from './karaokeMotion.ts';
+export * from './approval.ts';
+export * from './repeatAll.ts';

@@ -1,6 +1,6 @@
 // Editing texts and lines: the list inputs, the inline editor on the wave (double click / E), adding and removing
 // lines (own words, background vocals with no lead line), "(…)" -> background vocals. bg = bg translation, bgo = bg original.
-import { planFitAll, stretchLines, alignRows, findAll, fmtTime, insertLine, lineFromWords, lineRow, fitLineToWords, fitsWords, pasteTiming, repeatTranslations, timingOf, transferTiming, parensToBg, parseRow, plainW, remapSync, repeatTiming, replaceUnit, sameLines, slashSyl, shiftLine, type Layer, type Line } from './core/index.ts';
+import { repeatAllPlan, planFitAll, stretchLines, alignRows, findAll, fmtTime, insertLine, lineFromWords, lineRow, fitLineToWords, fitsWords, pasteTiming, repeatTranslations, timingOf, transferTiming, parensToBg, parseRow, plainW, remapSync, repeatTiming, replaceUnit, sameLines, slashSyl, shiftLine, type Layer, type Line } from './core/index.ts';
 import { S, clamp, emit, ls, fillLine, isBg, isTr, layerText, lineState, r3, setText, toast, viewWords, wordsOf } from './state.ts';
 import { now } from './audio.ts';
 import { learnAndSpread, spreadSplits } from './syllables.ts';
@@ -341,3 +341,12 @@ export function setAutoFit(on: boolean) {
   else { emit(); toast('Автоподгонка строк выключена — края строк остаются, где их оставили.', 'ok'); }
 }
 export function setFitPad(k: 'a' | 'b', ms: number) { S.fitPad = { ...S.fitPad, [k]: ms }; ls.set('fitPad', JSON.stringify(S.fitPad)); if (S.autoFit) afterSyncChange(true); else emit(); }
+
+export function repeatAllTiming(replaceApproved = false) {
+  if (S.editDraft || !S.sel) return;
+  const plan = repeatAllPlan(S.lines, S.sel.i, S.layer, replaceApproved);
+  if ('error' in plan) return toast(plan.error || 'Проверь исходную строку.', 'err');
+  if (!plan.changed) return toast(`Нет изменений. Совпадений: ${plan.matched}, защищено или пропущено: ${plan.skipped}.`, '');
+  snap(); S.lines = plan.lines; afterSyncChange(true, 0, false);
+  toast(`Тайминг скопирован в ${plan.changed} строк. Пропущено: ${plan.skipped}. Копии — черновик для проверки. Ctrl+Z — отмена.`, 'ok');
+}

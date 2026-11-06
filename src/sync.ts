@@ -1,5 +1,5 @@
 // Word sync actions (hotkeys AND toolbar buttons use these) + undo/redo on text+sync snapshots.
-import { confirmPhraseTiming, editorReview, fitAndSort, plainW, retimeWord, sameLines, splitWords, splitRussian, units, unitsText, type Layer } from './core/index.ts';
+import { protectTiming, approveWords, approvePhrases, allowAutomation, confirmPhraseTiming, editorReview, fitAndSort, plainW, retimeWord, sameLines, splitWords, splitRussian, units, unitsText, type Layer } from './core/index.ts';
 import { S, conf, doubtful, emit, ensureSync, fillLine, layerText, lineState, ls, r3, setText, spreadLine, toast, viewWords, wordsOf, type ViewWord } from './state.ts';
 import { now, playWord } from './audio.ts';
 import { forgetWord, learnAndSpread } from './syllables.ts';
@@ -46,7 +46,7 @@ export function confirmPhrase() {
   if (!S.sel) return;
   const i = S.sel.i, r = confirmPhraseTiming(S.lines[i], S.layer);
   if ('error' in r) return toast(r.error, 'err');
-  snap(); S.lines[i].sync = { ...S.lines[i].sync, [S.layer]: r.sync }; afterSyncChange(false, i);
+  snap(); S.lines[i].sync = { ...S.lines[i].sync, [S.layer]: r.sync }; protectTiming(S.lines[i], S.layer); afterSyncChange(false, i);
   toast('Тайминги фразы отмечены проверенными. Ctrl+Z — отмена.', 'ok');
 }
 export function selectWord(i: number, k: number) {
@@ -97,6 +97,7 @@ export function mark(kind: 'F' | 'G' | 'H') {
     if (kind === 'G' && !last) { const n = sy[S.sel.k + 1]; n.a = w.b; if (n.b != null && n.b < n.a) n.b = null; }
     const nx = stepSel(1); if (nx) S.sel = { i: nx.i, k: nx.k };
   }
+  if (kind !== 'F' && last && lineState(li, S.layer) === 'done') protectTiming(S.lines[li], S.layer);
   afterSyncChange(false, li);
   if (kind !== 'F' && last && lineState(li, S.layer) === 'done') { CH.last = li; const k = sameLines(S.lines, li).length; if (k) toast(`Эта строка повторяется ещё ${k} раз — C (или «Строка ⋯ → ⧉ на повторы») перенесёт тайминг.`, 'ok'); }
 }
@@ -104,11 +105,11 @@ export function nudgeWord(d: number) {
   if (!S.sel) return toast('Сначала выбери слово.', 'err');
   const sy = S.lines[S.sel.i].sync && S.lines[S.sel.i].sync![S.layer], x = sy && sy[S.sel.k];
   if (!x || x.a == null || x.b == null || x.a + d < 0) return;
-  snap(); x.a = r3(x.a + d); x.b = r3(x.b + d); conf(x); afterSyncChange(false, S.sel.i);
+  snap(); x.a = r3(x.a + d); x.b = r3(x.b + d); conf(x); protectTiming(S.lines[S.sel.i], S.layer); afterSyncChange(false, S.sel.i);
 }
 export function resetWord() {
   if (!S.sel) return toast('Сначала выбери слово.', 'err');
-  snap(); const x = ensureSync(S.sel.i, S.layer)[S.sel.k]; if (x) { x.a = null; x.b = null; delete x.g; }
+  snap(); if (S.lines[S.sel.i].approved) delete S.lines[S.sel.i].approved![S.layer]; const x = ensureSync(S.sel.i, S.layer)[S.sel.k]; if (x) { x.a = null; x.b = null; delete x.g; }
   fillLine(S.sel.i, S.layer); afterSyncChange(false, S.sel.i);
 }
 export function playSel() { if (!S.sel) return; const w = viewWords(S.sel.i, S.layer)[S.sel.k]; if (w && w.a != null) playWord(w as ViewWord & { a: number; b: number }); }
@@ -119,7 +120,7 @@ export function setWordTimes(a: number, b: number, roll = true): string | null {
   const { i, k } = S.sel, result = retimeWord(S.lines[i], S.layer, k, a, b, roll);
   if ('error' in result) return result.error;
   if (JSON.stringify(result.sync) === JSON.stringify(S.lines[i].sync?.[S.layer])) return null;
-  snap(); S.lines[i].sync![S.layer] = result.sync; afterSyncChange(false, i); return null;
+  snap(); S.lines[i].sync![S.layer] = result.sync; protectTiming(S.lines[i], S.layer); afterSyncChange(false, i); return null;
 }
 export function stepReview(d: 1 | -1 = 1) {
   const queue = editorReview(S.lines, S.layer);
@@ -181,8 +182,28 @@ export function syllabifyLine() {
 }
 
 /* ---------- toolbar "Строка ⋯" menu ---------- */
-export function spreadSelLine() { if (!S.sel) return toast('Сначала выбери слово (клик по чипу или плашке).', 'err'); snap(); spreadLine(S.sel.i, S.layer); afterSyncChange(false, S.sel.i); toast('Слова строки раскиданы — теперь их можно двигать и растягивать.', 'ok'); }
-export function spreadAll() { if (!S.lines.length) return toast('Нет строк.', 'err'); snap(); let n = 0; S.lines.forEach((_, i) => { if (lineState(i, S.layer) !== 'done') { spreadLine(i, S.layer); n++; } }); afterSyncChange(true); toast(`Раскидано строк: ${n} (готовые не тронул). Ctrl+Z — отмена.`, 'ok'); }
-export function resetLine() { if (!S.sel) return toast('Сначала выбери слово.', 'err'); snap(); const l = S.lines[S.sel.i]; if (l.sync) delete l.sync[S.layer]; afterSyncChange(false, S.sel.i); toast('Синхра строки сброшена. Ctrl+Z — отмена.', 'ok'); }
-export function clearLayer() { if (!S.lines.length) return; snap(); S.lines.forEach(l => { if (l.sync) delete l.sync[S.layer]; }); afterSyncChange(true); toast('Синхра слоя очищена. Ctrl+Z вернёт.', 'ok'); }
+export function spreadSelLine() { if (!S.sel) return toast('Сначала выбери слово (клик по чипу или плашке).', 'err'); if (S.lines[S.sel.i].approved?.[S.layer]) return toast('Строка защищена. Сначала нажми «Разрешить автоматику».','err'); snap(); spreadLine(S.sel.i, S.layer); afterSyncChange(false, S.sel.i); toast('Слова строки раскиданы — теперь их можно двигать и растягивать.', 'ok'); }
+export function spreadAll() { if (!S.lines.length) return toast('Нет строк.', 'err'); snap(); let n = 0; S.lines.forEach((_, i) => { if (!S.lines[i].approved?.[S.layer] && lineState(i, S.layer) !== 'done') { spreadLine(i, S.layer); n++; } }); afterSyncChange(true); toast(`Раскидано строк: ${n} (готовые не тронул). Ctrl+Z — отмена.`, 'ok'); }
+export function resetLine() { if (!S.sel) return toast('Сначала выбери слово.', 'err'); snap(); const l = S.lines[S.sel.i]; if (l.approved) { delete l.approved[S.layer]; if (!Object.keys(l.approved).length) delete l.approved; } if (l.sync) delete l.sync[S.layer]; afterSyncChange(false, S.sel.i); toast('Синхра строки сброшена. Ctrl+Z — отмена.', 'ok'); }
+export function clearLayer() { if (!S.lines.length) return; snap(); S.lines.forEach(l => { if (l.approved) { delete l.approved[S.layer]; if (!Object.keys(l.approved).length) delete l.approved; } if (l.sync) delete l.sync[S.layer]; }); afterSyncChange(true); toast('Синхра слоя очищена. Ctrl+Z вернёт.', 'ok'); }
 export const wordLabel = (i: number, k: number) => { const w = wordsOf(i, S.layer)[k]; return w ? plainW(w) : '—'; };
+
+/** Selection actions are one undo step, independent of which view made the selection. */
+export function markSelectionReady(kind: 'words' | 'lines') {
+  if (S.editDraft) return;
+  const before = stateJSON();
+  const refs = W.multi.length ? W.multi : S.sel ? [{ ...S.sel, layer: S.layer }] : [];
+  const ids = S.picked.size ? [...S.picked] : W.multi.length ? [...new Set(W.multi.map(q => q.i))] : S.sel ? [S.sel.i] : [];
+  const plan = JSON.parse(before) as typeof S.lines;
+  const r = kind === 'words' ? approveWords(plan, refs) : approvePhrases(plan, ids, S.layer);
+  if (JSON.stringify(plan) === before) return toast(r.skipped ? 'Сначала задай корректные тайминги выбранных элементов.' : 'Выбор уже отмечен готовым.', '');
+  snap(); S.lines = plan; afterSyncChange(true, 0, false);
+  toast(`Готово: ${r.changed}${r.skipped ? ' · пропущено без корректных таймингов: ' + r.skipped : ''}. Ctrl+Z — отмена.`, 'ok');
+}
+export function unlockSelectedTiming() {
+  if (S.editDraft) return;
+  const ids = S.picked.size ? [...S.picked] : W.multi.length ? [...new Set(W.multi.map(q => q.i))] : S.sel ? [S.sel.i] : [];
+  if (!ids.length) return;
+  snap(); ids.forEach(i => { if (S.lines[i]) allowAutomation(S.lines[i], S.layer); }); afterSyncChange(true, 0, false);
+  toast('Выбранные строки снова доступны автоматизации. Ctrl+Z — отмена.', 'ok');
+}

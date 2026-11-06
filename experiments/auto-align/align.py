@@ -450,6 +450,7 @@ def snap_starts(project, onsets, win, shift=0.0):
     if not len(onsets) and not shift: return
     for ln in project['lines']:
         for layer in ('orig', 'bgo'):
+            if (ln.get('approved') or {}).get(layer): continue
             for x in (ln.get('sync') or {}).get(layer) or []:
                 if not x or not x.get('g') or x.get('a') is None: continue
                 a = x['a']
@@ -468,7 +469,7 @@ def fill(project, aligned_for, force=False):
         for layer in ('orig', 'bgo'):
             text = layer_text(ln, layer); n = len(units(text))
             cur = (ln.get('sync') or {}).get(layer)
-            if not n or (hand_done(cur, n) and not force): continue
+            if not n or ((ln.get('approved') or {}).get(layer) and not force) or (hand_done(cur, n) and not force): continue
             got = aligned_for(i, ln, layer, text)
             if not got: continue
             if hand_done(cur, n): errs[layer] += [abs(g[0] - c['a']) for g, c in zip(got, cur)]  # g: (a, b[, confidence])
@@ -486,8 +487,9 @@ def untangle(project):
     for layer in ('orig', 'bgo'):
         seq = [x for ln in project['lines'] for x in ((ln.get('sync') or {}).get(layer) or [])
                if x and x.get('a') is not None and x.get('b') is not None]
+        protected = {id(x) for ln in project['lines'] if (ln.get('approved') or {}).get(layer) for x in ((ln.get('sync') or {}).get(layer) or [])}
         for i, x in enumerate(seq):
-            if not x.get('g'): continue
+            if not x.get('g') or id(x) in protected: continue
             if i: x['a'] = round(max(x['a'], seq[i - 1]['b']), 3)
             if i + 1 < len(seq) and seq[i + 1]['a'] >= x['a'] + MIN_W: x['b'] = min(x['b'], seq[i + 1]['a'])
             x['b'] = round(max(x['b'], x['a'] + MIN_W), 3)

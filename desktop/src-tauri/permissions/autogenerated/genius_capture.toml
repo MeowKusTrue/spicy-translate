@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-genius-capture"
+description = "Enables the genius_capture command without any pre-configured scope."
+commands.allow = ["genius_capture"]
+
+[[permission]]
+identifier = "deny-genius-capture"
+description = "Denies the genius_capture command without any pre-configured scope."
+commands.deny = ["genius_capture"]

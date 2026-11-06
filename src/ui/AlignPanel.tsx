@@ -1,3 +1,4 @@
+import { refreshAlignSize } from '../autoAlign.ts';
 // «Авто-тайминг» panel: the GPU that was found, which PyTorch build to install, install progress, cancel / remove.
 import { S, emit } from '../state.ts';
 import { DEVICES, acceptBacking, cancelOrRemoveAlign, closeAlignPanel, installAlign, modelOptions, openFolder, setModelOptions } from '../autoAlign.ts';
@@ -72,7 +73,7 @@ export function AlignPanel() {
       <div className="arow"><b>Состояние</b><span>{!st ? '…' : st.external ? 'используется Python-окружение разработчика (experiments/auto-align/.venv)'
         : st.installed ? <>установлен · {DEVICES[st.backend] || st.backend || '—'}{st.bytes ? ` · ${GB(st.bytes)}` : ''}</> : busy ? 'ставится…' : 'не установлен'}</span></div>
       {!st?.external && <>
-        <details className="align-hardware"><summary>Оборудование и переустановка</summary><div className="aopts">{OPTS.map(([v, t, h]) => <label key={v} className={p.pick === v ? 'on' : ''}>
+        <details className="align-hardware" onToggle={e => { if (e.currentTarget.open) refreshAlignSize(); }}><summary>Оборудование и переустановка</summary><div className="aopts">{OPTS.map(([v, t, h]) => <label key={v} className={p.pick === v ? 'on' : ''}>
           <input type="radio" name="abk" checked={p.pick === v} disabled={busy} onChange={() => { p.pick = v; emit(); }} />
           <span><b>{t}{v === 'auto' && gpu ? ` → ${DEVICES[gpu.backend] || gpu.backend}` : ''}</b><small>{h}</small></span>
         </label>)}</div></details>

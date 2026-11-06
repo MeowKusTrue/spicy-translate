@@ -120,3 +120,15 @@ assert all(2 <= len(l['text'].split()) <= 9 for l in L) and sum(len(l['sync']['o
 L = words_to_lines([['эй', 0, 0.2], ['да.', 0.3, 0.5], ['новая', 2.0, 2.3], ['строка,', 2.4, 2.6]])
 assert [l['text'] for l in L] == ['эй да', 'новая строка'], [l['text'] for l in L]  # no trailing punctuation
 print('ok')
+
+# Explicit approval protects an entire partially automatic phrase through every timing pass.
+import copy
+from align import snap_starts
+protected = {'lines': [{'t': 0, 'end': 8, 'text': 'one two', 'tr': '', 'approved': {'orig': True}, 'sync': {'orig': [{'a': 1., 'b': 2., 'g': 1}, {'a': 1.9, 'b': 3., 'g': 1}]}}]}
+before = copy.deepcopy(protected)
+def forbidden(*args): raise AssertionError('approved phrase was sent to alignment')
+fill(protected, forbidden)
+snap_starts(protected, np.array([1.1, 2.1]), .2, .4)
+untangle(protected)
+assert protected == before, 'approval was not preserved through alignment / snap / untangle'
+print('approval checks passed')

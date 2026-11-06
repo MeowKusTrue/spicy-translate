@@ -17,7 +17,7 @@ export function scheduleSave() {
 export function saveProject() {
   if (!S.lines.length) return; clearTimeout(saveT);
   const k = trackKey(); let ok = true;
-  if (k) ok = ls.set('proj:' + k, JSON.stringify({ lang: S.meta.lang, md: S.meta.md, lines: S.lines.map(l => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || null, agent: l.agent, bg: l.bg, sec: l.sec })) }));
+  if (k) ok = ls.set('proj:' + k, JSON.stringify({ lang: S.meta.lang, md: S.meta.md, lines: S.lines.map(l => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || null, agent: l.agent, bg: l.bg, sec: l.sec, approved: l.approved })) }));
   ok = ls.set('last', projectJSON()) && ok;
   S.save = ok ? { msg: '💾 сохранено ' + new Date().toLocaleTimeString().slice(0, 8), cls: 'ok' } : { msg: '💾 браузер не даёт сохранить — скачай проект', cls: 'warn' }; emit();
   pushLive();
@@ -27,7 +27,7 @@ export function restoreProject() {
   let p; try { p = JSON.parse(ls.get('proj:' + k, 'null')!); } catch { return false; }
   if (p && p.lines && p.lines.length && p.lines.every((x: { t?: number }) => typeof x.t === 'number')) {
     // saved with timings: take it whole (keeps added / removed / moved lines, background-only lines, singers)
-    S.lines = p.lines.map((x: any) => ({ t: x.t, end: x.end, text: x.text, tr: x.tr || '', ...(x.sync ? { sync: x.sync } : {}), ...(x.agent ? { agent: x.agent } : {}), ...(x.bg ? { bg: x.bg } : {}), ...(x.sec ? { sec: x.sec } : {}) }));
+    S.lines = p.lines.map((x: any) => ({ t: x.t, end: x.end, text: x.text, tr: x.tr || '', ...(x.sync ? { sync: x.sync } : {}), ...(x.agent ? { agent: x.agent } : {}), ...(x.bg ? { bg: x.bg } : {}), ...(x.sec ? { sec: x.sec } : {}), ...(x.approved ? { approved: x.approved } : {}) }));
     if (p.lang) S.meta.lang = p.lang;
     if (p.md) S.meta.md = p.md;
     S.sel = S.lines.length ? { i: 0, k: 0 } : null; buildPreview(); emit(); return true;
@@ -91,7 +91,7 @@ export async function idbDel(k: string) { try { const db = await idb(); db.trans
 export async function idbGet(k: string): Promise<Blob | null> { if (!k) return null; try { const db = await idb(); return await new Promise(res => { const r = db.transaction('audio').objectStore('audio').get(k); r.onsuccess = () => res(r.result || null); r.onerror = () => res(null); }); } catch { return null; } }
 
 export function projectJSON() {
-  const p: Project = { v: 1, meta: { ...S.meta }, lines: S.lines.map(l => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || null, agent: l.agent, bg: l.bg, sec: l.sec })) };
+  const p: Project = { v: 1, meta: { ...S.meta }, lines: S.lines.map(l => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || null, agent: l.agent, bg: l.bg, sec: l.sec, approved: l.approved })) };
   return JSON.stringify(p, null, 1);
 }
 /** keep = the same song updated by the agent: undo, layer, selection and playhead stay */
@@ -100,9 +100,10 @@ export function loadProject(txt: string, keep?: boolean) {
   const m = p.meta || {};
   S.meta.title = m.title || ''; S.meta.artist = m.artist || ''; if (m.lang) S.meta.lang = m.lang;
   S.meta.md = m.md || [];
-  if (m.mode && m.mode !== S.meta.mode) setMode(m.mode as Mode);
-  setLines(p.lines.map((l: any) => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || undefined, agent: l.agent, bg: l.bg, ...(l.sec ? { sec: l.sec } : {}) })), 0, keep);
+  if (m.mode && m.mode !== S.meta.mode) setMode(m.mode as Mode, false);
+  setLines(p.lines.map((l: any) => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || undefined, agent: l.agent, bg: l.bg, ...(l.sec ? { sec: l.sec } : {}), ...(l.approved ? { approved: l.approved } : {}) })), 0, keep);
   buildPreview(); status('st1', `Проект загружен: строк ${S.lines.length}`, 'ok');
+  if (!keep) scheduleSave();
 }
 type Picker = (o: object) => Promise<{ createWritable(): Promise<{ write(d: string): Promise<void>; close(): Promise<void> }> }>;
 /**

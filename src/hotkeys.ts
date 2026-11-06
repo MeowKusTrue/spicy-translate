@@ -56,6 +56,7 @@ function onKey(e: KeyboardEvent) {
   if (tg.isContentEditable || tag === 'TEXTAREA' || tag === 'SELECT' || (tag === 'INPUT' && tg.type !== 'range' && tg.type !== 'checkbox' && tg.type !== 'radio' && tg.type !== 'file')) return;
   const c = e.code;
   // Playback belongs to the player on every page; a text field keeps its own spaces.
+  if (c === 'Space' && tag === 'INPUT' && ['checkbox','radio','file'].includes(tg.type)) return;
   if (c === 'Space' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); if (!e.repeat) S.playing ? pause() : play(); return; }
   if (S.editDraft || !S.dock) return;
   if ((e.ctrlKey || e.metaKey) && c === 'KeyZ') { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); return; }

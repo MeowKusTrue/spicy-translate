@@ -1,3 +1,5 @@
+import { SelectionBar } from './SelectionBar.tsx';
+import { pickWord } from '../selection.ts';
 // Bottom dock: top bar, waveform, word chips, F/G/H toolbar with "Строка ⋯" and ⚙ menus.
 import { useEffect, useRef, useState } from 'react';
 import { fmtTime, layerProgress, mmss, parseDur, plainW, units, wordList } from '../core/index.ts';
@@ -53,10 +55,11 @@ function Chips() {
         if (x && x.a != null && x.b != null && !x.g) cls += ' t'; else if (x && x.a != null && x.b != null) cls += ' half';
         if (S.sel && S.sel.i === i && S.sel.k === k) cls += ' sel';
         if (x && doubtful(x)) cls += ' doubt';
+        const picked = W.multi.some(q => q.i === i && q.k === k && q.layer === S.layer); if (picked) cls += ' multi';
         if (!us[k].sp && k < ws.length - 1) cls += ' syl'; if (k && !us[k - 1].sp) cls += ' cont';
         const v = vw[k], has = v && v.a != null;
-        return <span key={k} className={cls} data-a={has ? v.a! : undefined} data-b={has ? v.b! : undefined}
-          onClick={() => selectWord(i, k)}
+        return <span key={k} role="button" tabIndex={0} aria-pressed={!!picked} className={cls} data-a={has ? v.a! : undefined} data-b={has ? v.b! : undefined}
+          onClick={e => pickWord(i, k, e)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); pickWord(i,k,e); } }}
           onContextMenu={e => { e.preventDefault(); const x = viewWords(i, S.layer)[k]; if (x && x.a != null) playWord(x as { a: number; b: number }); }}>{plainW(w)}</span>;
       })}
     </div>);
@@ -138,6 +141,7 @@ export function EditorToolbar() {
       </span>
 
     </div>
+    <SelectionBar />
     <fieldset disabled={!!S.editDraft} id="editorCommands" className="editor-commands" hidden={!commandsShown()}>
     <div className="bar">
       <b className="ttl">Редактор слов</b>

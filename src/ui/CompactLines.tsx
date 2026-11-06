@@ -1,3 +1,4 @@
+import { toggleLinePick } from '../selection.ts';
 import { useEffect, useState } from 'react';
 import { S, isTr, layerText, mainLayerFor, mkLayer, setEditDraft, toast } from '../state.ts';
 import { plainW, mmss, textDraftLine, type Layer } from '../core/index.ts';
@@ -53,8 +54,8 @@ export function CompactLines() {
       if (query && ![l.text, l.tr, l.bg?.text, l.bg?.tr].join(' ').toLowerCase().includes(query.toLowerCase())) return null;
       const main: Layer = shown === 'tr' ? (language === 'follow' ? mainLayerFor(i) : 'tr') : 'orig', back = mkLayer(true, isTr(main));
       return <div id={'ln' + i} key={i} className={'ln compact-line' + (S.picked.has(i) ? ' picked' : '') + (S.sel?.i === i ? ' selected' : '') + (!l.text.trim() ? ' bgonly' : '')}>
-        <button className="t" aria-label={`Строка ${i + 1}, ${mmss(l.t)}`} onClick={() => choose(i, l.text.trim() || !l.bg ? main : back)}>{mmss(l.t)}</button>
-        <div className="txt">{l.sec && <small className="compact-section">{l.sec}</small>}
+        <div className="compact-time"><input type="checkbox" className="line-check" aria-label={`Выбрать строку ${i + 1}`} checked={S.picked.has(i)} disabled={!!S.editDraft} onChange={() => toggleLinePick(i)} /><button className="t" aria-label={`Строка ${i + 1}, ${mmss(l.t)}`} onClick={() => choose(i, l.text.trim() || !l.bg ? main : back)}>{mmss(l.t)}</button></div>
+        <div className="txt">{l.approved?.[main] && <small className="approved-line" title="Ручная правка или одобрение: автоматизация не заменит тайминги этой дорожки">✓ Защищена</small>}{l.sec && <small className="compact-section">{l.sec}</small>}
           <button className="compact-text" onClick={e => { if (!S.editDraft && !PREVIEW_EDIT.active) pickLine(i, e); choose(i, main); }} onDoubleClick={() => editPreviewRow(i, main)}>{plainW(layerText(l, main)) || (main === 'tr' ? '+ Вписать перевод' : '+ Вписать строку')}</button>
           {shown === 'both' && <button className="compact-translation" onClick={() => editPreviewRow(i, 'tr')}>{plainW(l.tr) || '+ Перевод'}</button>}
           {l.bg && <div className="bgrow"><button className="compact-text compact-back" onClick={() => choose(i, back)} onDoubleClick={() => startBack(i, back)}>{plainW(layerText(l, back)) || '+ вписать бэк'}</button><small>{l.text.trim() ? `↳ к строке ${i + 1}` : 'самостоятельный бэк'}</small><button className="compact-edit-back" aria-label={`Править бэк строки ${i + 1}`} onClick={() => startBack(i, back)}>Править</button><button className="compact-edit-back compact-delete-back" disabled={!!S.editDraft} aria-label={`Удалить бэк строки ${i + 1}`} onClick={() => removeBack(i)}>Удалить</button></div>}

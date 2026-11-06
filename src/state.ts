@@ -106,14 +106,15 @@ export function lineState(i: number, layer: Layer): 'none' | 'part' | 'done' {
   return 'none';
 }
 export function spreadLine(i: number, layer: Layer) {
-  const l = S.lines[i], ws = wordsOf(i, layer); if (!ws.length) return;
+  const l = S.lines[i], ws = wordsOf(i, layer); if (!ws.length || l.approved?.[layer]) return;
   l.sync = l.sync || {};
   l.sync[layer] = splitWords(layerText(l, layer), l.t, l.end).map(w => ({ a: r3(w.a), b: r3(w.b), g: 1 as const }));
 }
 // make every word of the line a real, draggable block right away (gaps are filled by an even spread, flagged g)
 export function fillLine(i: number, layer: Layer) {
-  const l = S.lines[i], n = wordsOf(i, layer).length; if (!n || lineState(i, layer) === 'done') return false;
-  const sy = ensureSync(i, layer), full = sy.every(x => x.a == null && x.b == null);
+  const l = S.lines[i], n = wordsOf(i, layer).length; if (!n || l.approved?.[layer] || lineState(i, layer) === 'done') return false;
+  const sy = ensureSync(i, layer); if (sy.every(x => x.a != null && x.b != null)) return false;
+  const full = sy.every(x => x.a == null && x.b == null);
   if (full) { spreadLine(i, layer); return true; }
   sy.forEach((x, k) => {
     const nx = sy.slice(k + 1).find(y => y.a != null);
@@ -137,6 +138,7 @@ export const isTr = (l: Layer) => l === 'tr' || l === 'bg';
 export const mkLayer = (bg: boolean, tr: boolean): Layer => bg ? (tr ? 'bg' : 'bgo') : (tr ? 'tr' : 'orig');
 export function setText(i: number, layer: Layer, v: string) {
   const l = S.lines[i];
+  if (l.approved && layerText(l,layer) !== v) { delete l.approved[layer]; if (!Object.keys(l.approved).length) delete l.approved; }
   if (layer === 'tr') l.tr = v; else if (layer === 'orig') l.text = v;
   else { l.bg = l.bg || { text: '', tr: '' }; if (layer === 'bg') l.bg.tr = v; else l.bg.text = v; }
 }

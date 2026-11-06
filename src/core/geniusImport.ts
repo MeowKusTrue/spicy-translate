@@ -28,6 +28,7 @@ function replaceOriginal(line: Line, row: string) {
   const { main, bg } = parseRow(row);
   const update = (layer: 'orig' | 'bgo', before: string, after: string) => {
     if (before === after) return;
+    if (line.approved) { delete line.approved[layer]; if (!Object.keys(line.approved).length) delete line.approved; }
     const sync = remapSync(before, after, line.sync?.[layer]);
     if (sync) { line.sync ||= {}; line.sync[layer] = sync; }
     else if (line.sync) delete line.sync[layer];

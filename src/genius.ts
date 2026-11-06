@@ -1,7 +1,7 @@
 // Text from Genius (where Spicy Lyrics makers take lyrics from). Genius has no timings, so its text is laid
 // over the lines we have (LRCLIB / LRC / auto-timing) through the «Текст» tab: rows are matched by similarity,
 // timings of matched lines stay, translations follow their lines. The server fetches Genius (no CORS there).
-import { alignRows, entriesToLines, lineRow, parseLRC, splitHeaders } from './core/index.ts';
+import { geniusSongUrl, alignRows, entriesToLines, lineRow, parseLRC, splitHeaders } from './core/index.ts';
 import { applyGeniusChanges, geniusChanges, setGeniusSections, type GeniusChange } from './core/geniusImport.ts';
 import { doUndo, snap } from './sync.ts';
 import { scheduleSave, snapshot } from './persist.ts';
@@ -14,7 +14,7 @@ import { setMeta } from './metadata.ts';
 
 export interface GeniusHit { id: number; title: string; artist: string; url: string; art: string }
 const api = async <T,>(path: string): Promise<T> => {
-  const r = await fetch(path).catch(() => null);
+  const r = await fetch(path, {signal:AbortSignal.timeout(20000)}).catch(() => null);
   if (!r) throw new Error('нет связи с локальным сервером — открой редактор через Spicy Translate.bat или приложение');
   const j = await r.json().catch(() => ({ error: r.status === 404 ? 'сервер старой версии — перезапусти его' : 'HTTP ' + r.status }));
   if (!r.ok || j.error) throw new Error(j.error || 'HTTP ' + r.status);
@@ -26,13 +26,15 @@ let pickRequest = 0;
 
 export function geniusQuery() { return S.genius?.q ?? [S.meta.artist, S.meta.title].filter(Boolean).join(' ') ?? ''; }
 export async function geniusSearch(q = geniusQuery()) {
-  pickRequest++;
+  const request = ++pickRequest;
   q = q.trim(); S.genius = { q, hits: S.genius?.hits || [], busy: true, msg: 'Ищу на Genius…', cls: '', ignored: [] }; emit();
   if (!q) return done('Впиши исполнителя и название', 'err');
+  const url = geniusSongUrl(q); if (url) return geniusPick({ id:0, title:S.meta.title || 'Песня Genius',artist:S.meta.artist,url,art:'' });
   try {
     const hits = await api<GeniusHit[]>('/api/genius/search?q=' + encodeURIComponent(q));
+    if (request !== pickRequest) return;
     S.genius = { ...S.genius!, hits }; done(hits.length ? `Нашлось: ${hits.length}. Выбери песню — текст ляжет на тайминги.` : 'На Genius ничего не нашлось', hits.length ? 'ok' : 'err');
-  } catch (e) { done('Genius: ' + (e as Error).message, 'err'); }
+  } catch (e) { if (request !== pickRequest) return; done('Genius: ' + (e as Error).message, 'err'); if (/403|проверк.*браузер/.test((e as Error).message) && (window as any).__TAURI__?.core?.invoke) await openGeniusBrowser(q); }
 }
 
 const norm = (x: string) => x.toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9]+/g, ' ').trim();
@@ -66,7 +68,7 @@ export async function geniusPick(h: GeniusHit) {
   busy(`Беру текст «${h.title}»…`);
   let text: string;
   try { text = (await api<{ text: string }>('/api/genius/lyrics?url=' + encodeURIComponent(h.url))).text; }
-  catch (e) { if (request === pickRequest) return done('Genius: ' + (e as Error).message, 'err'); return; }
+  catch (e) { if (request === pickRequest) { done('Genius: ' + (e as Error).message, 'err'); if (/403|проверк.*браузер/.test((e as Error).message) && (window as any).__TAURI__?.core?.invoke) await openGeniusBrowser(h.url); } return; }
   if (request !== pickRequest) return;
   const { rows, heads } = splitHeaders(text); text = rows.join('\n'); // [Припев] headers -> sections
   let seed: typeof S.lines = [];
@@ -138,4 +140,17 @@ function layOver(text: string) {
   const kept = map.filter(m => m >= 0).length;
   setPage('text');
   toast(`Genius: строк ${rows.length}, совпало с текущими ${kept} — их тайминги и перевод сохранятся. «Применить» — Ctrl+Enter.`, 'ok');
+}
+
+export async function openGeniusBrowser(query = geniusQuery()) {
+  const t = (window as any).__TAURI__;
+  if (!t?.core?.invoke) return toast('В браузерной версии открой Genius отдельно и вставь текст для сверки.', '');
+  try { await t.core.invoke('open_genius',{query:geniusSongUrl(query) || query}); }
+  catch(e) { toast('Окно Genius: '+String(e),'err'); }
+}
+export function receiveGeniusBrowser(payload: unknown) {
+  const p = payload as { text?: unknown; url?: unknown; title?: unknown };
+  if (!p || typeof p.text !== 'string' || p.text.length > 1_000_000 || typeof p.url !== 'string' || !geniusSongUrl(p.url)) return;
+  if (S.editDraft || document.getElementById('previewEdit')) return toast('Сначала сохрани или отмени правку. Затем снова нажми «Взять текст» в окне Genius.','err');
+  if (geniusPaste(p.text)) { if (typeof p.title === 'string') S.genius!.title = p.title.slice(0,300); setPage('track'); emit(); }
 }

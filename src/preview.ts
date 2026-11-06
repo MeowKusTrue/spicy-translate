@@ -7,7 +7,7 @@
 // - a gap of ≥ 3 s between lines shows three breathing dots;
 // - lines not being sung are dimmed and blurred by their distance from the current one.
 // Built imperatively into #lyrIn (React owns only the container): per-frame painting must not go through React.
-import { karaokeMotion, getWords, liveLines, plainW, syncComplete, units, type Layer, type TimedWord } from './core/index.ts';
+import { karaokeMotion, getWords, liveLines, plainW, syncComplete, units, type Layer, type Line, type TimedWord } from './core/index.ts';
 import { S, displayLine, layerText, mainLayerFor } from './state.ts';
 import { seekTo } from './audio.ts';
 import { PREVIEW_EDIT, editPreview } from './previewEdit.ts';
@@ -54,7 +54,7 @@ type Springs = { s: Spring; y: Spring; g: Spring; o?: Spring };
 const dotSprings = (): Springs => ({ s: new Spring(0.75, 0.7, 0.6), y: new Spring(0, 1.25, 0.4), g: new Spring(0, 1, 0.5), o: new Spring(0.35, 1, 0.5) });
 interface Part { el: HTMLElement; a: number; b: number; sp?: Springs; c: Record<string, number> }
 interface Word extends Part { letters?: Part[]; dot?: boolean }
-interface PLine { el: HTMLElement; a: number; b: number; words: Word[]; i: number; dots?: boolean; st?: string }
+interface PLine { ref?: Line; el: HTMLElement; a: number; b: number; words: Word[]; i: number; dots?: boolean; st?: string }
 
 /** words of the main line + the small line under it (translation in bilingual mode, background vocals otherwise) */
 function lineWords(i: number) {
@@ -75,6 +75,7 @@ function lineWords(i: number) {
 
 /* ---------- building ---------- */
 let LINES: PLine[] = [], dirty = false;
+const dirtyRows = new Set<number>();
 let visibility: IntersectionObserver | null = null;
 const visible = new Set<Element>();
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -101,7 +102,7 @@ function mkDots(a: number, b: number, agent: string): PLine {
 }
 export function buildPreview(keepPos?: boolean) {
   if (PREVIEW_EDIT.active) { dirty = true; return; }
-  S.ver++; dirty = false;
+  S.ver++; dirty = false; dirtyRows.clear();
   const box = inner(); if (!box) return;
   visibility?.disconnect(); visible.clear();
   box.innerHTML = ''; LINES = [];
@@ -122,7 +123,7 @@ export function buildPreview(keepPos?: boolean) {
       editPreview(i, bg || el, layer);
     };
     el.onkeydown = e => { if (e.key === 'Enter' && e.target === el) { e.preventDefault(); editPreview(i, el); } };
-    box.appendChild(el); LINES.push({ el, a: R[i].a, b: R[i].b, words, i });
+    box.appendChild(el); LINES.push({ el, ref: l, a: R[i].a, b: R[i].b, words, i });
   });
   visibility = new IntersectionObserver(entries => { for (const e of entries) { if (e.isIntersecting) visible.add(e.target); else visible.delete(e.target); } }, { root: box.parentElement, rootMargin: '200px 0px' });
   LINES.forEach(l => visibility!.observe(l.el));
@@ -130,16 +131,29 @@ export function buildPreview(keepPos?: boolean) {
   if (!keepPos) PV.lastAct = -2;
 }
 /** a line's words or timings changed: rebuilt on the next frame (several edits in one frame cost one rebuild) */
-export function refreshPreviewLine(_i: number) { S.ver++; dirty = true; } // ponytail: whole-preview rebuild; per-line patching if long songs get slow
+export function refreshPreviewLine(i: number) { S.ver++; dirty = true; dirtyRows.add(i); }
 
 const RNG = { ver: -1, r: [] as { a: number; b: number }[] };
 function ranges() { // per-line [start,end] for the main layer, recomputed only when lyrics/timings change
   if (RNG.ver === S.ver && RNG.r.length === S.lines.length) return RNG.r;
-  RNG.ver = S.ver; RNG.r = S.lines.map((l, i) => {
+  RNG.ver = S.ver; const old = RNG.r; RNG.r = S.lines.map((l, i) => {
+    if (old.length === S.lines.length && dirtyRows.size && !dirtyRows.has(i)) return old[i];
     const { wm, wb } = lineWords(i), ws = wm.concat(wb || []);
     return ws.length ? { a: Math.min(l.t, ...ws.map(w => w.a)), b: Math.max(l.end, ...ws.map(w => w.b)) } : { a: l.t, b: l.end };
   });
   return RNG.r;
+}
+
+/** Mouse timing edits usually affect one phrase; keep every other preview node and its state. */
+function updatePreviewRows() {
+  if (!dirtyRows.size || dirtyRows.size > 12) return false;
+  const R = ranges(), rows = [...dirtyRows].map(i => LINES.find(l => l.i === i));
+  if (rows.some((row,j) => !row || row.ref !== S.lines[row.i] || !R[[...dirtyRows][j]] || row.a !== R[row.i].a || row.b !== R[row.i].b)) return false;
+  for (const row of rows as PLine[]) {
+    const {wm,wb} = lineWords(row.i); row.words = []; row.el.replaceChildren(); mkWords(row.el,wm,row.words);
+    if (wb) { const b = span('bg'); row.el.appendChild(b); mkWords(b,wb,row.words); }
+  }
+  dirtyRows.clear(); dirty = false; return true;
 }
 
 /* ---------- painting ---------- */
@@ -191,7 +205,7 @@ function applyScroll() { const el = inner(); if (!el) return; el.style.transitio
 /** one animation frame of the preview at playback time t */
 export function previewFrame(t: number) {
   if (PREVIEW_EDIT.active) return;
-  if (dirty) buildPreview(true);
+  if (dirty && !updatePreviewRows()) buildPreview(true);
   const nowMs = performance.now(), dt = Math.min(0.25, (nowMs - lastT) / 1000); lastT = nowMs;
   const T = t + (S.voff || 0) / 1000, R = ranges();
   if (!wheelOn) { const lyr = inner()?.parentElement; if (lyr) { wheelOn = true; lyr.addEventListener('wheel', e => { if (PREVIEW_EDIT.active) return; e.preventDefault(); SCR.manual -= e.deltaY; SCR.until = performance.now() + 3000; applyScroll(); }, { passive: false }); } }

@@ -10,6 +10,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { directorySize } from './directorySize.ts';
 import { dataDirectory } from './paths.ts';
 import * as C from '../src/core/index.ts';
 import type { Layer, Mode, Project } from '../src/core/index.ts';
@@ -104,7 +105,7 @@ const TORCH: Record<Backend, (cu: string) => string[]> = {
   dml: () => ['torch-directml', 'torchaudio==2.4.1', 'torchvision==0.19.1'], // torch-directml pins torch 2.4.1
   cpu: () => ['torch', 'torchaudio', 'torchvision', '--index-url', 'https://download.pytorch.org/whl/cpu'],
 };
-function dirSize(d: string): number { let n = 0; try { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); n += e.isDirectory() ? dirSize(f) : fs.statSync(f).size; } } catch {} return n; }
+
 async function setupAlign(want?: Backend) {
   if (process.platform !== 'win32') throw new Error('установка в один клик пока только для Windows — см. experiments/auto-align/README.md');
   // one folder for the whole install, decided now: unpacking and pip used to look at different places (ENOENT)
@@ -153,21 +154,22 @@ async function setupAlign(want?: Backend) {
   step('готово', 100); SETUP.done = true;
 }
 /** bump when the editor needs new server endpoints (3: auto-timing install / GPU / open folder) */
-const API = 16; // 15: original project/export mode · 14: moved data paths and GPU memory · 13: selectable ASR / aligner and backing candidates · 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes · 10: install pins torch, Python found without LOCALAPPDATA · 11: installs noted for each other (python-path.txt) · 12: /api/spell
+const API = 17; // 15: original project/export mode · 14: moved data paths and GPU memory · 13: selectable ASR / aligner and backing candidates · 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes · 10: install pins torch, Python found without LOCALAPPDATA · 11: installs noted for each other (python-path.txt) · 12: /api/spell
 /* ---------- Genius (lyrics makers take the text from there). No CORS for pages, so the server fetches them. ---------- */
 const GH = { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', 'accept-language': 'en-US,en;q=0.9' };
 type GeniusHit = { id: number; title: string; artist: string; url: string; art: string };
 async function geniusSearch(q: string): Promise<GeniusHit[]> {
-  const r = await fetch('https://genius.com/api/search/song?per_page=10&q=' + encodeURIComponent(q), { headers: GH });
-  if (!r.ok) throw new Error('Genius HTTP ' + r.status);
+  const r = await fetch('https://genius.com/api/search/song?per_page=10&q=' + encodeURIComponent(q), { headers: GH, signal: AbortSignal.timeout(15000) });
+  if (!r.ok) throw new Error(r.status === 403 ? 'Genius требует проверку браузера. Нажми «Открыть Genius в приложении», открой песню и возьми текст в сверку.' : 'Genius HTTP ' + r.status);
   const j = await r.json() as { response?: { sections?: { hits?: { result: any }[] }[] } };
   return (j.response?.sections?.[0]?.hits || []).map(({ result: s }) => ({ id: s.id, title: s.title, artist: s.primary_artist?.name || s.artist_names || '', url: s.url, art: s.song_art_image_thumbnail_url || '' }));
 }
 async function geniusText(url: string) {
-  if (!/^https:\/\/genius\.com\/[\w%.-]+-lyrics$/.test(url)) throw new Error('нужна ссылка на песню genius.com/…-lyrics');
-  const r = await fetch(url, { headers: GH }), html = await r.text();
+  const canonical = C.geniusSongUrl(url); if (!canonical) throw new Error('нужна ссылка на песню genius.com/…-lyrics');
+  url = canonical;
+  const r = await fetch(url, { headers: GH, signal: AbortSignal.timeout(15000) }), html = await r.text();
   const accessError = C.geniusAccessError(html, r.url); if (accessError) throw new Error(accessError);
-  if (!r.ok) throw new Error('Genius HTTP ' + r.status);
+  if (!r.ok) throw new Error(r.status === 403 ? 'Genius требует проверку браузера. Нажми «Открыть Genius в приложении», открой песню и возьми текст в сверку.' : 'Genius HTTP ' + r.status);
   const text = C.geniusLyrics(html, true); if (!text) throw new Error('на странице нет текста (инструментал или Genius поменял вёрстку)');
   return text;
 }
@@ -191,7 +193,7 @@ async function spell({ texts, lang }: { texts: string[]; lang: string }) {
 /** songwriters (Genius «Written By») and album of a song by its Genius id */
 async function geniusWriters(id: string): Promise<{ writers: string[]; album: string }> {
   if (!/^\d+$/.test(id)) throw new Error('нужен id песни Genius');
-  const r = await fetch('https://genius.com/api/songs/' + id, { headers: GH }); if (!r.ok) throw new Error('Genius HTTP ' + r.status);
+  const r = await fetch('https://genius.com/api/songs/' + id, { headers: GH, signal: AbortSignal.timeout(15000) }); if (!r.ok) throw new Error(r.status === 403 ? 'Genius требует проверку браузера. Нажми «Открыть Genius в приложении», открой песню и возьми текст в сверку.' : 'Genius HTTP ' + r.status);
   const s = (await r.json() as { response?: { song?: { writer_artists?: { name: string }[]; album?: { name?: string } | null } } }).response?.song;
   return { writers: (s?.writer_artists || []).map(a => a.name), album: s?.album?.name || '' };
 }
@@ -255,7 +257,7 @@ async function alignRoute(req: http.IncomingMessage, res: http.ServerResponse, u
     const info = readyInfo(), installed = !!info || (SETUP.done && fs.existsSync(pyExe()));
     return json(res, { running: SETUP.running, step: SETUP.step, pct: SETUP.pct, error: installed && !SETUP.running ? '' : SETUP.error, done: SETUP.done || !!alignEnv(), installed, // an old failed attempt is no news once it is installed
       backend: info?.backend || SETUP.backend,
-      file: SETUP.file, got: SETUP.got, size: SETUP.size, last: SETUP.log.slice(-1)[0] || '', bytes: u.searchParams.has('size') && installed ? dirSize(pyHome()) : undefined, dir: pyHome(),
+      file: SETUP.file, got: SETUP.got, size: SETUP.size, last: SETUP.log.slice(-1)[0] || '', bytes: u.searchParams.has('size') && installed ? await directorySize(pyHome()) : undefined, dir: pyHome(),
       external: !installed && !!alignEnv() }); // a dev venv (worktree / experiments) is in use instead
   }
   if (u.pathname === '/api/open' && req.method === 'POST') { // open a data folder in Explorer (local server only)
@@ -419,7 +421,7 @@ const tools: Record<string, Tool> = {
     schema: { type: 'object', properties: { layer: { type: 'string', enum: ['tr', 'orig', 'bg', 'bgo'], description: 'tr/orig — основная строка, bg/bgo — бэк (перевод/оригинал)' } }, required: ['layer'] },
     async run({ layer }: { layer: Layer }) {
       const p = await need(); let n = 0;
-      p.lines.forEach(l => { const t = layerText(l, layer); if (!t.trim() || (l.sync && l.sync[layer])) return; l.sync = l.sync || {}; l.sync[layer] = C.splitWords(t, l.t, l.end).map(w => ({ a: +w.a.toFixed(3), b: +w.b.toFixed(3), g: 1 as const })); n++; });
+      p.lines.forEach(l => { const t = layerText(l, layer); if (!t.trim() || l.approved?.[layer] || (l.sync && l.sync[layer])) return; l.sync = l.sync || {}; l.sync[layer] = C.splitWords(t, l.t, l.end).map(w => ({ a: +w.a.toFixed(3), b: +w.b.toFixed(3), g: 1 as const })); n++; });
       await putProject(p, 'mcp'); return { ok: true, spread: n };
     }
   },
@@ -456,7 +458,7 @@ if (!process.argv.includes('--http')) {
     const { id, method, params } = msg;
     if (id === undefined) return; // notification
     try {
-      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.2.2' } } });
+      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.3.0' } } });
       if (method === 'ping') return send({ id, result: {} });
       if (method === 'tools/list') return send({ id, result: { tools: Object.entries(tools).map(([name, t]) => ({ name, description: t.description, inputSchema: t.schema })) } });
       if (method === 'tools/call') {

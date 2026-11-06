@@ -1,4 +1,5 @@
 // Singers per line (duets): v1 left, v2 right (opposite-aligned in Spicy Lyrics), v1000 together.
+import { W, drawWave } from './waveform/wave.ts';
 import type { Agent } from './core/index.ts';
 import { S, emit, toast } from './state.ts';
 import { buildPreview } from './preview.ts';
@@ -12,11 +13,12 @@ export const AGENTS: { id: Agent; label: string; title: string }[] = [
 export const agentOf = (i: number) => AGENTS.find(a => a.id === (S.lines[i]?.agent || 'v1'))!;
 /** Line picking like in an editor: click, Shift = range, Ctrl = toggle. */
 export function pickLine(i: number, e: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) {
+  W.multi = [];
   const P = S.picked;
   if (e.shiftKey && S.pickAnchor >= 0) { P.clear(); for (let k = Math.min(S.pickAnchor, i); k <= Math.max(S.pickAnchor, i); k++) P.add(k); }
   else if (e.ctrlKey || e.metaKey) { if (P.has(i)) P.delete(i); else P.add(i); S.pickAnchor = i; }
   else { P.clear(); P.add(i); S.pickAnchor = i; }
-  emit();
+  emit(); drawWave();
 }
 export function clearPicked() { if (!S.picked.size) return false; S.picked.clear(); emit(); return true; }
 /** Assign a singer to the picked lines (or the line of the selected word). */

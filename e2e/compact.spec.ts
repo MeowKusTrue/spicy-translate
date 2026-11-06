@@ -57,7 +57,7 @@ test('fitting can reorder phrases while the selected word follows its original p
   await page.locator('#nav-export').click();
   await page.locator('#fileProj').setInputFiles({ name: 'reorder.spicy.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(alternate)) });
   await page.locator('#nav-sync').click();
-  await page.getByRole('button', { name: 'поздняя', exact: true }).click(); await page.locator('#btnFitEveryLine').click();
+  await page.locator('#lines').getByRole('button', { name: 'поздняя', exact: true }).click(); await page.locator('#btnFitEveryLine').click();
   await expect.poll(async () => (await project()).lines.map((l: any) => l.text)).toEqual(['ранняя', 'поздняя']);
   await expect(page.locator('#wordInspector h3')).toHaveText('поздняя');
   await page.getByRole('button', { name: 'Отменить', exact: true }).click();

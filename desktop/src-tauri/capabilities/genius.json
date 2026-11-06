@@ -1,0 +1,15 @@
+{
+  "identifier": "genius-browser",
+  "description": "Only pass the visible song text to the editor preview; no filesystem or shell access.",
+  "windows": [
+    "genius"
+  ],
+  "remote": {
+    "urls": [
+      "https://genius.com/*"
+    ]
+  },
+  "permissions": [
+    "allow-genius-capture"
+  ]
+}

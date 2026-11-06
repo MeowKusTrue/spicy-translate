@@ -17,7 +17,7 @@ let preMute = 0.3;
 
 const flag = (k: 'fx' | 'blur' | 'coverBg', v: boolean) => { S[k] = v; ls.set(k, v ? '1' : '0'); PV.lastAct = -2; emit(); };
 function Slider({ min, max, step, value, onChange, id, title }: { min: number; max: number; step: number; value: number; onChange: (v: number) => void; id?: string; title?: string }) {
-  return <input type="range" className="rng" id={id} title={title} min={min} max={max} step={step} value={value}
+  return <input type="range" className="rng" id={id} aria-label={title} title={title} min={min} max={max} step={step} value={value} onKeyDown={e => { if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End'].includes(e.key)) e.stopPropagation(); }}
     style={{ '--p': ((value - min) / (max - min)) * 100 + '%' } as CSSProperties} onChange={e => onChange(parseFloat(e.target.value))} />;
 }
 function Switch({ id, label, hint, on, set }: { id: string; label: string; hint?: string; on: boolean; set: (v: boolean) => void }) {
@@ -35,10 +35,6 @@ function Settings() {
     </summary>
     <div className="pop sets">
       <div className="sh">Звук</div>
-      <div className="srow">
-        <button className="ic" id="btnMute" title="Без звука" onClick={() => { const v = S.vol; if (v > 0) { preMute = v; setVolume(0); } else setVolume(preMute || 0.3); }}>{S.vol === 0 ? '🔇' : S.vol < 0.4 ? '🔉' : '🔊'}</button>
-        <Slider id="vol" min={0} max={1} step={0.01} value={S.vol} onChange={setVolume} title="Громкость" /><span className="val">{Math.round(S.vol * 100)}%</span>
-      </div>
       <div className="srow" title="Клавиши [ и ] — медленнее / быстрее, ' — обычная"><span>Скорость</span><Seg items={RATES.map(r => [r, r + '×'] as [number, string])} value={S.rate} set={setRate} /></div>
       <div className="sh">Анимация</div>
       <Switch id="fxChk" label="Анимация как в Spicy Lyrics" hint="подъём и свечение слов, долгие слоги по буквам" on={S.fx} set={v => flag('fx', v)} />
@@ -79,8 +75,13 @@ export function Stage() {
     <Lyrics />
     <div className="player">
       <button className="round" id="btnPlay" title="Играть / пауза (Space)" onClick={() => S.playing ? pause() : play()}>{S.playing ? '❚❚' : '▶'}</button>
-      <input type="range" id="seek" min="0" max={S.duration} step="0.05" defaultValue="0" onChange={e => seekTo(parseFloat(e.target.value))} />
+      <input aria-label="Позиция воспроизведения" type="range" id="seek" min="0" max={S.duration} step="0.05" defaultValue="0" onChange={e => seekTo(parseFloat(e.target.value))} />
       <div className="time" id="clock">0:00 / 0:00</div>
+      <div className="player-volume">
+        <button className="ic" id="btnMute" aria-label="Включить или выключить звук" title="Включить или выключить звук" onClick={() => { const v = S.vol; if (v > 0) { preMute = v; setVolume(0); } else setVolume(preMute || 0.3); }}>{S.vol === 0 ? '🔇' : S.vol < 0.4 ? '🔉' : '🔊'}</button>
+        <Slider id="vol" min={0} max={1} step={0.01} value={S.vol} onChange={setVolume} title="Громкость" /><span className="val">{Math.round(S.vol * 100)}%</span>
+      </div>
+
       <button className={'sm voffb' + (S.voff ? ' on' : '')} title={'Синхронизация текста со звуком, на слух во время проигрывания: текст отстаёт — «=», спешит — «-» (по 20 мс). Клик — сбросить.'} onClick={() => setVoff(0)}>⇆ {S.voff > 0 ? '+' : ''}{S.voff || 0} мс</button>
       <label className="btn sm" title="Свой аудиофайл (можно просто перетащить на страницу)">♪ аудио<input type="file" id="fileAudio" accept="audio/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) loadAudioFile(f); }} /></label>
     </div>

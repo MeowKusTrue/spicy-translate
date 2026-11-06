@@ -4,7 +4,7 @@
 // Two word lanes (main track, background vocals): clicking the other lane switches to it. The lines band at the
 // bottom drags a whole line (all its words on every track). Double click edits text in place.
 import { S, clamp, conf, emit, ensureSync, isBg, isTr, ls, mkLayer, r3, spreadLine, toast, wordsOf } from '../state.ts';
-import { lineEdgeAt, moveEdge, moveLineEdge, moveWord, nearest, seqWords as coreSeq, shiftLine, snapSpan, startEdge, startMove, type Layer, type Seq, type WordSync } from '../core/index.ts';
+import { protectTiming, lineEdgeAt, moveEdge, moveLineEdge, moveWord, nearest, seqWords as coreSeq, shiftLine, snapSpan, startEdge, startMove, type Layer, type Seq, type WordSync } from '../core/index.ts';
 import { now, playWord, seekTo } from '../audio.ts';
 import { buildPreview, refreshPreviewLine } from '../preview.ts';
 import { scheduleSave } from '../persist.ts';
@@ -59,6 +59,7 @@ function nearestCand(t: number, cands: number[]) { return S.snap && !W.ctrl ? ne
 function snapOne(t: number, cands: number[]) { const n = nearestCand(t, cands); W.snapAt = n ? n.c : null; return n ? n.c : t; }
 
 /** hover hint over the wave: what is under the cursor and what you can do with it */
+let tipHtml = '', tipSize = { w: 0, h: 0 };
 function tip(e: MouseEvent, h: Hit | null) {
   const el = document.getElementById('waveTip'); if (!el) return;
   let html = '';
@@ -75,7 +76,8 @@ function tip(e: MouseEvent, h: Hit | null) {
     else if (h.type === 'lane') html = `<small>2× — ${h.i >= 0 ? 'вписать текст строки' : 'новая строка'} на дорожке «${h.lane === 'bg' ? 'бэк' : 'основа'}» · тащи — выбрать рамкой (Ctrl — добавить) · Alt+тащи — нарисовать выбранное слово</small>`;
   }
   el.hidden = !html; if (!html) return;
-  el.innerHTML = html; el.style.left = Math.min(innerWidth - el.offsetWidth - 8, e.clientX + 14) + 'px'; el.style.top = (e.clientY - el.offsetHeight - 12) + 'px';
+  if (html !== tipHtml) { tipHtml = html; el.innerHTML = html; tipSize = { w: el.offsetWidth, h: el.offsetHeight }; }
+  el.style.left = Math.min(innerWidth - tipSize.w - 8, e.clientX + 14) + 'px'; el.style.top = (e.clientY - tipSize.h - 12) + 'px';
 }
 const esc = (s: string) => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!));
 
@@ -95,7 +97,7 @@ function setSec(i: number, label: string | null, ask = true) {
   const l = S.lines[i]; if (!l) return;
   if (label === null) { snap(); delete l.sec; }
   else { const v = (ask ? prompt('Название секции (Припев, Куплет 1, Бридж…): строки от этой до следующей секции', label) : label)?.trim(); if (!v) return; snap(); l.sec = v; }
-  emit(); drawWave(); scheduleSave();
+  refreshPreviewLine(i); emit(); drawWave(); scheduleSave();
 }
 /** a section starting at line i: quick picks (Куплет gets the next number), own name, rename / remove */
 export function secPick(e: MouseEvent, i: number) {
@@ -315,7 +317,12 @@ export function setupWave(cv: HTMLCanvasElement) {
         if (d.type === 'lines') d.ls.forEach((l: typeof S.lines[0]) => S.picked.add(S.lines.indexOf(l))); // the moved lines stay picked
         buildPreview(true);
       }
-      if (d.type !== 'pan') { if (fitLines()) W.multi = []; S.lines.forEach((_, i) => refreshPreviewLine(i)); emit(); drawWave(); scheduleSave(); }
+      // A manual timing edit protects its phrase, not just the dragged word.
+      if (['move', 'edge', 'paint'].includes(d.type) && S.lines[d.i]) protectTiming(S.lines[d.i], d.layer || S.layer);
+      if (d.type === 'mmove') for (const q of d.items) if (S.lines[q.i]) protectTiming(S.lines[q.i], q.layer || S.layer);
+      if (d.type === 'line' && d.l) for (const layer of Object.keys(d.l.sync || {}) as Layer[]) protectTiming(d.l, layer);
+      if (d.type === 'lines' || d.type === 'sec') for (const l of d.ls) for (const layer of Object.keys(l.sync || {}) as Layer[]) protectTiming(l, layer);
+      if (d.type !== 'pan') { const fitted = fitLines(); if (fitted) W.multi = []; else if (['move','edge','paint'].includes(d.type)) refreshPreviewLine(d.i); else S.lines.forEach((_, i) => refreshPreviewLine(i)); emit(); drawWave(); scheduleSave(); }
     }
   };
   window.addEventListener('mousemove', onMove);

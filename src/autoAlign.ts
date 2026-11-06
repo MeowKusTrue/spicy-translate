@@ -1,5 +1,6 @@
 // «Авто-тайминг»: the local server runs the experiments/auto-align prototype (Demucs + wav2vec2) on the track's audio;
 // word timings come back flagged auto (dashed), hand-marked words are never touched. Also brings the separated voice.
+import { mergeAutoLayer } from './core/index.ts';
 import { S, emit, lineState, ls, toast } from './state.ts';
 import { addBacking, alignOptions, type AlignOptions } from './core/autoAlign.ts';
 import { checkServer } from './live.ts';
@@ -103,8 +104,7 @@ function merge(res: Line[], only: number[] | null = null) {
     const r = res[only ? only.indexOf(i) : i]; if (!r || r.text !== l.text) return;
     let did = false;
     for (const k of ['orig', 'bgo'] as Layer[]) {
-      const sy = r.sync?.[k]; if (!sy || lineState(i, k) === 'done' || (k === 'bgo' && (r.bg?.text || '') !== (l.bg?.text || ''))) continue;
-      (l.sync = l.sync || {})[k] = sy.map(x => ({ ...x, g: x.g ?? 1 })); did = true;
+      if (lineState(i, k) !== 'done' && mergeAutoLayer(l, r, k)) did = true;
     }
     if (did) n++;
   });
@@ -123,13 +123,14 @@ async function refresh(withSize = false) {
 export async function openAlignPanel() {
   S.alignPanel = { gpu: null, st: null, pick: 'auto', err: '' }; emit();
   const fail = (m: string) => { if (S.alignPanel) { S.alignPanel.err = m; emit(); } };
-  try { await refresh(true); }
+  try { await refresh(); }
   catch { return fail(await checkServer().catch(() => false)
     ? 'Сервер не ответил на запрос установки — попробуй ещё раз.'
     : 'Сервер старой версии или недоступен. Перезапусти его: в Claude Code /mcp → spicy-translate → Reconnect (или закрой Claude Code), либо открой редактор приложением / батником.'); }
   api('/api/align/gpu').then(g => { if (S.alignPanel) { S.alignPanel.gpu = g; emit(); } }).catch(() => { if (S.alignPanel) { S.alignPanel.gpu = { names: [], backend: 'cpu', why: 'не удалось определить видеокарту' }; emit(); } });
   if (S.alignPanel?.st?.running) poll();
 }
+export const refreshAlignSize = () => refresh(true).catch(() => {});
 export const closeAlignPanel = () => { S.alignPanel = null; emit(); };
 async function poll() {
   if (polling) return; polling = true;

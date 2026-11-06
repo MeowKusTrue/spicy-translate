@@ -49,20 +49,22 @@ export function loadManual(text: string, fileName = '') {
 }
 /** keep = the same song edited elsewhere (the agent): undo, layer, selection and playhead stay */
 export function setLines(lines: Line[], dur: number, keep = false) {
+  const hadLines = S.lines.length > 0;
   if (S.lines.length && !keep) snapshot('перед загрузкой нового текста'); // the replaced project stays in the snapshots
   S.lines = lines; spreadSplits(); S.picked.clear(); S.pickAnchor = -1; // remembered syllable splits come in by themselves
-  if (!keep) { S.undo = []; S.redo = []; S.layer = lines.some(l => l.tr && l.tr.trim()) ? 'tr' : 'orig'; }
+  if (!keep) { S.undo = []; S.redo = []; }
+  if (!keep || !hadLines) S.layer = S.meta.mode === 'original' ? 'orig' : lines.some(l => l.tr && l.tr.trim()) ? 'tr' : 'orig';
   else if (S.sel && S.sel.i >= lines.length) S.sel = lines.length ? { i: lines.length - 1, k: 0 } : null;
   S.duration = Math.max(dur || 0, lines.length ? lines[lines.length - 1].end + 2 : 0, S.hasAudio ? audio.duration || 0 : 0);
   buildPreview();
   if (!keep) { seekTo(0); if (lines.length) selectWord(0, 0); }
   emit();
 }
-export function setMode(m: Mode) {
+export function setMode(m: Mode, save = true) {
   S.meta.mode = m;
   S.exp.spread = true; // bilingual always exports word timing
   S.layer = m === 'translation' ? 'tr' : 'orig'; S.qa = null; S.out = null;
-  import('./persist.ts').then(p => p.scheduleSave());
+  if (save) import('./persist.ts').then(p => p.scheduleSave());
   buildPreview(true); emit(); drawWave();
 }
 

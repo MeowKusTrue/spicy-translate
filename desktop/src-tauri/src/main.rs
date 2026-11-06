@@ -10,10 +10,10 @@ use std::{
     sync::Mutex,
     time::{Duration, Instant},
 };
-use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
 /// server API the editor in this build needs (server/index.ts `API`)
-const API: u32 = 16;
+const API: u32 = 17;
 struct Server(Mutex<Option<Child>>);
 
 /// «Сохранить как»: the system dialog instead of a silent download into Downloads. None = cancelled.
@@ -27,6 +27,41 @@ async fn save_file(app: tauri::AppHandle, name: String, text: String) -> Result<
     let path = path.into_path().map_err(|e| e.to_string())?;
     std::fs::write(&path, text).map_err(|e| e.to_string())?;
     Ok(Some(path.display().to_string()))
+}
+
+/// An ordinary browser window lets Genius perform its own browser checks; imports are always a preview.
+#[tauri::command]
+async fn open_genius(app: tauri::AppHandle, query: String) -> Result<(), String> {
+    let q = query.trim();
+    let url = if q.starts_with("https://") {
+        let u: tauri::Url = q.parse().map_err(|_| "Некорректная ссылка Genius")?;
+        if u.host_str() != Some("genius.com") || u.scheme() != "https" { return Err("Нужна ссылка genius.com".into()); }
+        u
+    } else {
+        let mut u: tauri::Url = "https://genius.com/search".parse().unwrap();
+        u.query_pairs_mut().append_pair("q",q); u
+    };
+    if let Some(w) = app.get_webview_window("genius") {
+        w.navigate(url).map_err(|e| e.to_string())?; let _ = w.show(); let _ = w.set_focus(); return Ok(());
+    }
+    WebviewWindowBuilder::new(&app,"genius",WebviewUrl::External(url))
+        .title("Genius — выбери песню и нажми «Взять текст»")
+        .inner_size(1080.0,800.0).min_inner_size(700.0,500.0)
+        .initialization_script(include_str!("genius-browser.js"))
+        .on_navigation(|u| u.scheme() == "https" && matches!(u.host_str(),Some("genius.com") | Some("challenges.cloudflare.com")))
+        .build().map_err(|e| e.to_string())?;
+    Ok(())
+}
+#[tauri::command]
+fn genius_capture(app: tauri::AppHandle, window: tauri::WebviewWindow, text: String, url: String, title: String) -> Result<(), String> {
+    let current = window.url().map_err(|e| e.to_string())?;
+    if window.label() != "genius" || current.scheme() != "https" || current.host_str() != Some("genius.com") || !current.path().ends_with("-lyrics") || current.as_str() != url {
+        return Err("Импорт разрешён только из открытой страницы песни Genius".into());
+    }
+    if text.trim().is_empty() || text.len() > 1_000_000 || title.len() > 2000 { return Err("Некорректный размер текста".into()); }
+    app.emit_to("main","genius-import",serde_json::json!({"text":text,"url":url,"title":title})).map_err(|e| e.to_string())?;
+    if let Some(main) = app.get_webview_window("main") { let _ = main.set_focus(); }
+    Ok(())
 }
 
 /* ---------- the project folder: TTML, project and audio side by side; Ctrl+S writes there without asking ---------- */
@@ -107,7 +142,7 @@ fn main() {
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build()) // size / position remembered between launches
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![save_file, pick_folder, list_dir, read_text, read_bytes, write_text, write_bytes])
+        .invoke_handler(tauri::generate_handler![save_file, pick_folder, list_dir, read_text, read_bytes, write_text, write_bytes, open_genius, genius_capture])
         .manage(Server(Mutex::new(None)))
         .setup(|app| {
             let mut port = base_port();

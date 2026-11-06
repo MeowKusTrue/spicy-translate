@@ -130,12 +130,25 @@ export function laneY(lane: Lane, line?: number) {
 export const lineAt = (t: number) => coreLineAt(S.lines, t);
 export const bandRows = () => coreBandRows(S.lines);
 let layoutVer = -1, layoutLayer: Layer | null = null;
-export function drawWave() {
+const raster = document.createElement('canvas');
+let rasterKey = '', rasterPeaks: Float32Array | null = null, rasterSpec: Spec | null = null;
+export function drawWave() { renderWave(true); }
+export function drawWaveFrame() { renderWave(false); }
+function renderWave(force: boolean) {
   const cv = canvas(); if (!cv || !S.dock) return;
   const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
   if (!w || !h) return;
   if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
-  const g = cv.getContext('2d')!; g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  const g = cv.getContext('2d')!;
+  const t = now();
+  if (S.playing && !W.drag && (t < W.start || t > W.start + w / W.px * 0.8)) W.start = Math.max(0, t - w / W.px * 0.25);
+  const key = [S.ver, w,h,dpr,W.start,W.px,S.layer,S.sel?.i,S.sel?.k,[...S.picked].join(','),W.multi.map(q=>`${q.i}:${q.k}:${q.layer}`).join(','),S.waveView,S.waveVoice,LANES.m,LANES.b,LANES.l,TH.t,TH.a,TH.a2].join('/');
+  const canCache = !W.drag;
+  if (!force && canCache && key === rasterKey && raster.width === cv.width && raster.height === cv.height && rasterPeaks === wavePeaks() && rasterSpec === waveSpec()) {
+    g.setTransform(1,0,0,1,0,0); g.clearRect(0,0,cv.width,cv.height); g.drawImage(raster,0,0);
+    g.setTransform(dpr,0,0,dpr,0,0); drawCursor(g,t,w,h); drawMini(t,w/W.px); return;
+  }
+  g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
   if (layoutVer !== S.ver || layoutLayer !== S.layer) {
     layoutVer = S.ver; layoutLayer = S.layer;
     for (const lane of ['main', 'bg'] as const) {
@@ -144,7 +157,7 @@ export function drawWave() {
     }
     W.rows = bandRows(); W.nr = Math.max(1, ...W.rows.map(r => r + 1)); W.secs = sectionsOf(S.lines);
   }
-  const t = now(), G = W.G = geo(h);
+  const G = W.G = geo(h);
   if (S.playing && !W.drag) { if (t < W.start || t > W.start + w / W.px * 0.8) W.start = Math.max(0, t - w / W.px * 0.25); }
   const t0 = W.start, t1 = t0 + w / W.px, X = (tt: number) => (tt - t0) * W.px;
   // a label starts at its block, or at the left edge when the block began off screen (zoomed in, it would be gone)
@@ -257,6 +270,15 @@ export function drawWave() {
     g.setLineDash([4, 3]); g.strokeStyle = `rgb(${TH.t})`; g.strokeRect(x1 + .5, y + .5, Math.max(2, x2 - x1) - 1, hh - 1); g.setLineDash([]);
     g.fillStyle = `rgb(${TH.t})`; g.font = '600 13px system-ui'; g.textBaseline = 'middle'; g.fillText('+ ' + plainW(W.drag.w), x1 + 5, y + hh / 2 + 1);
   }
+  if (canCache) {
+    raster.width = cv.width; raster.height = cv.height;
+    raster.getContext('2d')!.drawImage(cv,0,0);
+    rasterKey = key; rasterPeaks = wavePeaks(); rasterSpec = waveSpec();
+  } else rasterKey = '';
+  drawCursor(g,t,w,h); drawMini(t,w/W.px,force);
+}
+function drawCursor(g: CanvasRenderingContext2D, t: number, w: number, h: number) {
+  const X = (tt: number) => (tt-W.start)*W.px, G = W.G;
   // playhead
   const px = X(t); g.fillStyle = `rgb(${TH.t})`; g.fillRect(px, 0, 1.5, h);
   if (W.flash) { // F/G/H mark flash
@@ -265,7 +287,6 @@ export function drawWave() {
     else W.flash = null;
   }
   if (W.snapAt != null && W.drag) { const sx = X(W.snapAt); g.fillStyle = '#ffd166'; g.fillRect(sx - 0.75, 0, 1.5, h); g.font = '11px ui-monospace,monospace'; g.fillText('🧲 ' + W.snapAt.toFixed(3), sx + 5, G.lY - 14); }
-  drawMini(t, w / W.px);
 }
 export const SEC_Y = 3, SEC_H = 15;
 /** a section's color by its kind: chorus pink, verse green, bridge yellow… */
@@ -276,12 +297,19 @@ export function secColor(label: string) {
 }
 /** whole-song strip over the wave: lines colored by sync state, background-only lines pink, the visible window, playhead */
 export const songLen = () => Math.max(S.duration || 0, ...S.lines.map(l => l.end + 1), 1);
-function drawMini(t: number, view: number) {
+const miniRaster = document.createElement('canvas');
+let miniKey = '';
+function drawMini(t: number, view: number, force = false) {
   const cv = document.getElementById('mini') as HTMLCanvasElement | null; if (!cv) return;
   const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight; if (!w || !h) return;
   if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
   const g = cv.getContext('2d')!; g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
   const D = songLen(), X = (s: number) => s / D * w;
+  const key = [S.ver,w,h,dpr,D,W.start,view,S.meta.mode,TH.t,TH.a,TH.a2].join('/');
+  if (!force && key === miniKey && miniRaster.width === cv.width && miniRaster.height === cv.height) {
+    g.setTransform(1,0,0,1,0,0); g.drawImage(miniRaster,0,0); g.setTransform(dpr,0,0,dpr,0,0);
+    g.fillStyle = `rgb(${TH.t})`; g.fillRect(X(t),0,1.5,h); return;
+  }
   g.fillStyle = `rgba(${TH.t},.05)`; g.fillRect(0, 0, w, h);
   S.lines.forEach((l, i) => {
     const st = lineState(i, mainLayerFor(i)), bgOnly = !l.text.trim();
@@ -290,6 +318,7 @@ function drawMini(t: number, view: number) {
   });
   for (const s of W.secs) { g.fillStyle = `rgba(${secColor(s.label)},.9)`; g.fillRect(X(s.a), h - 2, Math.max(2, X(s.b) - X(s.a) - 1), 2); }
   g.strokeStyle = `rgba(${TH.t},.8)`; g.lineWidth = 1.5; g.strokeRect(X(W.start) + .75, .75, Math.max(4, X(view)) - 1.5, h - 1.5); g.lineWidth = 1;
+  miniRaster.width = cv.width; miniRaster.height = cv.height; miniRaster.getContext('2d')!.drawImage(cv,0,0); miniKey = key;
   g.fillStyle = `rgb(${TH.t})`; g.fillRect(X(t), 0, 1.5, h);
 }
 

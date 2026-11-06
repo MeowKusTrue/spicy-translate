@@ -16,6 +16,7 @@ export interface Line {
   tr: string;     // translation
   sync?: { tr?: WordSync[]; orig?: WordSync[]; bg?: WordSync[]; bgo?: WordSync[] } | null;
   bg?: { text: string; tr: string };  // background vocals of this line (ad-libs, backing)
+  approved?: Partial<Record<Layer, true>>; // explicit protection from automatic timing, per track
   agent?: Agent;  // missing = v1
   sec?: string;   // a song section (Припев, Куплет 1…) starts at this line; it runs until the next one
 }

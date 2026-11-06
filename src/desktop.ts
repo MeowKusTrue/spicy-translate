@@ -16,6 +16,7 @@ export function initDesktop() {
   // the WebView's own menu (Back / Reload / Inspect) makes no sense in an app; text fields keep copy / paste
   document.addEventListener('contextmenu', e => { if (!(e.target as Element).closest?.('input,textarea')) e.preventDefault(); });
   applyAppZoom();
+  (window as any).__TAURI__?.event?.listen('genius-import', (event: { payload: unknown }) => { import('./genius.ts').then(m => m.receiveGeniusBrowser(event.payload)); }).catch(() => {});
   const w = win()!, upd = () => w.isMaximized().then(m => { if (m !== S.maxed) { S.maxed = m; emit(); } });
   upd(); w.onResized(upd);
 }

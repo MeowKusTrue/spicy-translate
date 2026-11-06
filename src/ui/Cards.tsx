@@ -1,3 +1,4 @@
+import { isApp } from '../desktop.ts';
 // Left column: 1 search/load, 2 translation + line editor, 3 export + QA.
 import { mmss, plainW, stopLine, wordList } from '../core/index.ts';
 import { S, doubtful, emit, lineState, mainLayerFor, status } from '../state.ts';
@@ -28,7 +29,7 @@ import { W } from '../waveform/wave.ts';
 import type { Page } from '../state.ts';
 import { findAll } from '../core/index.ts';
 import { folderSupported, openProjectFolder, pickFolder, saveToFolder, unlinkFolder } from '../folder.ts';
-import { acceptDiff, canUndoGenius, geniusDiff, geniusPaste, geniusPick, geniusQuery, geniusSearch, geniusToText, ignoreDiff, resetIgnored, undoGenius } from '../genius.ts';
+import { openGeniusBrowser, acceptDiff, canUndoGenius, geniusDiff, geniusPaste, geniusPick, geniusQuery, geniusSearch, geniusToText, ignoreDiff, resetIgnored, undoGenius } from '../genius.ts';
 import { selectGeniusChanges, type GeniusMode } from '../core/geniusImport.ts';
 
 const set = (f: () => void) => { f(); emit(); };
@@ -83,6 +84,7 @@ function Genius() {
       <input type="text" id="gq" placeholder="Исполнитель название" value={geniusQuery()} onChange={e => set(() => S.genius = { hits: [], busy: false, msg: '', cls: '', ignored: [], ...S.genius, q: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') geniusSearch(); }} />
       <button id="btnGenius" disabled={g?.busy} onClick={() => geniusSearch()}>{g?.busy ? '…' : 'Найти на Genius'}</button>
     </div>
+    {isApp && <button className="sm" id="btnGeniusBrowser" onClick={() => openGeniusBrowser()}>Открыть Genius в приложении</button>}
     <button className="sm" id="btnGeniusPaste" style={{ marginTop: 8 }} onClick={() => setPaste(paste === null ? '' : null)}>Вставить текст с Genius</button>
     {paste !== null && <div className="gimport">
       <label className="fld"><small>Текст со страницы Genius</small><textarea id="geniusPaste" value={paste} onChange={e => setPaste(e.target.value)} placeholder="Скопируй текст песни из браузера. Заголовки [Куплет] и [Припев] можно оставить." /></label>

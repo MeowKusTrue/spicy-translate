@@ -13,6 +13,7 @@ export function spreadSplits(only?: Set<string>) {
   if (!S.sylMem) return 0;
   let n = 0;
   S.lines.forEach((l, i) => LAYERS.forEach(layer => {
+    if (l.approved?.[layer]) return;
     const r = applySplits(layerText(l, layer), l.sync && l.sync[layer], SYL, only); if (!r) return;
     setText(i, layer, r.text); n += r.n;
     if (r.sync !== undefined) { if (!l.sync) l.sync = {}; if (r.sync) l.sync[layer] = r.sync; else delete l.sync[layer]; }

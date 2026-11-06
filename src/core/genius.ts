@@ -27,6 +27,7 @@ const decode = (s: string) => s.replace(/&(#x[0-9a-f]+|#\d+|\w+);/gi, (m, e: str
  * empty rows dropped; section headers like [Куплет 1] dropped unless keepHeaders (then they stay as their own rows).
  */
 export function geniusLyrics(html: string, keepHeaders = false): string {
+  html = html.replace(/\bdata-lyrics-container\s*=\s*(['"])true\1/gi, 'data-lyrics-container="true"');
   const body = divsWith(divsWith(html, 'data-lyrics-container="true"', true), 'data-exclude-from-selection', false);
   const text = decode(body.replace(/<br\s*\/?>/gi, '\n').replace(/<\/div>/gi, '\n').replace(/<[^>]+>/g, ''));
   return text.split('\n').map(r => r.replace(/[ \t ]+/g, ' ').trim()).filter(r => r && (keepHeaders || !/^\[[^\]]*\]$/.test(r))).join('\n');
@@ -38,5 +39,11 @@ export function geniusAccessError(html: string, url = ''): string | null {
       || /<title>[^<]*not available in your region/i.test(html)) {
     return 'Genius ограничил доступ к этой песне из региона приложения. Если страница открывается в браузере, скопируй текст и нажми «Вставить текст с Genius».';
   }
+  if (!/data-lyrics-container\s*=\s*['"]true['"]/i.test(html) && /cf-chl-|challenge-platform|challenge-form|<title>[^<]*(?:just a moment|attention required)/i.test(html)) return 'Genius требует проверку браузера. Открой Genius в приложении, пройди проверку сайта и нажми «Взять текст в Spicy Translate».';
   return null;
+}
+
+/** Canonical song links tolerate tracking parameters and www, but never another host or scheme. */
+export function geniusSongUrl(value: string): string | null {
+  try { const u = new URL(value.trim()); if (u.protocol !== 'https:' || !['genius.com','www.genius.com'].includes(u.hostname) || u.username || u.password || u.port || !/^\/[\w%.-]+-lyrics\/?$/.test(u.pathname)) return null; return 'https://genius.com'+u.pathname.replace(/\/$/,''); } catch { return null; }
 }

@@ -77,6 +77,7 @@ test('desktop asynchronous confirmation: Cancel prevents deleting the timing ins
 
 test('inline model hints and hardware preset explain the choice and preserve backing preference', async ({ page, request }) => {
   await request.put('/api/project?by=page', { data: fixture });
+  await page.route('**/api/align/setup*', route => route.fulfill({ json: { installed:true, external:false, backend:'cuda', running:false } }));
   await page.route('**/api/align/gpu', route => route.fulfill({ json: { names: ['NVIDIA RTX test'], backend: 'cuda', why: 'test', memoryTotal: 10240, memoryFree: 5120 } }));
   await page.goto('/');
   await page.locator('#nav-sync').click(); await page.locator('#helpClose').click();

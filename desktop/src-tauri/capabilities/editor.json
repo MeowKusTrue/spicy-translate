@@ -30,6 +30,7 @@
     "allow-read-text",
     "allow-read-bytes",
     "allow-write-text",
-    "allow-write-bytes"
+    "allow-write-bytes",
+    "allow-open-genius"
   ]
 }

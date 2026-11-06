@@ -159,6 +159,7 @@ export function repeatTiming(lines: Line[], i: number, layers: Layer[] = ['orig'
   for (const j of sameLines(lines, i)) {
     const d = lines[j], off = d.t - s.t; let did = false;
     for (const layer of layers) {
+      if (d.approved?.[layer]) continue;
       const ws = wordList(txt(s, layer)), src = s.sync?.[layer];
       if (!syncComplete(src, ws.length) || wordList(txt(d, layer)).map(norm).join('\n') !== ws.map(norm).join('\n')) continue;
       const cur = d.sync?.[layer];

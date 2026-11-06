@@ -38,7 +38,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) saveP
 installHotkeys();
 initDesktop();
 initTheme();
-setVolume(Math.min(1, Math.max(0, parseFloat(ls.get('vol', '0.3')!) || 0.3)));
+const savedVolume = Number(ls.get('vol','0.3')); setVolume(Number.isFinite(savedVolume) ? savedVolume : .3);
 buildPreview();
 startLoop();
 // restore the last session (text, translation, word timings, cached audio) automatically
