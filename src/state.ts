@@ -15,7 +15,7 @@ export const ls = {
 
 export const S = {
   lines: [] as Line[],
-  meta: { title: '', artist: '', lang: 'ru', mode: 'translation' as Mode, md: [] as MetaEntry[] }, // md: song metadata (authors, album…)
+  meta: { title: '', artist: '', lang: 'ru', mode: 'original' as Mode, md: [] as MetaEntry[] }, // md: song metadata (authors, album…)
   duration: 0,
   // playback / clock
   hasAudio: false, playing: false, vt: 0, vStart: 0, rate: 1, vol: 0.3,
@@ -126,7 +126,7 @@ export function fillLine(i: number, layer: Layer) {
   }
   return true;
 }
-export function mainLayerFor(i: number): Layer { return S.meta.mode === 'bilingual' ? 'orig' : (S.lines[i].tr && S.lines[i].tr.trim() ? 'tr' : 'orig'); }
+export function mainLayerFor(i: number): Layer { return S.meta.mode !== 'translation' ? 'orig' : (S.lines[i].tr && S.lines[i].tr.trim() ? 'tr' : 'orig'); }
 /* a layer = track (main / bg) × language (translation / original); the wave shows both tracks of the language */
 export const isBg = (l: Layer) => l === 'bg' || l === 'bgo';
 export const isTr = (l: Layer) => l === 'tr' || l === 'bg';

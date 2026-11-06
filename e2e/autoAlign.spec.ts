@@ -24,6 +24,7 @@ test('model choices reach the run; backing candidates require selection, preserv
   await page.locator('#nav-sync').click();
   await page.locator('#helpClose').click();
   await page.locator('#btnAlignPanel').click();
+  await page.locator('#alignAdvanced summary').click();
   await page.locator('#alignSeparator').selectOption('roformer');
   await page.locator('#alignAsr').selectOption('large-v3');
   await page.locator('#alignModel').selectOption('mms');
@@ -75,6 +76,7 @@ test('inline model hints and hardware preset explain the choice and preserve bac
   await page.locator('#nav-sync').click(); await page.locator('#helpClose').click();
   await page.locator('#btnAlignPanel').click();
   await expect(page.locator('#alignRecommendation')).toContainText('MelBand-RoFormer + Whisper Turbo + wav2vec2');
+  await page.locator('#alignAdvanced summary').click();
   await expect(page.locator('#alignMemory')).toContainText('10.0 ГБ всего, 5.0 ГБ свободно');
   await page.locator('#alignDetectBack').check();
   await page.locator('#btnAlignRecommended').click();
@@ -84,6 +86,7 @@ test('inline model hints and hardware preset explain the choice and preserve bac
   await page.locator('#alignAsr').selectOption('large-v3');
   await expect(page.locator('#alignAsrHint')).toContainText('при нехватке памяти верни Turbo');
   await expect(page.locator('#alignAsrHint')).toContainText('На тайминги уже введённого текста этот выбор не влияет');
+  await page.locator('.align-hardware summary').click();
   await page.getByRole('radio', { name: 'Только процессор', exact: false }).check();
   await expect(page.locator('#alignRecommendation')).toContainText('HTDemucs + Whisper Turbo');
   await page.locator('#btnAlignRecommended').click();

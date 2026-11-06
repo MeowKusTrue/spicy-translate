@@ -5,7 +5,8 @@ import { seekTo } from '../audio.ts';
 import { buildPreview } from '../preview.ts';
 import { idbPut, listSnaps, loadProject, restoreSnap, scheduleSave, snapshot, trackKey, type Snap } from '../persist.ts';
 import { loadManual, loadTrack, openLyricsFile, search, setMode } from '../load.ts';
-import { selectWord } from '../sync.ts';
+import { selectWord, snap } from '../sync.ts';
+import { ModePicker } from './Studio.tsx';
 import { LANGS, applyPaste, autoTranslate, clearTr, copyPrompt, llmTranslate } from '../translate.ts';
 import { copyTTML, download, gotoQa, runQa, saveLRC, saveProjectFile, saveSRT, toggleCode } from '../exporting.ts';
 import { drawWave } from '../waveform/wave.ts';
@@ -133,7 +134,7 @@ function GeniusDiff() {
 
 function LineRow({ i }: { i: number }) {
   const l = S.lines[i];
-  return <div className={'ln' + (S.picked.has(i) ? ' picked' : '') + (l.text.trim() ? '' : ' bgonly')} id={'ln' + i} onClick={e => { if (!(e.target as HTMLElement).closest('input,button,.t')) pickLine(i, e); }}>
+  return <div className={'ln' + (S.picked.has(i) ? ' picked' : '') + (l.text.trim() ? '' : ' bgonly')} id={'ln' + i} onClick={e => { if (!(e.target as HTMLElement).closest('input,textarea,button,.t')) pickLine(i, e); }}>
     <div className="t" onClick={() => { seekTo(l.t); selectWord(i, 0); }}>
       {mmss(l.t) + '.' + String(Math.floor((l.t % 1) * 10))}
       {lineState(i, mainLayerFor(i)) === 'done' && <i className="sd" title="слова синхронизированы" />}
@@ -141,13 +142,13 @@ function LineRow({ i }: { i: number }) {
       <button className="ag" data-agent={agentOf(i).id} title={agentOf(i).title + ' (клик или V — сменить)'} onClick={e => { e.stopPropagation(); cycleAgent(i); }}>{agentOf(i).label}</button>
     </div>
     <div className="txt">
-      <input className="o" type="text" title="Оригинал — можно править" placeholder="(без основной строки — только бэк)" value={l.text} onFocus={() => focusLine(i, 'orig')} onChange={e => editText(i, 'orig', e.target.value)} onBlur={() => slashCommit(i, 'orig')} />
-      <input className="tr" type="text" lang={S.meta.lang} spellCheck placeholder="перевод…" value={l.tr || ''} onFocus={() => focusLine(i, 'tr')} onChange={e => editText(i, 'tr', e.target.value)} onBlur={() => { slashCommit(i, 'tr'); fillRepeats(i); }} />
+      <textarea rows={2} className="o" title="Оригинал — можно править" placeholder="(без основной строки — только бэк)" value={l.text} onFocus={() => { snap(); focusLine(i, 'orig'); }} onChange={e => editText(i, 'orig', e.target.value)} onBlur={() => slashCommit(i, 'orig')} />
+      <textarea hidden={S.meta.mode === 'original'} rows={2} className="tr" lang={S.meta.lang} spellCheck placeholder="перевод…" value={l.tr || ''} onFocus={() => { snap(); focusLine(i, 'tr'); }} onChange={e => editText(i, 'tr', e.target.value)} onBlur={() => { slashCommit(i, 'tr'); fillRepeats(i); }} />
       {l.bg
         ? <div className="bgrow">
-            <span className="bglab" title="Фоновый вокал: в Spicy мелкой строкой под основной">бэк</span>
-            <input type="text" placeholder="бэк: оригинал" value={l.bg.text} onFocus={() => focusLine(i, 'bgo')} onChange={e => editText(i, 'bgo', e.target.value)} onBlur={() => slashCommit(i, 'bgo')} />
-            <input type="text" placeholder="бэк: перевод" value={l.bg.tr} onFocus={() => focusLine(i, 'bg')} onChange={e => editText(i, 'bg', e.target.value)} onBlur={() => slashCommit(i, 'bg')} />
+            <span className="bglab" title="Фоновый вокал: в Spicy мелкой строкой под основной">{l.text.trim() ? 'Бэк к строке ' + (i + 1) : 'Самостоятельный бэк'}</span>
+            <textarea rows={2} placeholder="бэк: оригинал" value={l.bg.text} onFocus={() => { snap(); focusLine(i, 'bgo'); }} onChange={e => editText(i, 'bgo', e.target.value)} onBlur={() => slashCommit(i, 'bgo')} />
+            <textarea hidden={S.meta.mode === 'original'} rows={2} placeholder="бэк: перевод" value={l.bg.tr} onFocus={() => { snap(); focusLine(i, 'bg'); }} onChange={e => editText(i, 'bg', e.target.value)} onBlur={() => slashCommit(i, 'bg')} />
             <button className="sm ic" title="Убрать бэк" onClick={e => { e.stopPropagation(); delBg(i); }}>✕</button>
           </div>
         : <button className="addbg" title="Добавить фоновый вокал (бэки, ад-либы) к этой строке" onClick={e => { e.stopPropagation(); addBg(i); }}>+ бэк</button>}
@@ -232,6 +233,7 @@ function PickBar() {
 }
 
 export function LinesCard() {
+  const [query, setQuery] = useState('');
   if (!S.lines.length) return null;
   return <section className="card linescard">
     <h2>Строки <small>{S.lines.length}</small></h2>
@@ -240,8 +242,9 @@ export function LinesCard() {
       <button className="sm" id="btnAddBg" title="Отдельный бэк (без основной строки) в точке воспроизведения" onClick={addBgHere}>+ бэк у курсора</button>
       <button className="sm" id="btnParens" title="«текст (бэк)» → «(бэк)» уходит в фоновый вокал строки, тайминги слов переезжают вместе со словами" onClick={bracketsToBg}>( ) → бэки</button>
     </div>
-    <PickBar />
-    <div className="lines" id="lines" style={{ marginTop: 10 }}>{S.lines.map((l, i) => <Fragment key={i}>
+    <label className="line-search"><input id="lineSearch" type="search" aria-label="Найти строку" placeholder="Найти строку…" value={query} onChange={e => setQuery(e.target.value)} /></label>
+    <details className="selection-help"><summary>Выбор и сдвиг нескольких строк</summary><PickBar /></details>
+    <div className="lines" id="lines" style={{ marginTop: 10 }}>{S.lines.map((l, i) => query && ![l.text, l.tr, l.bg?.text, l.bg?.tr].join(' ').toLowerCase().includes(query.toLowerCase()) ? null : <Fragment key={i}>
       {l.sec && <button className="sechd" style={{ '--sc': secColor(l.sec) } as CSSProperties} title="Секция до следующей: клик — сменить / убрать" onClick={e => secPick(e.nativeEvent, i)}>{l.sec}</button>}
       <LineRow i={i} />
     </Fragment>)}</div>
@@ -254,11 +257,8 @@ export function ExportCard() {
   const bi = S.meta.mode === 'bilingual', qa = S.qa, errs = qa ? qa.filter(x => x.sev === 'err').length : 0, st = stopLine(S.lines, S.meta.mode);
   return <section className="card">
     <h2>Экспорт TTML</h2>
-    <div className="seg">
-      <label><input type="radio" name="mode" value="translation" checked={!bi} onChange={() => setMode('translation')} /><span>Только перевод</span></label>
-      <label><input type="radio" name="mode" value="bilingual" checked={bi} onChange={() => setMode('bilingual')} /><span>Оригинал + перевод</span></label>
-    </div>
-    <p className="hint" id="modeHint">{bi
+    <ModePicker />
+    <p className="hint" id="modeHint">{S.meta.mode === 'original' ? 'Экспортируется оригинал и его бэки. Перевод не требуется и не заменяет оригинальный текст.' : bi
       ? 'Экспериментально: оригинал — основная строка, перевод — мелким фоновым вокалом под ней. Пословный режим включается сам; слои синхронизируются отдельно (переключатель в панели синхры).'
       : 'Переведённый текст становится основной лирикой — самый безопасный вариант для Spicy Lyrics.'}</p>
     <label className="chk"><input type="checkbox" id="spread" checked={S.exp.spread} disabled={bi} onChange={e => set(() => S.exp.spread = e.target.checked)} /><span>Пословная подсветка (караоке)<small>Слова равномерно размазываются по длительности строки. Тайминг приблизительный, но выглядит живо.</small></span></label>

@@ -1,5 +1,5 @@
 // Word sync actions (hotkeys AND toolbar buttons use these) + undo/redo on text+sync snapshots.
-import { editorReview, fitAndSort, plainW, retimeWord, sameLines, splitWords, syllabify, units, unitsText, type Layer } from './core/index.ts';
+import { confirmPhraseTiming, editorReview, fitAndSort, plainW, retimeWord, sameLines, splitWords, syllabify, units, unitsText, type Layer } from './core/index.ts';
 import { S, conf, doubtful, emit, ensureSync, fillLine, layerText, lineState, ls, r3, setText, spreadLine, toast, viewWords, wordsOf, type ViewWord } from './state.ts';
 import { now, playWord } from './audio.ts';
 import { forgetWord, learnAndSpread } from './syllables.ts';
@@ -40,6 +40,13 @@ export function setLayer(l: Layer) {
   S.layer = l;
   if (S.sel) S.sel.k = Math.max(0, Math.min(S.sel.k, wordsOf(S.sel.i, l).length - 1));
   emit(); drawWave();
+}
+export function confirmPhrase() {
+  if (!S.sel) return;
+  const i = S.sel.i, r = confirmPhraseTiming(S.lines[i], S.layer);
+  if ('error' in r) return toast(r.error, 'err');
+  snap(); S.lines[i].sync = { ...S.lines[i].sync, [S.layer]: r.sync }; afterSyncChange(false, i);
+  toast('Тайминги фразы отмечены проверенными. Ctrl+Z — отмена.', 'ok');
 }
 export function selectWord(i: number, k: number) {
   if (i < 0 || i >= S.lines.length) return;

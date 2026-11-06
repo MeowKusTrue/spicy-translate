@@ -4,8 +4,9 @@ import { S, emit, ls, viewWords } from '../state.ts';
 import { pause, play, playWord, seekTo } from '../audio.ts';
 import { setLoop } from '../hotkeys.ts';
 import { openEdit, repeatSelectedLayer } from '../lineEdit.ts';
-import { setWordTimes, stepReview } from '../sync.ts';
+import { confirmPhrase, setWordTimes, stepReview } from '../sync.ts';
 import { centerOnSel } from '../waveform/wave.ts';
+import { BackingLink, TrackProgress } from './Studio.tsx';
 
 export const inspectorOpen = () => ls.get('wordInspector', '1') !== '0';
 export function toggleInspector() { ls.set('wordInspector', inspectorOpen() ? '0' : '1'); emit(); requestAnimationFrame(centerOnSel); }
@@ -57,12 +58,16 @@ export function WordInspector() {
   };
   return <aside className="word-inspector" id="wordInspector" aria-label="Свойства выбранного слова">
     <div className="inspector-heading"><small className="inspector-eyebrow">{title}</small><button className="ic sm" aria-label="Скрыть свойства слова" onClick={toggleInspector}>×</button></div>
+    <div className="inspector-review-heading"><b>Проверка дорожки</b><button className="sm" disabled={!editorReview(S.lines, S.layer).length} onClick={() => stepReview(1)}>Дальше <kbd>J</kbd> →</button></div>
     <h3 title={plainW(w.word)}>{plainW(w.word)}</h3><div className="inspector-sub"><span>Строка {sel.i + 1} · слово {sel.k + 1}</span><span className={w.g || w.ghost ? 'draft' : ''}>{w.g || w.ghost ? 'Черновик' : 'Тайминг задан'}</span></div>
     {reason && <p className="inspector-reason">{reason}</p>}
     {w.a != null && w.b != null && <TimingForm key={`${sel.i}:${sel.k}:${S.layer}:${w.a}:${w.b}:${!!w.g}`} i={sel.i} k={sel.k} a={w.a} b={w.b} auto={!!w.g || !!w.ghost} />}
     <div className="inspector-listen"><button id="btnInspectorListen" disabled={!S.hasAudio || w.a == null || w.b == null} onClick={() => playWord({ a: Math.max(0, w.a! - .1), b: w.b! + .1 })}>▷ Слово</button><button id="btnInspectorPhrase" disabled={!S.hasAudio} onClick={phrase}>▷ Фраза</button><button className="ic" aria-label="Остановить прослушивание" onClick={pause}>■</button></div>
     {!S.hasAudio && <p className="hint">Загрузи аудио, чтобы проверять на слух.</p>}
     <label className="inspector-check"><input type="checkbox" id="wordLoop" checked={S.loop} onChange={e => setLoop(e.target.checked)} />Повторять фразу по кругу <kbd>L</kbd></label>
+    {l.sync?.[S.layer]?.some(x => x.g) && <button className="studio-confirm" id="btnConfirmPhrase" onClick={confirmPhrase}>Тайминги фразы проверены</button>}
+    <BackingLink key={sel.i} />
+    <TrackProgress />
     {!!repeats && <div className="inspector-automation"><small className="inspector-eyebrow">ПОВТОРЫ ФРАЗЫ · {repeats}</small><p>Перенести ритм этой дорожки на одинаковые фразы. Заданные без отметки «авто» тайминги сохраняются.</p><button id="btnInspectorRepeats" disabled={layerProgress([l], S.layer).done !== 1} onClick={repeatSelectedLayer}>Тайминги → на повторы</button><small>Копии будут черновиком. Ctrl+Z — отмена.</small></div>}
   </aside>;
 }

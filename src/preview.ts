@@ -10,6 +10,7 @@
 import { getWords, liveLines, plainW, syncComplete, units, type Layer, type TimedWord } from './core/index.ts';
 import { S, layerText, mainLayerFor } from './state.ts';
 import { seekTo } from './audio.ts';
+import { PREVIEW_EDIT, editPreview } from './previewEdit.ts';
 
 export const PV = { lastAct: -2 };
 const inner = () => document.getElementById('lyrIn');
@@ -69,7 +70,7 @@ function lineWords(i: number) {
   let wb: TimedWord[] | null = null;
   if (S.meta.mode === 'bilingual') { if (l.tr && l.tr.trim()) wb = getWords(l.tr.trim(), l.sync && l.sync.tr, l.t, l.end); }
   else if (l.bg) {
-    const bl: Layer = l.bg.tr && l.bg.tr.trim() ? 'bg' : 'bgo', txt = layerText(l, bl).trim();
+    const bl: Layer = S.meta.mode !== 'original' && l.bg.tr && l.bg.tr.trim() ? 'bg' : 'bgo', txt = layerText(l, bl).trim();
     if (txt) {
       const so = l.sync && l.sync.bgo, n = units(l.bg.text).length;
       const [b0, b1] = syncComplete(so, n) ? [so[0].a, so[n - 1].b] : [l.t, l.end];
@@ -103,6 +104,7 @@ function mkDots(a: number, b: number, agent: string): PLine {
   return { el, a, b, words, i: -1, dots: true };
 }
 export function buildPreview(keepPos?: boolean) {
+  if (PREVIEW_EDIT.active) { dirty = true; return; }
   S.ver++; dirty = false;
   const box = inner(); if (!box) return;
   box.innerHTML = ''; LINES = [];
@@ -115,7 +117,14 @@ export function buildPreview(keepPos?: boolean) {
     const el = document.createElement('div'); el.className = 'pl'; el.id = 'pl' + i; el.dataset.agent = l.agent || 'v1';
     mkWords(el, wm, words);
     if (wb) { const b = span('bg'); el.appendChild(b); mkWords(b, wb, words); }
-    el.onclick = () => seekTo(l.t);
+    el.tabIndex = 0; el.title = 'Двойной клик или Enter — изменить текст прямо здесь';
+    el.onclick = () => { if (!PREVIEW_EDIT.active) seekTo(l.t); };
+    el.ondblclick = e => {
+      e.preventDefault(); const bg = (e.target as HTMLElement).closest('.bg') as HTMLElement | null;
+      const layer = bg ? (S.meta.mode === 'bilingual' ? 'tr' : S.meta.mode !== 'original' && l.bg?.tr.trim() ? 'bg' : 'bgo') : mainLayerFor(i);
+      editPreview(i, bg || el, layer);
+    };
+    el.onkeydown = e => { if (e.key === 'Enter' && e.target === el) { e.preventDefault(); editPreview(i, el); } };
     box.appendChild(el); LINES.push({ el, a: R[i].a, b: R[i].b, words, i });
   });
   lastBlur = '';
@@ -194,10 +203,11 @@ const SCR = { base: 0, manual: 0, until: 0 };
 function applyScroll() { const el = inner(); if (!el) return; el.style.transition = SCR.manual ? 'transform .12s ease-out' : ''; el.style.transform = `translateY(${SCR.base + SCR.manual}px)`; }
 /** one animation frame of the preview at playback time t */
 export function previewFrame(t: number) {
+  if (PREVIEW_EDIT.active) return;
   if (dirty) buildPreview(true);
   const nowMs = performance.now(), dt = Math.min(0.25, (nowMs - lastT) / 1000); lastT = nowMs;
   const T = t + (S.voff || 0) / 1000, R = ranges();
-  if (!wheelOn) { const lyr = inner()?.parentElement; if (lyr) { wheelOn = true; lyr.addEventListener('wheel', e => { e.preventDefault(); SCR.manual -= e.deltaY; SCR.until = performance.now() + 3000; applyScroll(); }, { passive: false }); } }
+  if (!wheelOn) { const lyr = inner()?.parentElement; if (lyr) { wheelOn = true; lyr.addEventListener('wheel', e => { if (PREVIEW_EDIT.active) return; e.preventDefault(); SCR.manual -= e.deltaY; SCR.until = performance.now() + 3000; applyScroll(); }, { passive: false }); } }
   // line states; the blur map is redrawn only when the current line changes
   let cur = -1;
   LINES.forEach((L, k) => {
@@ -216,7 +226,7 @@ export function previewFrame(t: number) {
   const { act, active, idx } = liveLines(R, T, LOOK), key = idx + ':' + cur;
   if (key !== PV.lastAct + ':' + scrCur) {
     PV.lastAct = idx; scrCur = cur;
-    document.querySelectorAll('.ln').forEach((e, i) => e.classList.toggle('on', active.includes(i)));
+    document.querySelectorAll('.ln').forEach(e => e.classList.toggle('on', active.includes(+e.id.slice(2))));
     const dl = LINES[cur]?.dots && T >= LINES[cur].a && T < LINES[cur].b ? LINES[cur].el : null; // an interlude: centre the dots
     const target = dl || document.getElementById('pl' + (idx >= 0 ? idx : Math.max(0, act))), box = inner();
     if (target && box) { const lyr = box.parentElement as HTMLElement; SCR.base = -(target.offsetTop + target.offsetHeight / 2 - lyr.clientHeight / 2); if (!SCR.manual) applyScroll(); }

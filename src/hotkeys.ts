@@ -2,6 +2,7 @@
 import { S, emit, isBg, isTr, layerText, ls, mkLayer, setVoff, toast, viewWords, wordsOf, type Page } from './state.ts';
 import { now, pause, play, seekTo, setRate } from './audio.ts';
 import { PV } from './preview.ts';
+import { PREVIEW_EDIT } from './previewEdit.ts';
 import { doRedo, doUndo, joinWords, mark, nudgeWord, resetWord, setLayer, splitWord, stepWord, stepDoubt, stepReview } from './sync.ts';
 import { isApp, appZoom } from './desktop.ts';
 import { snapshot } from './persist.ts';
@@ -13,6 +14,7 @@ import { cycleAgent, setAgent } from './agents.ts';
 export const PAGES: [Page, string][] = [['track', 'Трек'], ['text', 'Текст'], ['tr', 'Перевод'], ['sync', 'Синхра'], ['export', 'Экспорт']];
 /** switch the tab; «Синхра» opens the word-sync dock (wave, keys), the others close it */
 export function setPage(p: Page) {
+  if (PREVIEW_EDIT.active && p !== S.page) return toast('Сначала сохрани или отмени правку в просмотре.', 'err');
   if (p === 'sync' && !S.lines.some(l => layerText(l, S.layer).trim())) {
     const layer = (['orig', 'bgo', 'tr', 'bg'] as const).find(k => S.lines.some(l => layerText(l, k).trim()));
     if (layer) S.layer = layer;
@@ -31,6 +33,7 @@ export function setPage(p: Page) {
   updateKbd(); emit(); window.scrollTo({ top: 0 });
 }
 export function toggleEditorFocus() {
+  if (PREVIEW_EDIT.active) return toast('Сначала сохрани или отмени правку в просмотре.', 'err');
   const focus = !document.body.classList.contains('editor-focus');
   ls.set('editorFocus', focus ? '1' : '0'); document.body.classList.toggle('editor-focus', focus);
   emit(); requestAnimationFrame(drawWave);

@@ -75,6 +75,7 @@ export function Stage() {
       <div className="ttl"><b id="pTitle">{S.meta.title || 'Превью'}</b><span id="pArtist">{S.lines.length || S.meta.artist ? S.meta.artist : 'Загрузи трек слева'}</span></div>
       <Settings />
     </div>
+    <div className="preview-edit-hint">Двойной клик по тексту или Enter на строке — править здесь</div>
     <Lyrics />
     <div className="player">
       <button className="round" id="btnPlay" title="Играть / пауза (Space)" onClick={() => S.playing ? pause() : play()}>{S.playing ? '❚❚' : '▶'}</button>

@@ -42,7 +42,7 @@ export function focusLine(i: number, layer: Layer) {
 
 /* ---------- adding / removing lines ---------- */
 function afterLines() { W.multi = []; S.picked.clear(); S.pickAnchor = -1; S.duration = Math.max(S.duration, ...S.lines.map(l => l.end + 2)); buildPreview(true); afterSyncChange(true); }
-export function focusRow(i: number, sel = 'input.o') {
+export function focusRow(i: number, sel = 'textarea.o') {
   setTimeout(() => { const r = document.getElementById('ln' + i); if (!r) return; r.scrollIntoView({ block: 'center' }); r.querySelector<HTMLInputElement>(sel)?.focus(); });
 }
 export function addLineAt(t: number, bg = false) {
@@ -55,7 +55,7 @@ export function addLineAfter(i: number) {
   focusRow(addLineAt(nx && nx.t < l.end + 0.5 ? (l.t + nx.t) / 2 : l.end));
 }
 export const addLineHere = () => focusRow(addLineAt(now()));
-export const addBgHere = () => focusRow(addLineAt(now(), true), '.bgrow input');
+export const addBgHere = () => focusRow(addLineAt(now(), true), '.bgrow textarea');
 export function delLine(i: number, withSnap = true) {
   if (!S.lines[i]) return;
   if (withSnap) snap();

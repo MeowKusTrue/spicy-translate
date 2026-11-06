@@ -17,7 +17,7 @@ export function opts(): ExportOpts {
 function checkExport() {
   if (!S.lines.length) { status('st2', 'Нечего экспортировать — загрузи текст.', 'err'); return null; }
   const missing = S.lines.filter(l => !l.tr || !l.tr.trim()).length;
-  if (missing) status('st2', `У ${missing} строк нет перевода — в файл попадёт оригинал.`, 'err');
+  if (missing && S.meta.mode !== 'original') status('st2', `У ${missing} строк нет перевода — в файл попадёт оригинал.`, 'err');
   return buildTTML(opts());
 }
 /** the check before a file goes out: errors ask first, short words and unfinished lines are said after */

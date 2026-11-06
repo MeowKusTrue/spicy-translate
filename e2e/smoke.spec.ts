@@ -12,14 +12,19 @@ test('load, F/G/H, join/syllables, export TTML', async ({ page }) => {
   await expect(page.locator('#nav-text em')).toHaveText('3'); // the tabs show how far each step is
   await page.locator('#mTitle').fill('Lanterns');
   await page.locator('#mArtist').fill('Nobody');
+  await page.locator('#mode-translation').click();
   await page.locator('#nav-tr').click();
   // translation of line 1 with a pre-split syllable
-  await page.locator('#ln0 input.tr').fill('бумажные фо|на|ри плывут');
+  await page.locator('#ln0 textarea.tr').fill('бумажные фо|на|ри плывут');
 
   await page.locator('#nav-sync').click();
   await page.locator('#help #helpClose').click();
   await page.locator('#segTr').click();
   await page.locator('#syncLines .chip', { hasText: 'бумажные' }).click();
+
+  await page.locator('#dock .bar details.menu summary').click();
+  await page.locator('#lat').fill('0');
+  await page.locator('#dock .bar details.menu summary').click();
 
   // mark: F on word 1, G through the syllables, H at the end (virtual clock, no audio)
   await page.keyboard.press('Space');
@@ -31,7 +36,7 @@ test('load, F/G/H, join/syllables, export TTML', async ({ page }) => {
   // join "фо|на" (syllables) and glue two words with M, then split one back with U
   await page.locator('#syncLines .chip', { hasText: /^фо$/ }).click();
   await page.keyboard.press('m');
-  await expect(page.locator('#ln0 input.tr')).toHaveValue('бумажные фона|ри плывут');
+  await expect(page.locator('#ln0 textarea.tr')).toHaveValue('бумажные фона|ри плывут');
   await page.locator('#syncLines .chip', { hasText: 'бумажные' }).click();
   await page.keyboard.press('m');
   await expect(page.locator('#syncLines .chip.grp')).toHaveText('бумажные фона');
@@ -61,14 +66,15 @@ test('background vocals: (…) -> bg, bg-only line, delete + undo, word edit on 
   await page.getByText('Вставить LRC / текст вручную').click();
   await page.locator('#manual').fill('[00:01.00]paper lanterns (lanterns) drifting\n[00:04.00]over quiet water\n[00:08.00]');
   await page.locator('#btnManual').click();
+  await page.locator('#mode-translation').click();
   await page.locator('#nav-tr').click();
   await page.locator('#btnParens').click();
-  await expect(page.locator('#ln0 input.o')).toHaveValue('paper lanterns drifting');
-  await expect(page.locator('#ln0 .bgrow input').first()).toHaveValue('lanterns');
+  await expect(page.locator('#ln0 textarea.o')).toHaveValue('paper lanterns drifting');
+  await expect(page.locator('#ln0 .bgrow textarea').first()).toHaveValue('lanterns');
 
   // a background-only line at the playhead (no lead line in the found lyrics)
   await page.locator('#btnAddBg').click();
-  await page.locator('#ln0 .bgrow input').first().fill('ooh');
+  await page.locator('#ln0 .bgrow textarea').first().fill('ooh');
   await expect(page.locator('#lines .ln')).toHaveCount(3);
   await expect(page.locator('#lines .ln.bgonly')).toHaveCount(1);
 
@@ -86,7 +92,7 @@ test('background vocals: (…) -> bg, bg-only line, delete + undo, word edit on 
   await page.keyboard.press('e');
   await page.locator('input.wedit').fill('over and');
   await page.keyboard.press('Enter');
-  await expect(page.locator('#ln2 input.o')).toHaveValue('over and quiet water');
+  await expect(page.locator('#ln2 textarea.o')).toHaveValue('over and quiet water');
 
   await page.locator('#nav-export').click();
   await page.locator('#btnShow').click();
@@ -105,11 +111,12 @@ test('whole text, find & replace, chorus timing', async ({ page }) => {
   await page.locator('#fullO').fill('hello moon\nnew line here\nquiet waters (oh)\nhello moon');
   await expect(page.locator('#fullStat')).toContainText('новых строк 1');
   await page.locator('#btnFullApply').click();
+  await page.locator('#mode-translation').click();
   await page.locator('#nav-tr').click();
   await expect(page.locator('#lines .ln')).toHaveCount(4);
-  await expect(page.locator('#ln1 input.o')).toHaveValue('new line here');
-  await expect(page.locator('#ln2 input.o')).toHaveValue('quiet waters');
-  await expect(page.locator('#ln2 .bgrow input').first()).toHaveValue('oh');
+  await expect(page.locator('#ln1 textarea.o')).toHaveValue('new line here');
+  await expect(page.locator('#ln2 textarea.o')).toHaveValue('quiet waters');
+  await expect(page.locator('#ln2 .bgrow textarea').first()).toHaveValue('oh');
 
   // find & replace in the original
   await page.locator('#btnFind').click();
@@ -118,7 +125,7 @@ test('whole text, find & replace, chorus timing', async ({ page }) => {
   await expect(page.locator('#findN')).toHaveText('совпадений: 2');
   await page.locator('#findR').fill('hi');
   await page.locator('#btnReplace').click();
-  await expect(page.locator('#ln3 input.o')).toHaveValue('hi moon');
+  await expect(page.locator('#ln3 textarea.o')).toHaveValue('hi moon');
 
   // mark line 1 on the original and copy its timing to the repeat with C
   await page.locator('#nav-sync').click();

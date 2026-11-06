@@ -26,6 +26,12 @@ export function retimeWord(line: Line, layer: Layer, k: number, start: number, e
 }
 
 export type ReviewItem = { i: number; k: number; reason: string };
+export function confirmPhraseTiming(line: Line, layer: Layer): { sync: WordSync[] } | { error: string } {
+  const ws = wordList(editorText(line, layer)), sy = line.sync?.[layer];
+  if (!ws.length || !sy || sy.length !== ws.length || !sy.every(timed)) return { error: 'Сначала задай корректное время всех слов фразы.' };
+  if (sy.some((x, k) => k > 0 && x.a! < sy[k - 1].b! - .002)) return { error: 'Сначала исправь пересечение слов одной фразы.' };
+  return { sync: sy.map(({ a, b }) => ({ a, b })) };
+}
 /** A review pass on one track; punctuation is not a sung word with a minimum duration. */
 export function editorReview(lines: Line[], layer: Layer): ReviewItem[] {
   const out: ReviewItem[] = [];

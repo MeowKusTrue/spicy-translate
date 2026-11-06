@@ -95,6 +95,7 @@ export function SyncDock() {
   useEffect(() => setupGrip(gr.current!), []);
   useEffect(() => { const f = () => drawWave(); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f); }, []);
   const progress = layerProgress(S.lines, S.layer), inspect = inspectorOpen();
+  const embeddedInspector = inspect && (S.page !== 'sync' || document.body.classList.contains('editor-focus'));
   const width = () => cv.current?.clientWidth || 800;
   return <div className={'dock' + (S.playing ? ' rec' : '')} id="dock" hidden={!S.dock} onMouseDown={dockMouseDown}>
     <div className="grip" ref={gr} title="Потяни, чтобы изменить высоту панели (двойной клик — как было)"></div>
@@ -140,7 +141,7 @@ export function SyncDock() {
     {S.align && <AlignCard />}
     {!S.align && S.setup && <div className="runbar" title={'Установка авто-тайминга: ' + setupLabel()}><i style={{ width: S.setup.pct + '%' }} /></div>}
     <ReviewBar />
-    <div className={'editor-workspace' + (inspect ? ' inspecting' : '')}>
+    <div className={'editor-workspace' + (embeddedInspector ? ' inspecting' : '')}>
       <div className="timeline-surface">
         <canvas id="mini" ref={mini} title="Вся песня: клик/тяни — показать это место, 2× — играть отсюда. Зелёное — размечено, жёлтое — частично, розовое — отдельные бэки"></canvas>
         <canvas id="wave" ref={cv}></canvas>
@@ -186,7 +187,7 @@ export function SyncDock() {
       <span id="wordInfo">{wordInfo()}</span>
     </div>
       </div>
-      {inspect && <WordInspector />}
+      {embeddedInspector && <WordInspector />}
     </div>
   </div>;
 }

@@ -42,6 +42,7 @@ export function loadManual(text: string, fileName = '') {
   const dur = S.hasAudio ? audio.duration || 0 : 0;
   const { lines, kind } = importLyrics(text, fileName, dur);
   if (!lines.length) return status('st1', 'Не нашёл строк в тексте.', 'err');
+  if (kind === 'ttml') setMode('original');
   setLines(lines, dur);
   const extra = [lines.some(l => l.sync?.orig) && 'разметка слов', lines.some(l => l.agent) && 'исполнители', lines.some(l => l.bg) && 'бэки', lines.some(l => l.sec) && 'секции'].filter(Boolean).join(', ');
   status('st1', `${kind.toUpperCase()}: строк ${S.lines.length}${extra ? ' · ' + extra : ''}${kind === 'text' ? (dur ? ' · без таймингов: строки разложены по треку, точную синхру задай F/G' : ' · без таймингов: по 3.5 с на строку; с аудио разложу по длине трека') : ''}`, kind === 'text' ? 'err' : 'ok');
@@ -60,6 +61,8 @@ export function setLines(lines: Line[], dur: number, keep = false) {
 export function setMode(m: Mode) {
   S.meta.mode = m;
   S.exp.spread = true; // bilingual always exports word timing
+  S.layer = m === 'translation' ? 'tr' : 'orig'; S.qa = null; S.out = null;
+  import('./persist.ts').then(p => p.scheduleSave());
   buildPreview(true); emit(); drawWave();
 }
 
