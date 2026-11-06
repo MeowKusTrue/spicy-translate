@@ -68,3 +68,18 @@ export function pickOnsets(d: Float32Array, fps: number, k = 1.6, floor = 0.04):
 }
 /** spectral-flux attacks: rises of energy across the bands (in dB per band per 10 ms), moved to where the sound starts */
 export const fluxOnsets = (flux: Float32Array, lead: number) => pickOnsets(flux.subarray(0, Math.max(0, flux.length - 3)), SPEC_FPS, 1.5, 0.6).map(t => Math.round((t + lead) * 1000) / 1000);
+
+/** Max-pooled levels preserve narrow attacks while zoomed out; computed in the worker. */
+export type SpectralLevel = { data: Uint8Array; cols: number; step: number };
+export function spectralLevels(data: Uint8Array, cols: number, rows = ROWS): SpectralLevel[] {
+  const levels: SpectralLevel[] = []; let previous = { data, cols, step: 1 };
+  while (previous.cols > 1024) {
+    const count = Math.ceil(previous.cols / 4), reduced = new Uint8Array(count * rows);
+    for (let c = 0; c < previous.cols; c++) for (let r = 0; r < rows; r++) {
+      const at = Math.floor(c / 4) * rows + r;
+      reduced[at] = Math.max(reduced[at], previous.data[c * rows + r]);
+    }
+    previous = { data: reduced, cols: count, step: previous.step * 4 }; levels.push(previous);
+  }
+  return levels;
+}

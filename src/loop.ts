@@ -29,7 +29,7 @@ function frame() {
   // The expensive editor canvas gets 30 fps; lyric fill keeps the display's full frame rate.
   // Paused edits redraw from their event handlers, rather than burning every idle frame.
   const ms = performance.now();
-  if (S.dock && (S.playing || W.flash || W.drag || S.ver !== lastWaveVer || t !== lastWaveT) && (!S.playing || ms - lastWave >= 1000 / 30)) { lastWave = ms; drawWaveFrame(); lastWaveVer = S.ver; lastWaveT = t; }
+  if (S.dock && (S.playing || W.flash || W.drag || S.ver !== lastWaveVer || t !== lastWaveT || W.viewportDirty) && (!S.playing || W.viewportDirty || ms - lastWave >= 1000 / 30)) { lastWave = ms; drawWaveFrame(); lastWaveVer = S.ver; lastWaveT = t; }
   requestAnimationFrame(frame);
 }
 export function startLoop() { requestAnimationFrame(frame); }

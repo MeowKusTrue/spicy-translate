@@ -11,8 +11,8 @@ import { scheduleSave } from '../persist.ts';
 import { fitLines, selectWord, setLayer, snap, stepSel } from '../sync.ts';
 import { pickLine } from '../agents.ts';
 import { clearTiming, fitLines as fitToWords, closeEdit, copyTiming, delLine, dropCopies, dropTimingOnto, duplicateLine, editing, focusRow, newLineEdit, openEdit, pasteTimingHere } from '../lineEdit.ts';
-import { SEC_H, SEC_Y, JOIN, LANES, LANES_DEF, W, drawWave, waveOnsets, laneLayer, laneY, songLen, zoomAt, type Box, type Lane } from './wave.ts';
-import { fmtTime, plainW, secCategory, type Section } from '../core/index.ts';
+import { requestWaveRender, navigateTimeline, SEC_H, SEC_Y, JOIN, LANES, LANES_DEF, W, drawWave, waveOnsets, laneLayer, laneY, songLen, zoomAt, type Box, type Lane } from './wave.ts';
+import { wheelZoomFactor, fmtTime, plainW, secCategory, type Section } from '../core/index.ts';
 
 type Hit = { type: 'edge'; t: number; lane: Lane; d: number; b: Box; edge: 'a' | 'b' } | { type: 'word'; t: number; lane: Lane; b: Box }
   | { type: 'lane'; t: number; lane: Lane; i: number; b?: undefined } | { type: 'split'; t: number; which: 'm' | 'b' | 'l'; lane?: undefined; b?: undefined } | { type: 'wave'; t: number; lane?: undefined; b?: undefined } | { type: 'band'; t: number; i: number; lane?: undefined; b?: undefined } | { type: 'ledge'; t: number; i: number; edge: 'a' | 'b'; lane?: undefined; b?: undefined } | { type: 'sec'; t: number; s: Section; lane?: undefined; b?: undefined };
@@ -136,7 +136,7 @@ function lineMenu(e: MouseEvent, i: number) {
 /** the whole-song strip: click / drag = move the view there, double click = play from there */
 export function setupMini(cv: HTMLCanvasElement) {
   const at = (e: MouseEvent) => { const r = cv.getBoundingClientRect(); return clamp((e.clientX - r.left) / r.width, 0, 1) * songLen(); };
-  const go = (e: MouseEvent) => { const w = (document.getElementById('wave')?.clientWidth || 800) / W.px; W.start = Math.max(0, at(e) - w / 2); drawWave(); };
+  const go = (e: MouseEvent) => { const w = (document.getElementById('wave')?.clientWidth || 800) / W.px; navigateTimeline(at(e)-w/2); };
   cv.onmousedown = e => { go(e); const mv = (m: MouseEvent) => go(m), up = () => { removeEventListener('mousemove', mv); removeEventListener('mouseup', up); }; addEventListener('mousemove', mv); addEventListener('mouseup', up); };
   cv.ondblclick = e => seekTo(at(e));
 }
@@ -226,7 +226,7 @@ export function setupWave(cv: HTMLCanvasElement) {
     }
     const d = W.drag;
     if (d) {
-      if (d.type === 'pan') { W.start = Math.max(0, d.start0 - (mx - d.x0) / W.px); cv.style.cursor = 'grabbing'; return; }
+      if (d.type === 'pan') { navigateTimeline(d.start0 - (mx - d.x0) / W.px); cv.style.cursor = 'grabbing'; return; }
       const traw = tAt(mx);
       if (d.type === 'ledge') { moveLineEdge(d.l, d.edge, snapOne(traw, d.cands.filter((c: number) => c !== (d.edge === 'a' ? d.l.t : d.l.end)))); cv.style.cursor = 'ew-resize'; refreshPreviewLine(S.lines.indexOf(d.l)); drawWave(); return; }
       if (d.type === 'split') { LANES[d.which as 'm'] = Math.round(d.v0 + (d.which === 'l' ? -1 : 1) * (my - d.y0)); cv.style.cursor = 'row-resize'; drawWave(); return; }
@@ -345,8 +345,10 @@ export function setupWave(cv: HTMLCanvasElement) {
   };
   const onWheel = (e: WheelEvent) => {
     e.preventDefault(); const r = cv.getBoundingClientRect(), mx = e.clientX - r.left;
-    if (e.ctrlKey || e.metaKey) zoomAt(mx, e.deltaY < 0 ? 1.18 : 1 / 1.18);
-    else W.start = Math.max(0, W.start + (e.deltaX || e.deltaY) / W.px * 1.2);
+    if (W.drag || W.pend) return;
+    if (e.ctrlKey || e.metaKey) {if(e.deltaY)zoomAt(mx,wheelZoomFactor(e.deltaY,e.deltaMode,r.height));}
+    else navigateTimeline(W.start+(e.deltaX || e.deltaY)*(e.deltaMode===1?16:e.deltaMode===2?r.height:1)/W.px);
+    requestWaveRender();
   };
   cv.addEventListener('wheel', onWheel, { passive: false });
   return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); cv.removeEventListener('wheel', onWheel); };

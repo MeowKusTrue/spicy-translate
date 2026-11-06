@@ -1,17 +1,18 @@
 // Waveform canvas: state W, peaks, drawing, zoom.
-import { mmss, plainW, secCategory, sectionsOf, type Section } from '../core/index.ts';
+import { timelineExtent, timelineView, zoomTimeline, fitTimeline, timelineTick, mmss, plainW, secCategory, sectionsOf, type Section } from '../core/index.ts';
 import { JOIN, bandRows as coreBandRows, lineAt as coreLineAt, trackRows, type Layer } from '../core/index.ts';
 import { S, clamp, doubtful, emit, isBg, isTr, lineState, ls, mainLayerFor, mkLayer, status, viewWords } from '../state.ts';
 import { now } from '../audio.ts';
 import { computePeaks, onsets } from './peaks.ts';
 import PeaksWorker from './peaks.worker.ts?worker&inline';
 import SpecWorker from './spec.worker.ts?worker&inline';
-import { ROWS, SPEC_FPS, fluxOnsets, spectrogram } from './spec.ts';
+import { ROWS, SPEC_FPS, fluxOnsets, spectrogram, type SpectralLevel } from './spec.ts';
 
 export type Lane = 'main' | 'bg';
-type Spec = { data: Uint8Array; cols: number; tiles: (HTMLCanvasElement | null)[] };
+type Spec = { data: Uint8Array; cols: number; lod: SpectralLevel[]; tiles: Map<string, HTMLCanvasElement> };
 export type Box = { i: number; k: number; a: number; b: number; y: number; h: number; real: boolean; g: boolean; lane: Lane; layer: Layer };
 export const W = {
+  viewportDirty: true, follow: true,
   peaks: null as Float32Array | null, pps: 200, px: 140, start: 0,
   G: { mY: 3, mH: 44, bY: 50, bH: 32, wY: 85, lY: 140, lH: 24 }, rows: [] as number[], nr: 1,
   wordRows: { main: [] as number[], bg: [] as number[] }, wordN: { main: 1, bg: 1 },
@@ -33,7 +34,7 @@ function peaksInWorker(ch: Float32Array, per: number) {
   });
 }
 function specInWorker(ch: Float32Array, sr: number) {
-  return new Promise<ReturnType<typeof spectrogram>>((res, rej) => {
+  return new Promise<ReturnType<typeof spectrogram> & { lod: SpectralLevel[] }>((res, rej) => {
     let wk: Worker; try { wk = new SpecWorker(); } catch (e) { return rej(e); }
     wk.onmessage = e => { res(e.data); wk.terminate(); }; wk.onerror = e => { rej(e); wk.terminate(); };
     wk.postMessage({ ch, sr }, [ch.buffer]);
@@ -46,7 +47,7 @@ async function analyse(file: Blob, then: (s: Spec, on: number[]) => void) {
   try {
     const buf = await ctx.decodeAudioData(await file.arrayBuffer());
     const per = Math.max(1, Math.floor(buf.sampleRate / W.pps)), ch = buf.getChannelData(0);
-    specInWorker(ch.slice(), buf.sampleRate).then(r => then({ data: r.data, cols: r.cols, tiles: [] }, fluxOnsets(r.flux, r.lead)), () => {}); // ponytail: no spectrogram without workers
+    specInWorker(ch.slice(), buf.sampleRate).then(r => then({ data: r.data, cols: r.cols, lod: r.lod, tiles: new Map() }, fluxOnsets(r.flux, r.lead)), () => {}); // ponytail: no spectrogram without workers
     try { return await peaksInWorker(ch.slice(), per); }
     catch { return computePeaks(ch, per); } // no workers -> same scan on the main thread
   } finally { ctx.close && ctx.close(); }
@@ -77,22 +78,28 @@ const TILE = 1024, PAL = (() => { // dark violet -> magenta -> orange -> pale ye
   }
   return p;
 })();
-function tile(s: Spec, k: number) {
-  if (s.tiles[k]) return s.tiles[k]!;
-  const c0 = k * TILE, n = Math.min(TILE, s.cols - c0), cv = document.createElement('canvas'); cv.width = n; cv.height = ROWS;
+function tile(s: Spec, level: SpectralLevel, k: number) {
+  const key = `${level.step}:${k}`, cached = s.tiles.get(key);
+  if (cached) { s.tiles.delete(key); s.tiles.set(key,cached); return cached; }
+  const c0 = k * TILE, n = Math.min(TILE, level.cols - c0), cv = document.createElement('canvas'); cv.width = n; cv.height = ROWS;
   const g = cv.getContext('2d')!, img = g.createImageData(n, ROWS);
   for (let x = 0; x < n; x++) for (let r = 0; r < ROWS; r++) {
-    const v = s.data[(c0 + x) * ROWS + r], o = ((ROWS - 1 - r) * n + x) * 4;
+    const v = level.data[(c0 + x) * ROWS + r], o = ((ROWS - 1 - r) * n + x) * 4;
     img.data[o] = PAL[v * 4]; img.data[o + 1] = PAL[v * 4 + 1]; img.data[o + 2] = PAL[v * 4 + 2]; img.data[o + 3] = PAL[v * 4 + 3];
   }
-  g.putImageData(img, 0, 0); return s.tiles[k] = cv;
+  g.putImageData(img, 0, 0); s.tiles.set(key,cv);
+  if (s.tiles.size > 16) s.tiles.delete(s.tiles.keys().next().value!);
+  return cv;
 }
 function drawSpec(g: CanvasRenderingContext2D, s: Spec, t0: number, t1: number, y: number, h: number) {
-  const c0 = Math.max(0, Math.floor(t0 * SPEC_FPS)), c1 = Math.min(s.cols, Math.ceil(t1 * SPEC_FPS)); if (c1 <= c0) return;
+  let level: SpectralLevel = { data: s.data, cols: s.cols, step: 1 };
+  for (const next of s.lod) { if (SPEC_FPS / level.step / W.px <= 2) break; level = next; }
+  const fps = SPEC_FPS / level.step;
+  const c0 = Math.max(0, Math.floor(t0 * fps)), c1 = Math.min(level.cols, Math.ceil(t1 * fps)); if (c1 <= c0) return;
   g.imageSmoothingEnabled = true;
   for (let k = Math.floor(c0 / TILE); k * TILE < c1; k++) {
-    const tc = k * TILE, sx = Math.max(0, c0 - tc), ex = Math.min(TILE, c1 - tc, s.cols - tc); if (ex <= sx) continue;
-    g.drawImage(tile(s, k), sx, 0, ex - sx, ROWS, ((tc + sx) / SPEC_FPS - t0) * W.px, y, (ex - sx) / SPEC_FPS * W.px, h);
+    const tc = k * TILE, sx = Math.max(0, c0 - tc), ex = Math.min(TILE, c1 - tc, level.cols - tc); if (ex <= sx) continue;
+    g.drawImage(tile(s, level, k), sx, 0, ex - sx, ROWS, ((tc + sx) / fps - t0) * W.px, y, (ex - sx) / fps * W.px, h);
   }
 }
 export const wavePeaks = () => S.waveVoice && W.vpeaks ? W.vpeaks : W.peaks;
@@ -113,10 +120,10 @@ export const LANES: typeof LANES_DEF = (() => { try { return { ...LANES_DEF, ...
 function geo(h: number) {
   let mH = clamp(LANES.m, 22, 200), bH = clamp(LANES.b, 16, 160), lH = clamp(LANES.l, 16, 90);
   mH = Math.max(mH, W.wordN.main * 30); bH = Math.max(bH, W.wordN.bg * 24);
-  const room = h - 17 - 9 - 40, sum = mH + bH + lH; // 40 px of waveform at least
+  const room = h - 9 - 64, sum = mH + bH + lH; // reserve an audio lane tall enough for source controls
   if (sum > room) { const k = Math.max(0.3, room / sum); mH *= k; bH *= k; lH *= k; }
   mH = Math.round(mH); bH = Math.round(bH); lH = Math.round(lH);
-  const mY = 3, bY = mY + mH + 3, wY = bY + bH + 3, lY = h - 17 - lH;
+  const mY = 3, bY = mY + mH + 3, wY = bY + bH + 3, lY = h - lH;
   return { mY, mH, bY, bH, wY, lY, lH };
 }
 const laneFont = (hh: number, w = 600) => `${w} ${Math.round(clamp(hh * 0.36, 11, 24))}px system-ui`;
@@ -140,13 +147,15 @@ function renderWave(force: boolean) {
   if (!w || !h) return;
   if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
   const g = cv.getContext('2d')!;
+  W.viewportDirty = false;
   const t = now();
-  if (S.playing && !W.drag && (t < W.start || t > W.start + w / W.px * 0.8)) W.start = Math.max(0, t - w / W.px * 0.25);
+  if (S.playing && W.follow && !W.drag && (t < W.start || t > W.start + w / W.px * 0.8)) W.start = Math.max(0, t - w / W.px * 0.25);
+  drawRuler(w,dpr);
   const key = [S.ver, w,h,dpr,W.start,W.px,S.layer,S.sel?.i,S.sel?.k,[...S.picked].join(','),W.multi.map(q=>`${q.i}:${q.k}:${q.layer}`).join(','),S.waveView,S.waveVoice,LANES.m,LANES.b,LANES.l,TH.t,TH.a,TH.a2].join('/');
   const canCache = !W.drag;
   if (!force && canCache && key === rasterKey && raster.width === cv.width && raster.height === cv.height && rasterPeaks === wavePeaks() && rasterSpec === waveSpec()) {
     g.setTransform(1,0,0,1,0,0); g.clearRect(0,0,cv.width,cv.height); g.drawImage(raster,0,0);
-    g.setTransform(dpr,0,0,dpr,0,0); drawCursor(g,t,w,h); drawMini(t,w/W.px); return;
+    g.setTransform(dpr,0,0,dpr,0,0); drawCursor(g,t,w,h); drawMini(t,w/W.px); publishViewport(); return;
   }
   g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
   if (layoutVer !== S.ver || layoutLayer !== S.layer) {
@@ -158,15 +167,10 @@ function renderWave(force: boolean) {
     W.rows = bandRows(); W.nr = Math.max(1, ...W.rows.map(r => r + 1)); W.secs = sectionsOf(S.lines);
   }
   const G = W.G = geo(h);
-  if (S.playing && !W.drag) { if (t < W.start || t > W.start + w / W.px * 0.8) W.start = Math.max(0, t - w / W.px * 0.25); }
   const t0 = W.start, t1 = t0 + w / W.px, X = (tt: number) => (tt - t0) * W.px;
   // a label starts at its block, or at the left edge when the block began off screen (zoomed in, it would be gone)
   const stick = (x: number) => Math.max(x, 0);
   const mid = (G.wY + G.lY - 2) / 2, amp = (G.lY - 2 - G.wY) / 2 - 2;
-  // ruler
-  g.fillStyle = `rgba(${TH.t},.35)`; g.font = '10px ui-monospace,monospace'; g.textBaseline = 'top';
-  const step = W.px > 400 ? 0.5 : W.px > 150 ? 1 : W.px > 60 ? 2 : 5;
-  for (let s = Math.ceil(t0 / step) * step; s < t1; s += step) { const x = X(s); g.fillRect(x, h - 6, 1, 6); g.fillText(mmss(s) + (step < 1 ? '.' + Math.round((s % 1) * 10) : ''), x + 3, h - 15); }
   // waveform
   const PK = wavePeaks(), SP = S.waveView === 'spec' ? waveSpec() : null;
   if (SP) drawSpec(g, SP, t0, t1, G.wY, G.lY - 2 - G.wY);
@@ -200,7 +204,7 @@ function renderWave(force: boolean) {
       const top = y + row * hh / W.wordN[lane];
       if (row) { g.fillStyle = `rgba(${TH.t},.15)`; g.fillRect(0, top, w, 1); }
       g.fillStyle = `rgba(${on ? col : TH.t},${on ? .6 : .3})`;
-      g.fillText(label + (W.wordN[lane] > 1 ? ' · ' + (row + 1) : ''), 7, top + 2);
+      if(W.wordN[lane]>1)g.fillText(String(row+1),7,top+2);
     }
   }
   // source lines band (drag = move the whole line with all its words, double click = edit it in the list)
@@ -239,10 +243,12 @@ function renderWave(force: boolean) {
           g.strokeStyle = sel ? `rgb(${TH.t})` : `rgba(${col},.9)`; g.fillStyle = sel ? `rgb(${TH.t})` : `rgba(${col},.95)`; g.fillRect(x1, y, 3, hh); g.fillRect(x2 - 3, y, 3, hh);
           g.lineWidth = sel ? 2 : 1; if (wd.g) g.setLineDash([3, 3]); g.strokeRect(x1 + .5, y + .5, bw - 1, hh - 1); g.setLineDash([]); g.lineWidth = 1;
         } else { g.setLineDash([3, 3]); g.strokeStyle = sel ? `rgb(${TH.t})` : `rgba(${TH.t},.25)`; g.strokeRect(x1 + .5, y + .5, bw - 1, hh - 1); g.setLineDash([]); }
+        if (bw >= 24) {
         g.save(); g.beginPath(); g.rect(x1 + 2, y, Math.max(0, x2 - x1 - 4), hh); g.clip();
         g.fillStyle = wd.real ? `rgb(${TH.t})` : `rgba(${TH.t},.45)`; g.fillText((wd.b - wd.a >= 1 ? '✦ ' : '') + plainW(wd.word) + (wd.sp === false ? '-' : ''), stick(x1) + 5, y + hh / 2 + 1); g.restore();
+        }
         if (W.multi.some(m => m.i === i && m.k === k && m.layer === layer)) { g.globalAlpha = 1; g.strokeStyle = '#ffd166'; g.lineWidth = 2; g.strokeRect(x1 + 1, y + 1, bw - 2, hh - 2); g.lineWidth = 1; g.globalAlpha = on ? 1 : .5; }
-        if (doubtful(S.lines[i].sync?.[layer]?.[k])) { // auto-timing was unsure here: check by ear (Q)
+        if (bw >= 14 && doubtful(S.lines[i].sync?.[layer]?.[k])) { // auto-timing was unsure here: check by ear (Q)
           g.strokeStyle = 'rgb(255,170,60)'; g.lineWidth = 1.5; g.strokeRect(x1 + 1, y + 1, bw - 2, hh - 2); g.lineWidth = 1;
           g.fillStyle = 'rgb(255,170,60)'; g.font = '800 10px system-ui'; g.textBaseline = 'top'; g.fillText('?', x2 - 9, y + 1); g.font = laneFont(lane === 'bg' ? hh * 0.92 : hh); g.textBaseline = 'middle';
         }
@@ -275,7 +281,7 @@ function renderWave(force: boolean) {
     raster.getContext('2d')!.drawImage(cv,0,0);
     rasterKey = key; rasterPeaks = wavePeaks(); rasterSpec = waveSpec();
   } else rasterKey = '';
-  drawCursor(g,t,w,h); drawMini(t,w/W.px,force);
+  drawCursor(g,t,w,h); drawMini(t,w/W.px,force); publishViewport();
 }
 function drawCursor(g: CanvasRenderingContext2D, t: number, w: number, h: number) {
   const X = (tt: number) => (tt-W.start)*W.px, G = W.G;
@@ -296,7 +302,8 @@ export function secColor(label: string) {
     break: instr, interlude: instr, instrumental: instr, solo: instr, spoken: talk, skit: talk, sample: talk, intro: TH.t, outro: TH.t, other: '170,140,255' })[secCategory(label)];
 }
 /** whole-song strip over the wave: lines colored by sync state, background-only lines pink, the visible window, playhead */
-export const songLen = () => Math.max(S.duration || 0, ...S.lines.map(l => l.end + 1), 1);
+let extentVer=-1, extentDuration=-1, extent=1;
+export function songLen() { if(extentVer!==S.ver || extentDuration!==S.duration){extentVer=S.ver;extentDuration=S.duration;extent=timelineExtent(S.lines,S.duration);}return extent; }
 const miniRaster = document.createElement('canvas');
 let miniKey = '';
 function drawMini(t: number, view: number, force = false) {
@@ -322,9 +329,34 @@ function drawMini(t: number, view: number, force = false) {
   g.fillStyle = `rgb(${TH.t})`; g.fillRect(X(t), 0, 1.5, h);
 }
 
-export function zoomAt(mx: number, f: number) { const ta = W.start + mx / W.px; W.px = Math.min(1500, Math.max(20, W.px * f)); W.start = Math.max(0, ta - mx / W.px); }
+let rulerKey='';
+function drawRuler(w:number,dpr:number){
+ const cv=document.getElementById('timelineRuler') as HTMLCanvasElement|null;if(!cv)return;const key=[w,dpr,W.start,W.px,TH.t].join(':');if(key===rulerKey&&cv.width===Math.round(w*dpr))return;rulerKey=key;cv.width=Math.round(w*dpr);cv.height=Math.round(24*dpr);const g=cv.getContext('2d')!;g.setTransform(dpr,0,0,dpr,0,0);g.font='11px Consolas,monospace';g.textBaseline='top';const step=timelineTick(W.px),end=W.start+w/W.px;g.fillStyle=`rgba(${TH.t},.7)`;for(let t=Math.ceil(W.start/step)*step;t<end;t+=step){const x=(t-W.start)*W.px;g.fillRect(x,17,1,7);const centis=Math.round(t*100);g.fillText(mmss(centis/100)+(step<1?'.'+String(centis%100).padStart(2,'0'):''),x+5,2);g.fillRect(x+step*W.px/2,21,1,3);}}
+const viewportListeners=new Set<()=>void>();
+let viewportSnapshot='', geometrySnapshot='', geometryRoot:HTMLElement|null=null;
+export const subscribeViewport=(f:()=>void)=>{viewportListeners.add(f);return()=>{viewportListeners.delete(f);};};
+export const getViewportSnapshot=()=>viewportSnapshot;
+function publishViewport(){
+ const cv=canvas(),next=[W.start,W.px,cv?.clientWidth||800,W.follow,W.wordN.main,W.wordN.bg].join(':');
+ if(next!==viewportSnapshot){viewportSnapshot=next;viewportListeners.forEach(f=>f());}
+ const root=document.getElementById('timelineTracks');
+ const geo=Object.values(W.G).join(':');if(root&&(geo!==geometrySnapshot||root!==geometryRoot)){geometrySnapshot=geo;geometryRoot=root;for(const [k,v] of Object.entries(W.G))root.style.setProperty('--'+k,v+'px');}
+}
+export function requestWaveRender(){W.viewportDirty=true;}
+export function navigateTimeline(start:number,px=W.px,manual=true){const view=timelineView(start,px,canvas()?.clientWidth||800,songLen());W.start=view.start;W.px=view.px;if(manual)W.follow=false;requestWaveRender();}
+export function zoomAt(mx: number, f: number) {const v=zoomTimeline(W.start,W.px,canvas()?.clientWidth||800,songLen(),mx,f);navigateTimeline(v.start,v.px);}
+export function fitSong(){const v=fitTimeline(0,songLen(),canvas()?.clientWidth||800,songLen(),0);navigateTimeline(v.start,v.px);}
+export function fitSelection(){
+ const refs=W.multi.length?W.multi:S.sel?[{...S.sel,layer:S.layer}]:[], times=refs.flatMap(q=>{const l=S.lines[q.i],x=l?.sync?.[q.layer]?.[q.k];return x?.a!=null&&x.b!=null?[{a:x.a,b:x.b}]:l?[{a:l.t,b:l.end}]:[];});
+ if(S.picked.size){times.length=0;for(const i of S.picked){const l=S.lines[i];if(l)times.push({a:l.t,b:l.end});}}
+ if(!times.length)return;
+ const v=fitTimeline(Math.min(...times.map(x=>x.a)),Math.max(...times.map(x=>x.b)),canvas()?.clientWidth||800,songLen());navigateTimeline(v.start,v.px);
+}
+export function centerPlayhead(){navigateTimeline(now()-(canvas()?.clientWidth||800)/W.px*.4,W.px,false);W.follow=true;requestWaveRender();}
+export function toggleFollow(){W.follow=!W.follow;if(W.follow)centerPlayhead();requestWaveRender();}
+
 export function centerOnSel() {
   if (!S.sel) return; const vw = viewWords(S.sel.i, S.layer), ws = vw.filter(x => x.a != null); if (!ws.length) return;
   const a = ws[0].a!, b = ws[ws.length - 1].b!, width = canvas()?.clientWidth || 800;
-  W.px = clamp(width * 0.8 / Math.max(0.5, b - a), 40, 600); W.start = Math.max(0, a - (width * 0.1) / W.px);
+  const v = fitTimeline(a,b,width,songLen()); navigateTimeline(v.start,v.px);
 }

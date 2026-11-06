@@ -1,0 +1,12 @@
+import { expect, test } from '@playwright/test';
+test('ten-minute spectrum zoom uses worker detail levels and paints bounded tiles',async({page,request})=>{
+ await request.put('/api/project?by=page',{data:{v:1,meta:{title:'Spectrum stress',artist:'Test',mode:'original',lang:'ru',md:[]},lines:Array.from({length:300},(_,i)=>({t:i*2,end:i*2+2,text:'тихое море',tr:'',sync:{orig:[{a:i*2,b:i*2+1},{a:i*2+1,b:i*2+2}]}}))}});
+ await page.addInitScript(()=>{localStorage.setItem('helpSeen','1');const Original=window.Worker;window.Worker=class extends Original{constructor(url:string|URL,options?:WorkerOptions){super(url,options);this.addEventListener('message',e=>{if(e.data.lod)(window as any).spectralLOD=e.data.lod.map((l:any)=>({cols:l.cols,step:l.step}));});}};});
+ await page.setViewportSize({width:1600,height:1000});await page.goto('/');await page.locator('#nav-sync').click();
+ const n=8000*600,b=Buffer.alloc(44+n*2);b.write('RIFF');b.writeUInt32LE(b.length-8,4);b.write('WAVEfmt ',8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(8000,24);b.writeUInt32LE(16000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write('data',36);b.writeUInt32LE(n*2,40);for(let j=0;j<n;j++)b.writeInt16LE(Math.round(Math.sin(j/8000*Math.PI*320)*6000),44+j*2);
+ await page.locator('#fileAudio').setInputFiles({name:'ten-minute.wav',mimeType:'audio/wav',buffer:b});await expect.poll(()=>page.evaluate(()=>(window as any).spectralLOD),{timeout:20000}).toBeTruthy();
+ const levels=await page.evaluate(()=>(window as any).spectralLOD);expect(levels.at(-1).cols).toBeLessThanOrEqual(1024);
+ await page.locator('#timelineTools').getByRole('button',{name:'Спектр',exact:true}).click();
+ await page.evaluate(()=>{(window as any).tileCount=0;const original=CanvasRenderingContext2D.prototype.createImageData;CanvasRenderingContext2D.prototype.createImageData=function(this:CanvasRenderingContext2D,...args:any[]){(window as any).tileCount++;return (original as any).apply(this,args)} as any;});
+ const start=Date.now();await page.locator('#timelineFitSong').click();await expect(page.locator('#timelinePan')).toBeDisabled();await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));const elapsed=Date.now()-start,tiles=await page.evaluate(()=>(window as any).tileCount);console.log('Ten-minute whole-song spectrum',{elapsedMs:elapsed,tiles,levels});expect(tiles).toBeLessThanOrEqual(8);expect(elapsed).toBeLessThan(1500);
+});

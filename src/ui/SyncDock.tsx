@@ -1,3 +1,4 @@
+import { TimelineTools, TimelineHeaders, TimelinePosition } from './TimelineTools.tsx';
 import { SelectionBar } from './SelectionBar.tsx';
 import { pickWord } from '../selection.ts';
 // Bottom dock: top bar, waveform, word chips, F/G/H toolbar with "Строка ⋯" and ⚙ menus.
@@ -104,11 +105,14 @@ export function SyncDock() {
   const width = () => cv.current?.clientWidth || 800;
   return <div className={'dock' + (S.playing ? ' rec' : '')} id="dock" hidden={!S.dock || !timelineShown()} onMouseDown={dockMouseDown}>
     <div className="grip" ref={gr} title="Потяни, чтобы изменить высоту панели (двойной клик — как было)"></div>
+    <TimelineTools />
     <ReviewBar />
     <div className={'editor-workspace' + (embeddedInspector ? ' inspecting' : '')}>
       <div className="timeline-surface">
-        <canvas id="mini" ref={mini} title="Вся песня: клик/тяни — показать это место, 2× — играть отсюда. Зелёное — размечено, жёлтое — частично, розовое — отдельные бэки"></canvas>
-        <canvas id="wave" ref={cv}></canvas>
+        <div className="timeline-overview"><span>Обзор песни</span><canvas id="mini" ref={mini} title="Вся песня: клик/тяни — показать это место, 2× — играть отсюда. Зелёное — размечено, жёлтое — частично, розовое — отдельные бэки"></canvas></div>
+        <div className="timeline-ruler"><span>Время</span><canvas id="timelineRuler" aria-hidden="true" /></div>
+        <div id="timelineTracks" className="timeline-tracks"><TimelineHeaders /><canvas id="wave" ref={cv}></canvas></div>
+        <TimelinePosition />
         <div id="waveTip" className="wtip" hidden></div>
     <div className={'sync-lines ' + S.chips} id="syncLines">{S.chips !== 'off' && <Chips />}<ChipsMode /></div>
 
@@ -124,8 +128,8 @@ export function EditorToolbar() {
   const progress = layerProgress(S.lines, S.layer), inspect = inspectorOpen(), width = () => document.getElementById('wave')?.clientWidth || 800;
   return <div id="editorToolbar" className="editor-toolbar" ref={ref} hidden={S.page !== 'sync'}>
     <div className="editor-quickbar">
-      <button id="btnFitEveryLine" className="sm" disabled={!!S.editDraft} onClick={() => fitLines()}>Подогнать все строки</button>
-      <button id="btnQuickSyllables" className="sm" disabled={!!S.editDraft} onClick={openSyllableReview}>По слогам</button>
+      <button id="btnFitEveryLine" className="sm" disabled={!!S.editDraft && S.editDraft.owner !== 'preview'} onClick={() => fitLines()}>Подогнать все строки</button>
+      <button id="btnQuickSyllables" className="sm" disabled={!!S.editDraft && S.editDraft.owner !== 'preview'} onClick={openSyllableReview}>По слогам</button>
       <span className="quick-divider" />
       <button id="btnToggleLines" className="sm" aria-pressed={linesShown()} onClick={toggleLines}>Строки</button>
       <button id="btnToggleTimeline" className="sm" aria-pressed={timelineShown()} onClick={toggleTimeline}>Таймлайн</button>
@@ -142,7 +146,7 @@ export function EditorToolbar() {
 
     </div>
     <SelectionBar />
-    <fieldset disabled={!!S.editDraft} id="editorCommands" className="editor-commands" hidden={!commandsShown()}>
+    <fieldset disabled={!!S.editDraft && S.editDraft.owner !== 'preview'} id="editorCommands" className="editor-commands" hidden={!commandsShown()}>
     <div className="bar">
       <b className="ttl">Редактор слов</b>
       <button className={'sm' + (S.align || S.setup ? ' busy' : '')} id="btnAutoAlign" disabled={!!S.align || !!S.setup} title="Нейросеть расставит слова оригинала и бэка по аудио (черновик пунктиром; размеченное вручную не трогает). Нужен локальный сервер и Python-прототип." onClick={autoAlign}>{S.setup ? '⬇ ' + setupLabel() : S.align ? '⏳ ' + alignLabel() : !S.lines.length ? '✨ Распознать текст' : S.picked.size ? `✨ Авто-тайминг (строк: ${S.picked.size})` : '✨ Авто-тайминг'}</button>
