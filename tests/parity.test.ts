@@ -35,10 +35,11 @@ describe('parity with reference core', () => {
       for (const wordSpread of [true, false])
         for (const offset of [0, -700, 250]) {
           const o = { lines, mode, wordSpread, offset, lang: 'ru', songwriters: ['A & B'] };
-          // Exports now start directly with <tt>, matching shared TTML files; content remains identical.
-          expect(C.buildTTML(o)).toBe(ref.buildTTML(o).replace(/^<\?xml[^?]*\?>\s*/, ''));
-          expect(C.buildLRC(o)).toBe(ref.buildLRC(o));
-          expect(C.buildSRT(o)).toBe(ref.buildSRT(o));
+          // Intentional difference: complete translation line 1 is fitted before every export.
+          const refOpts = { ...o, lines: mode === 'translation' ? lines.map((l, i) => i === 0 ? { ...l, t: .6, end: 2.9 } : l) : lines };
+          expect(C.buildTTML(o)).toBe(ref.buildTTML(refOpts).replace(/^<\?xml[^?]*\?>\s*/, ''));
+          expect(C.buildLRC(o)).toBe(ref.buildLRC(refOpts));
+          expect(C.buildSRT(o)).toBe(ref.buildSRT(refOpts));
         }
     expect(C.qaCheck(lines.filter(l => l.text.trim()), 'translation')).toEqual(ref.qaCheck(lines.filter(l => l.text.trim()), 'translation'));
     expect(C.qaCheck(lines, 'bilingual')).toEqual(ref.qaCheck(lines, 'bilingual'));

@@ -2,6 +2,7 @@
 import { S, emit, isBg, isTr, layerText, ls, mkLayer, setVoff, toast, viewWords, wordsOf, type Page } from './state.ts';
 import { now, pause, play, seekTo, setRate } from './audio.ts';
 import { PV } from './preview.ts';
+import { timelineShown } from './ui/Studio.tsx';
 import { PREVIEW_EDIT } from './previewEdit.ts';
 import { doRedo, doUndo, joinWords, mark, nudgeWord, resetWord, setLayer, splitWord, stepWord, stepDoubt, stepReview } from './sync.ts';
 import { isApp, appZoom } from './desktop.ts';
@@ -24,7 +25,7 @@ export function setPage(p: Page) {
   if (p === 'text' && (!S.full || !S.full.dirty)) S.full = fullDraft();
   const dock = p === 'sync';
   if (dock !== S.dock) {
-    S.dock = dock; document.body.classList.toggle('dock-open', dock);
+    S.dock = dock; document.body.classList.toggle('dock-open', dock && timelineShown());
     if (dock && document.activeElement instanceof HTMLElement) document.activeElement.blur();
     if (dock) { setTimeout(drawWave, 30); if (!ls.get('helpSeen', '')) { S.help = true; ls.set('helpSeen', '1'); } }
     PV.lastAct = -2;
@@ -43,7 +44,7 @@ export function setSnap(on: boolean) { S.snap = on; ls.set('snap', on ? '1' : '0
 export function setLoop(on: boolean) { S.loop = on; toast(on ? '🔁 Цикл выбранной строки включён (L). Жми Space.' : 'Цикл выключен.', 'ok'); }
 export function updateKbd() {
   const a = document.activeElement as HTMLInputElement | null;
-  const typing = !!a && (a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || (a.tagName === 'INPUT' && ['text', 'number', 'search'].includes(a.type)));
+  const typing = !!a && (a.isContentEditable || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || (a.tagName === 'INPUT' && ['text', 'number', 'search'].includes(a.type)));
   if (typing !== S.typing) { S.typing = typing; emit(); }
 }
 const blurActive = () => { const a = document.activeElement; if (a instanceof HTMLElement && a !== document.body) a.blur(); };
@@ -52,7 +53,7 @@ const KEYS = new Set(['KeyJ', 'KeyQ', 'KeyC', 'KeyB', 'KeyT', 'KeyE', 'Digit1', 
 function onKey(e: KeyboardEvent) {
   if (!S.dock || S.help || S.metaEd || S.palette) return;
   const tg = e.target as HTMLInputElement, tag = tg.tagName;
-  if (tag === 'TEXTAREA' || tag === 'SELECT' || (tag === 'INPUT' && tg.type !== 'range' && tg.type !== 'checkbox' && tg.type !== 'radio' && tg.type !== 'file')) return;
+  if (tg.isContentEditable || tag === 'TEXTAREA' || tag === 'SELECT' || (tag === 'INPUT' && tg.type !== 'range' && tg.type !== 'checkbox' && tg.type !== 'radio' && tg.type !== 'file')) return;
   const c = e.code;
   if ((e.ctrlKey || e.metaKey) && c === 'KeyZ') { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); return; }
   if ((e.ctrlKey || e.metaKey) && (c === 'KeyC' || c === 'KeyV')) { // Ctrl: whole lines · Ctrl+Shift: only the word timing of a line

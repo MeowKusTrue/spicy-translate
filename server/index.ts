@@ -153,7 +153,7 @@ async function setupAlign(want?: Backend) {
   step('готово', 100); SETUP.done = true;
 }
 /** bump when the editor needs new server endpoints (3: auto-timing install / GPU / open folder) */
-const API = 15; // 15: original project/export mode · 14: moved data paths and GPU memory · 13: selectable ASR / aligner and backing candidates · 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes · 10: install pins torch, Python found without LOCALAPPDATA · 11: installs noted for each other (python-path.txt) · 12: /api/spell
+const API = 16; // 15: original project/export mode · 14: moved data paths and GPU memory · 13: selectable ASR / aligner and backing candidates · 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes · 10: install pins torch, Python found without LOCALAPPDATA · 11: installs noted for each other (python-path.txt) · 12: /api/spell
 /* ---------- Genius (lyrics makers take the text from there). No CORS for pages, so the server fetches them. ---------- */
 const GH = { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', 'accept-language': 'en-US,en;q=0.9' };
 type GeniusHit = { id: number; title: string; artist: string; url: string; art: string };
@@ -433,6 +433,10 @@ const tools: Record<string, Tool> = {
     schema: { type: 'object', properties: { mode: { type: 'string', enum: ['original', 'translation', 'bilingual'] }, wordSpread: { type: 'boolean' }, offset_ms: { type: 'number' }, songwriters: { type: 'array', items: { type: 'string' } }, include_text: { type: 'boolean' } } },
     async run({ mode, wordSpread = true, offset_ms = 0, songwriters = [], include_text }: { mode?: Mode; wordSpread?: boolean; offset_ms?: number; songwriters?: string[]; include_text?: boolean }) {
       const p = await need();
+      const fitted = C.planFitAll(p.lines, mode || p.meta.mode || 'translation');
+      const exportLines = fitted.lines.slice().sort((a, b) => a.t - b.t);
+      if (fitted.changed || exportLines.some((l, i) => l !== p.lines[i])) await putProject({ ...p, lines: exportLines }, 'mcp');
+      p.lines = exportLines;
       const ttml = C.buildTTML({ lines: p.lines, mode: mode || p.meta.mode || 'translation', wordSpread, lang: p.meta.lang || 'ru', offset: offset_ms, songwriters, meta: p.meta.md });
       const out = path.join(DATA, 'exports'); fs.mkdirSync(out, { recursive: true });
       const f = path.join(out, `${(p.meta.artist + ' - ' + p.meta.title).replace(/[\\/:*?"<>|]/g, '').trim() || 'lyrics'} (${p.meta.lang || 'ru'}).ttml`);
@@ -452,7 +456,7 @@ if (!process.argv.includes('--http')) {
     const { id, method, params } = msg;
     if (id === undefined) return; // notification
     try {
-      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.1.0' } } });
+      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.2.0' } } });
       if (method === 'ping') return send({ id, result: {} });
       if (method === 'tools/list') return send({ id, result: { tools: Object.entries(tools).map(([name, t]) => ({ name, description: t.description, inputSchema: t.schema })) } });
       if (method === 'tools/call') {

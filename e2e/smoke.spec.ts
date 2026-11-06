@@ -22,9 +22,10 @@ test('load, F/G/H, join/syllables, export TTML', async ({ page }) => {
   await page.locator('#segTr').click();
   await page.locator('#syncLines .chip', { hasText: 'бумажные' }).click();
 
-  await page.locator('#dock .bar details.menu summary').click();
+  await page.locator('#btnEditorCommands').click();
+  await page.locator('#editorToolbar .bar details.menu summary').click();
   await page.locator('#lat').fill('0');
-  await page.locator('#dock .bar details.menu summary').click();
+  await page.locator('#editorToolbar .bar details.menu summary').click();
 
   // mark: F on word 1, G through the syllables, H at the end (virtual clock, no audio)
   await page.keyboard.press('Space');
@@ -36,7 +37,7 @@ test('load, F/G/H, join/syllables, export TTML', async ({ page }) => {
   // join "фо|на" (syllables) and glue two words with M, then split one back with U
   await page.locator('#syncLines .chip', { hasText: /^фо$/ }).click();
   await page.keyboard.press('m');
-  await expect(page.locator('#ln0 textarea.tr')).toHaveValue('бумажные фона|ри плывут');
+  await expect(page.locator('#ln0 .compact-text').first()).toHaveText('бумажные фонари плывут');
   await page.locator('#syncLines .chip', { hasText: 'бумажные' }).click();
   await page.keyboard.press('m');
   await expect(page.locator('#syncLines .chip.grp')).toHaveText('бумажные фона');
@@ -92,7 +93,7 @@ test('background vocals: (…) -> bg, bg-only line, delete + undo, word edit on 
   await page.keyboard.press('e');
   await page.locator('input.wedit').fill('over and');
   await page.keyboard.press('Enter');
-  await expect(page.locator('#ln2 textarea.o')).toHaveValue('over and quiet water');
+  await expect(page.locator('#ln2 .compact-text').first()).toHaveText('over and quiet water');
 
   await page.locator('#nav-export').click();
   await page.locator('#btnShow').click();

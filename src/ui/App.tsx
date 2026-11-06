@@ -3,14 +3,14 @@ import { PAGES, setPage } from '../hotkeys.ts';
 import { MetaModal } from './MetaModal.tsx';
 import { AudioCard, ExportCard, HistoryCard, LinesCard, Next, SearchCard, TextCard, TranslateCard } from './Cards.tsx';
 import { Stage } from './Stage.tsx';
-import { SyncDock } from './SyncDock.tsx';
+import { SyncDock, EditorToolbar } from './SyncDock.tsx';
 import { HelpModal } from './HelpModal.tsx';
 import { Drop } from './Drop.tsx';
 import { Palette, openPalette } from './Palette.tsx';
 import { AlignPanel, BackingReview } from './AlignPanel.tsx';
 import { isApp, winClose, winMax, winMin } from '../desktop.ts';
 import { stopLine } from '../core/index.ts';
-import { ModePicker } from './Studio.tsx';
+import { ModePicker, linesShown } from './Studio.tsx';
 import { WordInspector, inspectorOpen } from './WordInspector.tsx';
 import { doRedo, doUndo } from '../sync.ts';
 import { openAlignPanel } from '../autoAlign.ts';
@@ -66,7 +66,8 @@ export function App() {
       {isApp && <WinButtons />}
     </header>
     <div className="studio-nav"><Nav /><button className="sm" id="btnStudioModels" onClick={openAlignPanel}>Автоматизация</button><div className="studio-mode"><small>Задача проекта</small><ModePicker /></div></div>
-    <main className={'page-' + S.page + (S.page === 'sync' && inspectorOpen() && !document.body.classList.contains('editor-focus') ? ' studio-inspecting' : '')}>
+    <EditorToolbar />
+    <main className={'page-' + S.page + (S.page === 'sync' && !linesShown() ? ' studio-hide-lines' : '') + (S.page === 'sync' && inspectorOpen() && !document.body.classList.contains('editor-focus') ? ' studio-inspecting' : '')}>
       <div className="col" key={S.page}><Page /></div>
       <div className="col"><Stage /></div>
       {S.page === 'sync' && inspectorOpen() && !document.body.classList.contains('editor-focus') && <WordInspector />}

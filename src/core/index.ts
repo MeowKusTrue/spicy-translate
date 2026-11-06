@@ -14,3 +14,5 @@ export * from './sections.ts';
 export * from './autoAlign.ts';
 export * from './editor.ts';
 export * from './backing.ts';
+export * from './fitExport.ts';
+export * from './russianSyllables.ts';

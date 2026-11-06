@@ -61,6 +61,7 @@ test('review flow confirms a background draft; focus mode and inspector can be t
   await expect(page.locator('#syncStat')).toContainText('1/1');
   await expect(page.locator('#btnReviewNext')).toBeDisabled();
   await expect.poll(async () => (await (await request.get('/api/project')).json()).project.lines[4].sync.bgo[0].g).toBeUndefined();
+  await page.locator('#btnEditorCommands').click();
   await page.locator('#btnEditorFocus').click();
   await expect(page.locator('body')).toHaveClass(/editor-focus/);
   await page.locator('#btnWordInspector').click();

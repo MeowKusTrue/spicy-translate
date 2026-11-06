@@ -50,6 +50,7 @@ export const S = {
   spell: null as null | { busy: boolean; hits: import('./spell.ts').SpellHit[]; msg: string; ignored: string[] }, // spelling check of the lyrics
   genius: null as null | { q: string; hits: import('./genius.ts').GeniusHit[]; busy: boolean; msg: string; cls: string; text?: string; heads?: { row: number; label: string }[]; seed?: Line[]; title?: string; id?: number; ignored: string[] }, // «Текст с Genius» + its check
   full: null as null | { o: string; t: string; dirty: boolean }, // «Текст» tab draft
+  syllableReview: null as null | { i: number; layer: Layer; text: string },
   find: null as null | { q: string; r: string; where: 'tr' | 'orig' | 'all'; cs: boolean; word: boolean },
 };
 

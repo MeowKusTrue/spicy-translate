@@ -1,7 +1,7 @@
 {
   "name": "spicy-translate",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,6 +16,8 @@
     "desktop:build": "npm run build && npm run desktop:server && cd desktop && tauri build"
   },
   "dependencies": {
+    "hyphenation.ru": "0.2.1",
+    "hypher": "0.2.5",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },

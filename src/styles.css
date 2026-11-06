@@ -629,3 +629,59 @@ main.page-text,html.app main.page-text{grid-template-columns:minmax(400px,1fr) m
 .studio-nav .nav button.on em{background:var(--field);color:var(--txt)}
 
 .preview-edit textarea{max-height:min(200px,24dvh);overflow-y:auto}.preview-edit{max-height:min(400px,48dvh);overflow-y:auto}
+
+/* Compact workspace: all former bottom commands live in the expandable top toolbar. */
+.editor-toolbar{position:relative;z-index:5;background:var(--card);border-bottom:1px solid var(--line)}
+.editor-toolbar[hidden],#editorCommands[hidden]{display:none}
+.editor-quickbar{display:flex;align-items:center;flex-wrap:wrap;gap:5px;padding:7px 14px;min-height:44px}
+.editor-quickbar button{font-size:12px;min-height:30px;padding:5px 9px;background:transparent;border-color:transparent}
+.editor-quickbar button[aria-pressed=true]{background:var(--field);color:var(--acc)}
+.editor-quickbar #btnFitEveryLine,.editor-quickbar #btnQuickSyllables{border-color:var(--line);background:var(--field)}
+.editor-quickbar>.tseg{margin-left:auto}.editor-quickbar>.trk{margin-left:0}.quick-divider{height:20px;width:1px;background:var(--line);margin:0 4px}
+.editor-commands{padding:8px 14px;border-top:1px solid var(--line);background:var(--field)}
+.editor-commands>.bar{flex-wrap:wrap;gap:6px}.editor-commands .bar .hint-line,.editor-commands .bar>.ttl{display:none}
+.editor-commands .bar>button,.editor-commands .bar>details>summary{font-size:12px;padding:5px 9px}
+.editor-commands .actions{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-top:8px;min-height:38px;overflow:visible}
+.editor-commands .actions .grp{flex:none}.editor-commands .menu{position:relative}.editor-commands .menu.up .pop{top:100%;bottom:auto;max-height:55vh;overflow:auto}
+.editor-commands #kbd{font-size:11px;color:var(--mut)}.editor-commands #kbd:empty{display:none}
+.editor-toolbar .alcard{margin:0 14px 7px}.editor-toolbar .runbar{margin:0 14px 7px}
+main.page-sync,html.app main.page-sync{height:calc(100dvh - 103px - var(--editorToolbarH,44px));grid-template-columns:255px minmax(0,1fr)}
+body.dock-open main.page-sync,html.app body.dock-open main.page-sync{height:calc(100dvh - 103px - var(--editorToolbarH,44px) - var(--studioDockH));padding:0}
+main.page-sync.studio-inspecting,html.app main.page-sync.studio-inspecting{grid-template-columns:255px minmax(0,1fr) 285px}
+main.page-sync.studio-hide-lines,html.app main.page-sync.studio-hide-lines{grid-template-columns:minmax(0,1fr)}
+main.page-sync.studio-hide-lines.studio-inspecting,html.app main.page-sync.studio-hide-lines.studio-inspecting{grid-template-columns:minmax(0,1fr) 285px}
+main.studio-hide-lines>.col:first-child{display:none}
+main.page-sync>.col:first-child,html.app main.page-sync>.col:first-child{padding:14px 0}
+.compact-lines>h2,.compact-lines>.compact-tools,.compact-lines>.line-search,.compact-lines>.hint{margin-left:13px;margin-right:13px}
+.compact-tools{gap:4px;flex-wrap:wrap}.compact-tools button{font-size:11px;padding:4px 6px;min-height:28px}
+.compact-lines .lines{margin-top:13px;gap:0;padding:0}.ln.compact-line{display:grid;grid-template-columns:42px minmax(0,1fr) 23px;gap:8px;border:0;border-left:2px solid transparent;border-radius:0;padding:10px 8px 10px 11px;min-height:49px;position:relative}
+.ln.compact-line.on,.ln.compact-line.selected,.ln.compact-line.picked{border-left-color:var(--acc);background:var(--field)}
+.compact-line .t{padding:2px 0;min-height:24px;border:0;background:transparent;font:11px Consolas,monospace;color:var(--mut);text-align:left}
+.compact-line .compact-text,.compact-line .compact-translation{display:block;width:100%;padding:0;border:0;border-radius:0;min-height:24px;background:transparent;white-space:normal;text-align:left;line-height:1.55;font-size:13px;font-weight:400;overflow-wrap:anywhere}
+.compact-line .compact-text:hover{color:var(--acc);background:transparent}.compact-line .compact-translation{font-size:12px;color:var(--mut);margin-top:4px}
+.compact-line .bgrow{display:block;padding:3px 0 0 10px;border-left:1px solid var(--acc2);background:transparent;margin-top:6px}
+.compact-line.bgonly .bgrow{margin-top:0}.compact-line .bgrow small{display:block;color:var(--mut);font:11px 'Segoe UI',sans-serif;line-height:1.5}
+.compact-line .compact-back{color:var(--acc2);font-size:12px}.compact-line.bgonly .txt{border:0}.compact-line .compact-edit-back{font-size:11px;min-height:22px;padding:0 5px;margin-top:2px;color:var(--mut);border:0;background:transparent}
+.compact-section{display:block;font-size:10px;color:var(--mut);letter-spacing:1px;text-transform:uppercase;margin-bottom:5px}
+.compact-menu{position:relative}.compact-menu summary{list-style:none;color:var(--mut);padding:0 3px;font-size:18px;line-height:24px;cursor:pointer}
+.compact-pop{position:absolute;right:0;top:100%;width:190px;z-index:8;background:var(--pop);border:1px solid var(--line);padding:5px;border-radius:7px;box-shadow:0 8px 30px #0005}
+.compact-pop button{display:block;border:0;width:100%;text-align:left;font-size:12px;padding:7px;background:transparent}
+.compact-lines>.hint{font-size:11px;line-height:1.6}
+.preview-edit-host{position:relative;margin-bottom:56px!important}
+.preview-edit{border:0;background:transparent;box-shadow:none;padding:0;border-radius:0;overflow:visible;max-height:none;color:inherit;position:relative;line-height:inherit}
+.preview-edit #previewEditText{display:block;outline:none;white-space:pre-wrap;overflow-wrap:anywhere;min-height:1.2em;font:inherit;letter-spacing:inherit;line-height:inherit;color:#f0f2eb;-webkit-text-fill-color:#f0f2eb;caret-color:#d4f598;user-select:text;-webkit-user-select:text}
+.preview-edit-actions{position:absolute;left:0;top:100%;margin-top:9px;gap:7px}.preview-edit-actions button{font-size:12px;padding:5px 10px;min-height:30px}
+.preview-edit-error{position:absolute;top:100%;left:0;margin-top:46px!important;padding:3px 5px;background:#171e14}
+.syllable-review{padding:12px 16px;border-top:1px solid var(--line);font-size:12px;max-height:40vh;overflow:auto}
+.syllable-review>.row:first-child{justify-content:space-between;flex-wrap:wrap}.syllable-review select{width:auto;max-width:100%;font-size:12px;padding:6px 8px}
+.syllable-review label{display:block;margin:9px 0 0;color:var(--mut)}.syllable-review textarea{display:block;min-height:55px;font:14px/1.7 'Segoe UI',sans-serif;margin-top:4px;resize:vertical}
+.syllable-review>.row:last-child{margin-top:10px}.syllable-review .hint{font-size:11px;line-height:1.6}
+body.editor-focus .dock{height:calc(100dvh - 103px - var(--editorToolbarH,44px))}
+.dock .timeline-surface #wave{min-height:100px}.dock .timeline-surface{padding-bottom:0}
+@media(max-width:1200px){main.page-sync.studio-inspecting,html.app main.page-sync.studio-inspecting{grid-template-columns:225px minmax(0,1fr) 250px}.editor-quickbar{gap:3px;padding:6px 9px}.editor-quickbar button{font-size:11px;padding:4px 7px}.editor-quickbar>.tseg{margin-left:0}}
+@media(max-width:800px){main.page-sync,html.app main.page-sync,main.page-sync.studio-inspecting,html.app main.page-sync.studio-inspecting{grid-template-columns:225px minmax(0,1fr)}main.page-sync.studio-hide-lines,html.app main.page-sync.studio-hide-lines,main.page-sync.studio-hide-lines.studio-inspecting,html.app main.page-sync.studio-hide-lines.studio-inspecting{grid-template-columns:minmax(0,1fr)}.compact-pop{right:0}.editor-commands .actions{max-height:160px;overflow:auto}.editor-commands .menu.up .pop{position:fixed;left:16px;right:16px;top:250px;width:auto;max-height:45vh}.editor-quickbar .quick-divider{display:none}}
+@media(max-width:600px){main.page-sync,html.app main.page-sync,body.dock-open main.page-sync,html.app body.dock-open main.page-sync{height:auto;min-height:350px}.editor-quickbar{padding:5px 8px}.editor-quickbar button{min-height:32px}.compact-lines .lines{max-height:420px}.preview-edit #previewEditText{font-size:inherit}.syllable-review>.row select{width:100%}}
+
+.preview-edit #previewEditText{max-height:min(240px,32dvh);overflow-y:auto}
+
+main .compact-lines>h2{margin:0 13px 14px}

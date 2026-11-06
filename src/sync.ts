@@ -1,5 +1,5 @@
 // Word sync actions (hotkeys AND toolbar buttons use these) + undo/redo on text+sync snapshots.
-import { confirmPhraseTiming, editorReview, fitAndSort, plainW, retimeWord, sameLines, splitWords, syllabify, units, unitsText, type Layer } from './core/index.ts';
+import { confirmPhraseTiming, editorReview, fitAndSort, plainW, retimeWord, sameLines, splitWords, splitRussian, units, unitsText, type Layer } from './core/index.ts';
 import { S, conf, doubtful, emit, ensureSync, fillLine, layerText, lineState, ls, r3, setText, spreadLine, toast, viewWords, wordsOf, type ViewWord } from './state.ts';
 import { now, playWord } from './audio.ts';
 import { forgetWord, learnAndSpread } from './syllables.ts';
@@ -17,7 +17,7 @@ export function restore(json: string) {
   const before = txt(S.lines); S.lines = JSON.parse(json); W.multi = [];
   if (S.sel && S.sel.i >= S.lines.length) S.sel = S.lines.length ? { i: S.lines.length - 1, k: 0 } : null;
   if (txt(S.lines) !== before) { S.picked.clear(); buildPreview(true); }
-  afterSyncChange(true);
+  afterSyncChange(true, 0, false);
   // Explicit undo to an empty project must not resurrect the imported text on reload.
   if (!S.lines.length) { ls.set('last', projectJSON()); pushLive(); }
 }
@@ -28,8 +28,8 @@ export function fitLines() {
   const r = fitAndSort(S.lines, S.sel ? S.lines[S.sel.i] : null, S.autoFit ? { a: S.fitPad.a / 1000, b: S.fitPad.b / 1000 } : null); if (!r.moved) return false;
   if (S.sel) S.sel.i = r.at; S.picked.clear(); buildPreview(true); return true;
 }
-export function afterSyncChange(all: boolean, i = 0) {
-  if (fitLines()) all = true;
+export function afterSyncChange(all: boolean, i = 0, fit = true) {
+  if (fit && fitLines()) all = true;
   if (all) S.lines.forEach((_, k) => refreshPreviewLine(k)); else refreshPreviewLine(i);
   emit(); drawWave(); scheduleSave();
 }
@@ -147,7 +147,7 @@ export function joinWords() {
 export function splitWord() {
   if (!S.sel) return toast('Выбери слово.', 'err');
   const { i, k } = S.sel, layer = S.layer, us = units(layerText(S.lines[i], layer)), u = us[k]; if (!u) return;
-  const glued = u.w.includes(' '), parts = glued ? u.w.split(' ') : syllabify(u.w);
+  const glued = u.w.includes(' '), parts = glued ? u.w.split(' ') : splitRussian(u.w);
   if (parts.length < 2) return toast('Один слог — делить нечего. Можно вписать «|» в текст строки вручную (газ|лай|тер).', 'err');
   snap(); const sy = ensureSync(i, layer), x = sy[k];
   const a = x.a != null ? x.a : S.lines[i].t, b = x.b != null ? x.b : S.lines[i].end;
@@ -164,7 +164,7 @@ export function syllabifyLine() {
   const i = S.sel.i, layer = S.layer, us = units(layerText(S.lines[i], layer)); if (!us.length) return;
   snap(); const sy = ensureSync(i, layer), nu: typeof us = [], ns: typeof sy = []; let n = 0;
   us.forEach((u, k) => {
-    const whole = u.sp && (k === 0 || us[k - 1].sp) && !u.w.includes(' '), parts = whole ? syllabify(u.w) : [u.w], x = sy[k];
+    const whole = u.sp && (k === 0 || us[k - 1].sp) && !u.w.includes(' '), parts = whole ? splitRussian(u.w) : [u.w], x = sy[k];
     if (parts.length < 2) { nu.push(u); ns.push(x); return; }
     n++; const a = x.a != null ? x.a : S.lines[i].t, b = x.b != null ? x.b : S.lines[i].end;
     const pu = parts.map((w, j) => ({ w, sp: j === parts.length - 1 }));

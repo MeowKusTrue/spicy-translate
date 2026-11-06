@@ -6,6 +6,8 @@ import { projectJSON, saveText } from './persist.ts';
 import { selectWord } from './sync.ts';
 import { toggleDock } from './hotkeys.ts';
 import { centerOnSel } from './waveform/wave.ts';
+import { fitLines } from './lineEdit.ts';
+import { PREVIEW_EDIT } from './previewEdit.ts';
 import { copyText } from './translate.ts';
 
 const fileBase = () => (S.meta.artist + ' - ' + S.meta.title).replace(/[\\/:*?"<>|]/g, '').trim() || 'lyrics';
@@ -14,7 +16,12 @@ export function opts(): ExportOpts {
   return { lines: S.lines, mode: S.meta.mode, wordSpread: S.exp.spread, lang: S.meta.lang,
     offset: parseInt(S.exp.offset, 10) || 0, meta: S.meta.md, roman: S.exp.roman };
 }
+export function prepareExport() {
+  if (PREVIEW_EDIT.active) { status('st2', 'Сначала сохрани или отмени правку текста в просмотре.', 'err'); return false; }
+  fitLines(undefined, true); return true;
+}
 function checkExport() {
+  if (!prepareExport()) return null;
   if (!S.lines.length) { status('st2', 'Нечего экспортировать — загрузи текст.', 'err'); return null; }
   const missing = S.lines.filter(l => !l.tr || !l.tr.trim()).length;
   if (missing && S.meta.mode !== 'original') status('st2', `У ${missing} строк нет перевода — в файл попадёт оригинал.`, 'err');
@@ -37,8 +44,8 @@ export async function download() {
 }
 export async function copyTTML() { const x = checkExport(); if (!x) return; (await copyText(x)) ? status('st2', 'TTML скопирован в буфер.', 'ok') : status('st2', 'Буфер заблокирован — нажми «Показать код» и скопируй вручную.', 'err'); }
 export function toggleCode() { if (S.out == null) { const x = checkExport(); if (!x) return; S.out = x; } else S.out = null; emit(); }
-export function saveLRC() { if (!S.lines.length) return; saveText(baseName() + '.lrc', buildLRC(opts())); }
-export function saveSRT() { if (!S.lines.length) return; saveText(baseName() + '.srt', buildSRT(opts())); }
+export function saveLRC() { if (!prepareExport() || !S.lines.length) return; saveText(baseName() + '.lrc', buildLRC(opts())); }
+export function saveSRT() { if (!prepareExport() || !S.lines.length) return; saveText(baseName() + '.srt', buildSRT(opts())); }
 export function saveProjectFile() { if (!S.lines.length) return; saveText(baseName() + '.spicy.json', projectJSON(), 'application/json'); }
 
 export function runQa() { S.qa = qaCheck(S.lines, S.meta.mode, { wordSpread: S.exp.spread }); emit(); }

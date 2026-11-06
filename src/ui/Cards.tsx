@@ -6,6 +6,7 @@ import { buildPreview } from '../preview.ts';
 import { idbPut, listSnaps, loadProject, restoreSnap, scheduleSave, snapshot, trackKey, type Snap } from '../persist.ts';
 import { loadManual, loadTrack, openLyricsFile, search, setMode } from '../load.ts';
 import { selectWord, snap } from '../sync.ts';
+import { CompactLines } from './CompactLines.tsx';
 import { ModePicker } from './Studio.tsx';
 import { LANGS, applyPaste, autoTranslate, clearTr, copyPrompt, llmTranslate } from '../translate.ts';
 import { copyTTML, download, gotoQa, runQa, saveLRC, saveProjectFile, saveSRT, toggleCode } from '../exporting.ts';
@@ -235,6 +236,7 @@ function PickBar() {
 export function LinesCard() {
   const [query, setQuery] = useState('');
   if (!S.lines.length) return null;
+  if (S.page === 'sync') return <CompactLines />;
   return <section className="card linescard">
     <h2>Строки <small>{S.lines.length}</small></h2>
     <div className="row ltools" style={{ flexWrap: 'wrap' }}>

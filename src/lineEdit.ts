@@ -1,6 +1,6 @@
 // Editing texts and lines: the list inputs, the inline editor on the wave (double click / E), adding and removing
 // lines (own words, background vocals with no lead line), "(…)" -> background vocals. bg = bg translation, bgo = bg original.
-import { stretchLines, alignRows, findAll, fmtTime, insertLine, lineFromWords, lineRow, fitLineToWords, fitsWords, pasteTiming, repeatTranslations, timingOf, transferTiming, parensToBg, parseRow, plainW, remapSync, repeatTiming, replaceUnit, sameLines, slashSyl, shiftLine, type Layer, type Line } from './core/index.ts';
+import { planFitAll, stretchLines, alignRows, findAll, fmtTime, insertLine, lineFromWords, lineRow, fitLineToWords, fitsWords, pasteTiming, repeatTranslations, timingOf, transferTiming, parensToBg, parseRow, plainW, remapSync, repeatTiming, replaceUnit, sameLines, slashSyl, shiftLine, type Layer, type Line } from './core/index.ts';
 import { S, clamp, emit, ls, fillLine, isBg, isTr, layerText, lineState, r3, setText, toast, viewWords, wordsOf } from './state.ts';
 import { now } from './audio.ts';
 import { learnAndSpread, spreadSplits } from './syllables.ts';
@@ -43,6 +43,7 @@ export function focusLine(i: number, layer: Layer) {
 /* ---------- adding / removing lines ---------- */
 function afterLines() { W.multi = []; S.picked.clear(); S.pickAnchor = -1; S.duration = Math.max(S.duration, ...S.lines.map(l => l.end + 2)); buildPreview(true); afterSyncChange(true); }
 export function focusRow(i: number, sel = 'textarea.o') {
+  if (S.page === 'sync') { setTimeout(() => { import('./ui/CompactLines.tsx').then(m => m.editPreviewRow(i, sel.includes('bgrow') ? 'bgo' : 'orig')); }); return; }
   setTimeout(() => { const r = document.getElementById('ln' + i); if (!r) return; r.scrollIntoView({ block: 'center' }); r.querySelector<HTMLInputElement>(sel)?.focus(); });
 }
 export function addLineAt(t: number, bg = false) {
@@ -319,13 +320,18 @@ export function fillRepeats(from?: number) {
 }
 
 /** a line's start / end = its timed words (one line, or every line when i is omitted) */
-export function fitLines(i?: number) {
-  const ids = i != null ? [i] : S.lines.map((_, k) => k);
-  snap(); let n = 0;
-  for (const k of ids) { const l = S.lines[k], t = l.t, e = l.end; if (fitLineToWords(l, { a: S.fitPad.a / 1000, b: S.fitPad.b / 1000 }) && (l.t !== t || l.end !== e)) n++; }
-  if (!n) { S.undo.pop(); return toast(i != null ? 'Строка уже по словам (или в ней нет размеченных слов).' : 'Все строки уже по словам.', 'ok'); }
-  const sl = S.sel ? S.lines[S.sel.i] : null; S.lines.sort((x, y) => x.t - y.t); if (sl && S.sel) S.sel.i = S.lines.indexOf(sl);
-  afterLines(); toast(`Строк подогнано под слова: ${n}. Ctrl+Z — отмена.`, 'ok');
+export function fitLines(i?: number, quiet = false) {
+  if (i == null) {
+    const plan = planFitAll(S.lines, S.meta.mode, { a: S.fitPad.a / 1000, b: S.fitPad.b / 1000 });
+    if (!plan.changed) { if (!quiet) toast(`Границы уже по словам. Без полной разметки: ${plan.skipped}.`, 'ok'); return 0; }
+    snap(); const selected = S.sel ? S.lines[S.sel.i] : null; plan.lines.forEach((l, k) => { S.lines[k].t = l.t; S.lines[k].end = l.end; });
+    S.lines.sort((a, b) => a.t - b.t); if (selected && S.sel) S.sel.i = S.lines.indexOf(selected); S.picked.clear(); S.pickAnchor = -1; W.multi = [];
+    after(); if (!quiet) toast(`Подогнано строк: ${plan.changed}. Без полной разметки: ${plan.skipped}. Ctrl+Z — отмена.`, 'ok');
+    return plan.changed;
+  }
+  const l = S.lines[i]; if (!l) return 0;
+  const copy = { ...l }; if (!fitLineToWords(copy, { a: S.fitPad.a / 1000, b: S.fitPad.b / 1000 }) || copy.t === l.t && copy.end === l.end) return 0;
+  snap(); l.t = copy.t; l.end = copy.end; after(); if (!quiet) toast('Строка подогнана. Ctrl+Z — отмена.', 'ok'); return 1;
 }
 
 /** «Строки сами по словам»: from now on every line with a fully timed track follows its words (with the slack) */

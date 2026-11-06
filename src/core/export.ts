@@ -1,5 +1,6 @@
 import type { Agent, ExportOpts, MetaEntry, TimedWord } from './types.ts';
 import { getWords, plainW, syncComplete, units } from './words.ts';
+import { planFitAll } from './fitExport.ts';
 import { hasCyr, translit } from './roman.ts';
 import { secCategory, secOrdinal } from './sections.ts';
 
@@ -22,6 +23,7 @@ export function esc(s: unknown) {
 type Item = { a: number; b: number; mainText: string; main: TimedWord[] | null; bg: TimedWord[] | null; agent: Agent; sec: string }; // sec: id of its song section ('' = none)
 
 export function buildTTML(o: ExportOpts) {
+  o = { ...o, lines: planFitAll(o.lines, o.mode || 'translation').lines.slice().sort((a, b) => a.t - b.t) };
   const { lines, mode = 'translation', wordSpread = true, lang = 'ru', offset = 0, songwriters = [], roman = false, meta = [] } = o;
   const shift = (offset || 0) / 1000;
   const bilingual = mode === 'bilingual';
@@ -95,6 +97,7 @@ ${body}    </div>
 }
 
 export function lineSpans(o: ExportOpts) {
+  o = { ...o, lines: planFitAll(o.lines, o.mode || 'translation').lines.slice().sort((a, b) => a.t - b.t) };
   const { lines, mode = 'translation', offset = 0 } = o, shift = (offset || 0) / 1000, bil = mode === 'bilingual';
   const out: { a: number; b: number; text: string }[] = [];
   for (const l of lines) {

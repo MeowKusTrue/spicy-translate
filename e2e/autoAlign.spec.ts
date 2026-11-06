@@ -23,6 +23,7 @@ test('model choices reach the run; backing candidates require selection, preserv
   await page.locator('input[type=file][accept="audio/*"]').first().setInputFiles({ name: 'test.wav', mimeType: 'audio/wav', buffer: wav() });
   await page.locator('#nav-sync').click();
   await page.locator('#helpClose').click();
+  await page.locator('#btnEditorCommands').click();
   await page.locator('#btnAlignPanel').click();
   await page.locator('#alignAdvanced summary').click();
   await page.locator('#alignSeparator').selectOption('roformer');
@@ -45,6 +46,7 @@ test('model choices reach the run; backing candidates require selection, preserv
   await expect.poll(async () => (await (await request.get('/api/project')).json()).project.lines).toEqual(fixture.lines);
   await page.reload();
   await page.locator('#nav-sync').click();
+  if (await page.locator('#editorCommands').isHidden()) await page.locator('#btnEditorCommands').click();
   await page.locator('#btnAlignPanel').click();
   await expect(page.locator('#alignAsr')).toHaveValue('large-v3');
   await expect(page.locator('#alignDetectBack')).toBeChecked();
@@ -62,6 +64,7 @@ test('desktop asynchronous confirmation: Cancel prevents deleting the timing ins
   });
   await page.goto('/');
   await page.locator('#nav-sync').click(); await page.locator('#helpClose').click();
+  await page.locator('#btnEditorCommands').click();
   await page.locator('#btnAlignPanel').click();
   await page.locator('#btnAlignRemove').click();
   await expect.poll(() => page.evaluate(() => (window as any).answered)).toBe(true);
@@ -74,6 +77,7 @@ test('inline model hints and hardware preset explain the choice and preserve bac
   await page.route('**/api/align/gpu', route => route.fulfill({ json: { names: ['NVIDIA RTX test'], backend: 'cuda', why: 'test', memoryTotal: 10240, memoryFree: 5120 } }));
   await page.goto('/');
   await page.locator('#nav-sync').click(); await page.locator('#helpClose').click();
+  await page.locator('#btnEditorCommands').click();
   await page.locator('#btnAlignPanel').click();
   await expect(page.locator('#alignRecommendation')).toContainText('MelBand-RoFormer + Whisper Turbo + wav2vec2');
   await page.locator('#alignAdvanced summary').click();

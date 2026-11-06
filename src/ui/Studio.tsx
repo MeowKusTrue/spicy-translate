@@ -1,10 +1,22 @@
 import { useState } from 'react';
 import { detachBacking, layerProgress, linkBacking, plainW, type Mode } from '../core/index.ts';
-import { S, emit, isBg, isTr, mkLayer, toast } from '../state.ts';
+import { S, emit, isBg, isTr, ls, mkLayer, toast } from '../state.ts';
 import { setMode } from '../load.ts';
 import { PREVIEW_EDIT } from '../previewEdit.ts';
 import { afterSyncChange, selectWord, snap } from '../sync.ts';
 import { buildPreview } from '../preview.ts';
+import { drawWave } from '../waveform/wave.ts';
+
+export const timelineShown = () => ls.get('studioTimeline', '1') !== '0';
+export const linesShown = () => ls.get('studioLines', '1') !== '0';
+export const commandsShown = () => ls.get('studioCommands', '0') === '1';
+const toggle = (key: string, on: boolean) => { ls.set(key, on ? '0' : '1'); emit(); requestAnimationFrame(drawWave); };
+export function toggleLines() { toggle('studioLines', linesShown()); }
+export function toggleCommands() { toggle('studioCommands', commandsShown()); }
+export function toggleTimeline() {
+  const shown = timelineShown(); if (shown) { document.body.classList.remove('editor-focus'); ls.set('editorFocus', '0'); } ls.set('studioTimeline', shown ? '0' : '1');
+  document.body.classList.toggle('dock-open', S.page === 'sync' && !shown); emit(); requestAnimationFrame(drawWave);
+}
 
 export function ModePicker() {
   const modes: [Mode, string][] = [['original', 'Оригинал'], ['translation', 'Перевод'], ['bilingual', 'Два языка']];
