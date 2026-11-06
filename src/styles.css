@@ -708,3 +708,4 @@ fieldset.editor-commands{margin:0;min-width:0;border:0;border-top:1px solid var(
 @media(prefers-reduced-motion:reduce){.lyrics-inner{transition:none!important}.pl{transition:none}}
 /* Flex lists must not compress a multiline row below its contents. */
 .ln.compact-line{flex:0 0 auto}.compact-line .addbg{opacity:1}
+.compact-line .compact-delete-back{color:var(--err)}

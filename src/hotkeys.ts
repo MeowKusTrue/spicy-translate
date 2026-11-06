@@ -51,10 +51,13 @@ const blurActive = () => { const a = document.activeElement; if (a instanceof HT
 
 const KEYS = new Set(['KeyJ', 'KeyQ', 'KeyC', 'KeyB', 'KeyT', 'KeyE', 'Digit1', 'Digit2', 'Digit3', 'KeyV', 'KeyM', 'KeyU', 'KeyN', 'KeyL', 'KeyR', 'Comma', 'Period', 'Space', 'KeyF', 'KeyG', 'KeyH', 'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'BracketLeft', 'BracketRight', 'Quote', 'Delete', 'Backspace']);
 function onKey(e: KeyboardEvent) {
-  if (S.editDraft || !S.dock || S.help || S.metaEd || S.palette) return;
+  if (S.help || S.metaEd || S.palette || e.defaultPrevented) return;
   const tg = e.target as HTMLInputElement, tag = tg.tagName;
   if (tg.isContentEditable || tag === 'TEXTAREA' || tag === 'SELECT' || (tag === 'INPUT' && tg.type !== 'range' && tg.type !== 'checkbox' && tg.type !== 'radio' && tg.type !== 'file')) return;
   const c = e.code;
+  // Playback belongs to the player on every page; a text field keeps its own spaces.
+  if (c === 'Space' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); if (!e.repeat) S.playing ? pause() : play(); return; }
+  if (S.editDraft || !S.dock) return;
   if ((e.ctrlKey || e.metaKey) && c === 'KeyZ') { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); return; }
   if ((e.ctrlKey || e.metaKey) && (c === 'KeyC' || c === 'KeyV')) { // Ctrl: whole lines · Ctrl+Shift: only the word timing of a line
     e.preventDefault();
@@ -64,7 +67,6 @@ function onKey(e: KeyboardEvent) {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (!KEYS.has(c)) return;
   e.preventDefault();
-  if (c === 'Space') { if (!e.repeat) S.playing ? pause() : play(); return; }
   if (c === 'ArrowLeft') return seekTo(now() - (e.shiftKey ? 1 : 5));
   if (c === 'ArrowRight') return seekTo(now() + (e.shiftKey ? 1 : 5));
   if (c === 'BracketLeft') return setRate(S.rate - 0.25);
@@ -132,13 +134,13 @@ export function installHotkeys() {
     if (e.code !== 'Escape') return;
     if (S.help || S.metaEd) { S.help = S.metaEd = false; emit(); }
     if (W.multi.length || S.picked.size) { W.multi = []; S.picked.clear(); emit(); drawWave(); }
-    document.querySelectorAll<HTMLDetailsElement>('details.menu[open]').forEach(d => d.open = false);
+    document.querySelectorAll<HTMLDetailsElement>('details.menu[open],details.compact-menu[open]').forEach(d => d.open = false);
     blurActive(); updateKbd();
   });
   // buttons/sliders shouldn't swallow Space/arrows after a click
   document.addEventListener('mouseup', e => { const t = (e.target as Element).closest?.('button,input[type=range]') as HTMLElement | null; if (t) setTimeout(() => t.blur(), 0); });
   document.addEventListener('focusin', updateKbd); document.addEventListener('focusout', () => setTimeout(updateKbd, 0));
-  document.addEventListener('click', e => document.querySelectorAll<HTMLDetailsElement>('details.menu[open]').forEach(d => { if (!d.contains(e.target as Node)) d.open = false; }));
+  document.addEventListener('click', e => document.querySelectorAll<HTMLDetailsElement>('details.menu[open],details.compact-menu[open]').forEach(d => { if (!d.contains(e.target as Node)) d.open = false; }));
 }
 /** clicking the dock / waveform / chips takes focus out of any text field so F/G/H work */
 export function dockMouseDown(e: { target: EventTarget }) { if (!(e.target as Element).closest('input,select,textarea')) { blurActive(); updateKbd(); } }

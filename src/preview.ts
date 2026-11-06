@@ -3,11 +3,11 @@
 // - word scale, lift and glow follow media progress directly, without a second delayed animation clock;
 //   the fill is a soft gradient sweeping left to right;
 // - a syllable that lasts ≥ 1 s is drawn letter by letter: the letters share its full timed duration
-//   and the one being sung swells, its neighbours a little less;
+//   and the one being sung follows a gentle pulse that returns to rest at its boundary;
 // - a gap of ≥ 3 s between lines shows three breathing dots;
 // - lines not being sung are dimmed and blurred by their distance from the current one.
 // Built imperatively into #lyrIn (React owns only the container): per-frame painting must not go through React.
-import { getWords, liveLines, plainW, syncComplete, units, type Layer, type TimedWord } from './core/index.ts';
+import { karaokeMotion, getWords, liveLines, plainW, syncComplete, units, type Layer, type TimedWord } from './core/index.ts';
 import { S, displayLine, layerText, mainLayerFor } from './state.ts';
 import { seekTo } from './audio.ts';
 import { PREVIEW_EDIT, editPreview } from './previewEdit.ts';
@@ -43,11 +43,6 @@ class Spring {
   }
 }
 const C = {
-  scale: curve([[0, 0.95], [0.7, 1.0505], [1, 1]]),
-  lift: curve([[0, 0.01], [0.9, -1 / 60], [1, 0]]), // × font size
-  glow: curve([[0, 0], [0.15, 1], [0.6, 1], [1, 0]]),
-  lScale: curve([[0, 0.95], [0.7, 1.175], [1, 1]]),
-  lLift: curve([[0, 0.01], [0.9, -1 / 56], [1, 0]]),
   dScale: curve([[0, 0.75], [0.7, 1.05], [1, 1]]),
   dLift: curve([[0, 0], [0.9, -0.12], [1, 0]]),
   dGlow: curve([[0, 0], [0.6, 1], [1, 1]]),
@@ -172,29 +167,17 @@ function paintWord(w: Word, T: number, dt: number, fx: boolean) {
     put(w, '--gb', 4 + 6 * v.g, 0.5, px); put(w, '--go', v.g * 0.9, 0.01, num);
     return;
   }
-  const q = st === 1 ? p : st / 2; // rest = curve(0), sung = curve(1)
-  const v = fx ? { s: C.scale(q), y: C.lift(q), g: C.glow(q) } : { s: 1, y: 0, g: 0 };
+  const v = fx ? karaokeMotion(p) : { s: 1, y: 0, g: 0 };
   put(w, 'scale', v.s, 1e-3, num); put(w, 'transform', v.y, 1e-4, lift);
   if (!w.letters) {
     put(w, '--gp', st === 0 ? -20 : st === 2 ? 100 : -20 + 120 * p, 0.05, pct);
     put(w, '--gb', 4 + 2 * v.g, 0.5, px); put(w, '--go', Math.min(v.g * 0.35, 1), 0.01, num);
     return;
   }
-  const L = w.letters, act = st === 1 ? L.findIndex(l => T >= l.a && T < l.b) : -1, ap = act >= 0 ? prog(T, L[act].a, L[act].b) : 0;
-  L.forEach((l, k) => {
-    const ls = stateOf(T, l.a, l.b);
-    let s = C.lScale(0), y = C.lLift(0), g = C.glow(0), gp = -20;
-    if (st === 2) { s = C.lScale(1); y = C.lLift(1); g = C.glow(1); gp = 100; }
-    else if (st === 1) {
-      if (act >= 0) { // the sung letter swells, its neighbours follow with a steep falloff
-        const d = Math.abs(k - act), f = 1 / (1 + Math.pow(d, 2.8)), gf = 1 / (1 + d * 0.9);
-        s += (C.lScale(ap) - s) * f; y += (C.lLift(ap) - y) * f; g += (C.glow(ap) - g) * gf;
-      }
-      if (ls === 0) { s = C.lScale(0); y = C.lLift(0); g = C.glow(0); }
-      else if (ls === 2 && act < 0) g = C.glow(0.2);
-      gp = ls === 0 ? -20 : ls === 2 ? 100 : k === act ? -20 + 120 * ap : -20;
-    }
-    const lv = fx ? { s, y, g } : { s: 1, y: 0, g: 0 };
+  w.letters.forEach(l => {
+    const ls = stateOf(T, l.a, l.b), lp = prog(T, l.a, l.b);
+    const gp = ls === 0 ? -20 : ls === 2 ? 100 : -20 + 120 * lp;
+    const lv = fx ? karaokeMotion(lp, true) : { s: 1, y: 0, g: 0 };
     put(l, '--gp', gp, 0.05, pct); put(l, 'transform', lv.y * 2, 1e-4, lift); put(l, 'scale', lv.s, 1e-3, num);
     put(l, '--gb', 4 + 6 * lv.g, 0.5, px); put(l, '--go', Math.min(lv.g * .3, .3), 0.01, num);
   });

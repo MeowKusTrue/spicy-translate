@@ -14,6 +14,9 @@ function wav() {
 test('model choices reach the run; backing candidates require selection, preserve lead and undo', async ({ page, request }) => {
   await request.put('/api/project?by=page', { data: fixture });
   let started = false, query = '';
+  // This scenario mocks alignment; installed models and hardware probes must be mocked too.
+  await page.route('**/api/align/setup*', route => route.fulfill({ json: { installed: true, external: false, backend: 'cpu', running: false } }));
+  await page.route('**/api/align/gpu', route => route.fulfill({ json: { names: [], backend: 'cpu', why: 'test fixture' } }));
   await page.route('**/api/align', route => route.fulfill({ json: started
     ? { running: false, result: { ...fixture, backingCandidates: [{ t: .2, end: .8, text: '', tr: '', bg: { text: 'новый бэк', tr: '' }, sync: { bgo: [{ a: .2, b: .5, g: 1 }, { a: .5, b: .8, g: 1 }] } }] } }
     : { available: true, running: false } }));

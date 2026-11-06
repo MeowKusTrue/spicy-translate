@@ -17,3 +17,4 @@ export * from './backing.ts';
 export * from './fitExport.ts';
 export * from './russianSyllables.ts';
 export * from './textDraft.ts';
+export * from './karaokeMotion.ts';

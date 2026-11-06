@@ -456,7 +456,7 @@ if (!process.argv.includes('--http')) {
     const { id, method, params } = msg;
     if (id === undefined) return; // notification
     try {
-      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.2.1' } } });
+      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.2.2' } } });
       if (method === 'ping') return send({ id, result: {} });
       if (method === 'tools/list') return send({ id, result: { tools: Object.entries(tools).map(([name, t]) => ({ name, description: t.description, inputSchema: t.schema })) } });
       if (method === 'tools/call') {

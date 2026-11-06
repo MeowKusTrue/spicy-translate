@@ -6,7 +6,7 @@ import { previewFrame } from './preview.ts';
 import { W, drawWave } from './waveform/wave.ts';
 
 let clockTxt = '';
-let lastWave = 0, lastWaveVer = -1;
+let lastWave = 0, lastWaveVer = -1, lastWaveT = NaN;
 function frame() {
   let t = now();
   if (!S.hasAudio && t > S.duration && S.playing) { pause(); S.vt = 0; t = 0; }
@@ -29,7 +29,7 @@ function frame() {
   // The expensive editor canvas gets 30 fps; lyric fill keeps the display's full frame rate.
   // Paused edits redraw from their event handlers, rather than burning every idle frame.
   const ms = performance.now();
-  if (S.dock && (S.playing || W.flash || W.drag || S.ver !== lastWaveVer) && (!S.playing || ms - lastWave >= 1000 / 30)) { lastWave = ms; drawWave(); lastWaveVer = S.ver; }
+  if (S.dock && (S.playing || W.flash || W.drag || S.ver !== lastWaveVer || t !== lastWaveT) && (!S.playing || ms - lastWave >= 1000 / 30)) { lastWave = ms; drawWave(); lastWaveVer = S.ver; lastWaveT = t; }
   requestAnimationFrame(frame);
 }
 export function startLoop() { requestAnimationFrame(frame); }
