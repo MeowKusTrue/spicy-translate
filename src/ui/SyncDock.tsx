@@ -8,7 +8,7 @@ import { ReviewBar, WordInspector, inspectorOpen, toggleInspector } from './Word
 import { S, displayLine, doubtful, isBg, isTr, layerText, lineState, ls, mkLayer, viewWords, wordsOf, emit } from '../state.ts';
 import { audio, playWord } from '../audio.ts';
 import { dockMouseDown, setLoop, setSnap, toggleDock, toggleEditorFocus } from '../hotkeys.ts';
-import { setupGrip } from '../dockSize.ts';
+import { setDockH, setupGrip } from '../dockSize.ts';
 import { SYL, forgetAll, setSylMem } from '../syllables.ts';
 import { setAgent } from '../agents.ts';
 import { stretchAll, copyTiming, fitLines, pasteTimingHere, repeatChorus, setAutoFit, setFitPad, shiftLines } from '../lineEdit.ts';
@@ -99,12 +99,12 @@ export function SyncDock() {
   useEffect(() => setupMini(mini.current!), []);
   const gr = useRef<HTMLDivElement>(null);
   useEffect(() => setupGrip(gr.current!), []);
-  useEffect(() => { const f = () => drawWave(); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f); }, []);
+  useEffect(() => { const observer = new ResizeObserver(() => requestAnimationFrame(drawWave)); if (cv.current) observer.observe(cv.current); return () => observer.disconnect(); }, []);
   const progress = layerProgress(S.lines, S.layer), inspect = inspectorOpen();
-  const embeddedInspector = inspect && (S.page !== 'sync' || document.body.classList.contains('editor-focus'));
+  const embeddedInspector = inspect;
   const width = () => cv.current?.clientWidth || 800;
-  return <div className={'dock' + (S.playing ? ' rec' : '')} id="dock" hidden={!S.dock || !timelineShown()} onMouseDown={dockMouseDown}>
-    <div className="grip" ref={gr} title="Потяни, чтобы изменить высоту панели (двойной клик — как было)"></div>
+  return <div className={'dock montage-dock' + (S.playing ? ' rec' : '')} id="dock" hidden={!S.dock || !timelineShown()} onMouseDown={dockMouseDown}>
+    <div className="grip" ref={gr} role="separator" tabIndex={0} aria-label="Высота таймлайна" aria-orientation="horizontal" aria-valuemin={300} aria-valuemax={Math.max(320,innerHeight-120)} onKeyDown={e => { if (['ArrowUp','ArrowDown','Home'].includes(e.key)) { e.preventDefault(); e.stopPropagation(); setDockH(e.key === 'Home' ? 440 : (document.getElementById('dock')?.clientHeight || 440) + (e.key === 'ArrowUp' ? 24 : -24)); } }} title="Потяни, чтобы изменить высоту панели (двойной клик — как было)"></div>
     <TimelineTools />
     <ReviewBar />
     <div className={'editor-workspace' + (embeddedInspector ? ' inspecting' : '')}>
@@ -118,6 +118,21 @@ export function SyncDock() {
 
       </div>
       {embeddedInspector && <WordInspector />}
+    </div>
+    <TimelineSelection />
+  </div>;
+}
+
+/** Selected-word actions stay next to the canvas; the full inspector is optional. */
+function TimelineSelection() {
+  const word = S.sel ? wordLabel(S.sel.i, S.sel.k) : '';
+  return <div className="timeline-selection" id="timelineSelection">
+    <div className="timeline-selected"><b>{word ? `«${word}»` : 'Выбери слово на дорожке'}</b><span id="timelineWordTime">{wordInfo()}</span></div>
+    <div className="timeline-word-actions">
+      <button className="sm" aria-label="Предыдущее слово на таймлайне" disabled={!S.sel} onClick={() => stepWord(-1)}>←</button>
+      <button className="sm" aria-label="Следующее слово на таймлайне" disabled={!S.sel} onClick={() => stepWord(1)}>→</button>
+      <button className="sm" id="timelineListenWord" disabled={!S.sel || !S.hasAudio} onClick={playSel}>Слушать слово</button>
+      <button className="sm" id="timelineExactTime" aria-expanded={inspectorOpen()} aria-controls="wordInspector" onClick={toggleInspector}>Точное время</button>
     </div>
   </div>;
 }

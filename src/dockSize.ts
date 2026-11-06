@@ -1,12 +1,12 @@
 // Bottom dock height: drag the grip; the waveform grows with it. Remembered per browser.
 import { clamp, ls } from './state.ts';
 import { drawWave } from './waveform/wave.ts';
-const DEF = 400;
+const DEF = 440;
 export function setDockH(h: number) {
   h = clamp(Math.round(h), 300, Math.max(320, innerHeight - 120));
   const r = document.documentElement.style;
   r.setProperty('--dockH', h + 'px'); // the wave takes all the height the bar, chips and buttons leave
-  ls.set('dockH', String(h)); drawWave();
+  ls.set('dockH', String(h)); document.querySelector('#dock>.grip')?.setAttribute('aria-valuenow', String(h)); drawWave();
 }
 export function setupGrip(g: HTMLElement) {
   setDockH(+(ls.get('dockH', String(DEF)) || DEF) || DEF);

@@ -8,7 +8,7 @@ import { confirmPhrase, setWordTimes, stepReview } from '../sync.ts';
 import { centerOnSel } from '../waveform/wave.ts';
 import { BackingLink, TrackProgress } from './Studio.tsx';
 
-export const inspectorOpen = () => ls.get('wordInspector', '1') !== '0';
+export const inspectorOpen = () => ls.get('wordInspector', '0') !== '0';
 export function toggleInspector() { ls.set('wordInspector', inspectorOpen() ? '0' : '1'); emit(); requestAnimationFrame(centerOnSel); }
 
 export function ReviewBar() {

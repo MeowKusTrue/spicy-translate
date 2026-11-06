@@ -115,7 +115,7 @@ export function readTheme() {
 }
 /* stacked: main-track words, background-vocals words, the waveform, source lines; ruler at the bottom */
 /** lane heights set by dragging the borders between them (remembered); the waveform gets whatever is left */
-export const LANES_DEF = { m: 44, b: 34, l: 26 };
+export const LANES_DEF = { m: 58, b: 42, l: 26 };
 export const LANES: typeof LANES_DEF = (() => { try { return { ...LANES_DEF, ...JSON.parse(ls.get('lanes', '{}') || '{}') }; } catch { return { ...LANES_DEF }; } })();
 function geo(h: number) {
   let mH = clamp(LANES.m, 22, 200), bH = clamp(LANES.b, 16, 160), lH = clamp(LANES.l, 16, 90);
@@ -237,12 +237,17 @@ function renderWave(force: boolean) {
         if (wd.a == null || wd.b == null) return;
         const x1 = X(wd.a), x2 = X(wd.b); if (x2 < -2 || x1 > w + 2) return;
         const sel = on && S.sel && S.sel.i === i && S.sel.k === k, bw = Math.max(2, x2 - x1);
+        // Insets and quiet rounded blocks separate words without a wall of bright edges.
+        const block = () => { g.beginPath(); g.roundRect(x1 + 1, y + 2, Math.max(1,bw-2), Math.max(1,hh-4), Math.max(0,Math.min(5,(bw-2)/2,(hh-4)/2))); };
+        block();
         if (wd.real) {
-          g.fillStyle = sel ? `rgba(${TH.t},.3)` : wd.g ? `rgba(${col},.16)` : `rgba(${col},.35)`; g.fillRect(x1, y, bw, hh);
-          if (on) { g.fillStyle = `rgba(${TH.t},.22)`; g.fillRect(x1, G.wY, 1, G.lY - G.wY); g.fillRect(x2, G.wY, 1, G.lY - G.wY); }
-          g.strokeStyle = sel ? `rgb(${TH.t})` : `rgba(${col},.9)`; g.fillStyle = sel ? `rgb(${TH.t})` : `rgba(${col},.95)`; g.fillRect(x1, y, 3, hh); g.fillRect(x2 - 3, y, 3, hh);
-          g.lineWidth = sel ? 2 : 1; if (wd.g) g.setLineDash([3, 3]); g.strokeRect(x1 + .5, y + .5, bw - 1, hh - 1); g.setLineDash([]); g.lineWidth = 1;
-        } else { g.setLineDash([3, 3]); g.strokeStyle = sel ? `rgb(${TH.t})` : `rgba(${TH.t},.25)`; g.strokeRect(x1 + .5, y + .5, bw - 1, hh - 1); g.setLineDash([]); }
+          g.fillStyle = `rgba(${col},${sel ? .28 : wd.g ? .08 : .15})`; g.fill();
+          if (on) { g.fillStyle = `rgba(${TH.t},.10)`; g.fillRect(x1, G.wY, 1, G.lY - G.wY); }
+          g.strokeStyle = `rgba(${col},${sel ? 1 : wd.g ? .35 : .55})`; g.lineWidth = sel ? 2 : 1;
+          if (wd.g) g.setLineDash([3,3]); g.stroke(); g.setLineDash([]); g.lineWidth=1;
+          g.fillStyle=`rgba(${col},${sel ? 1 : .55})`; g.fillRect(x1+4,y+9,2,Math.max(3,hh-18));
+          if (sel) { g.fillRect(x1+4,y+hh-6,Math.max(1,bw-8),3); g.fillRect(x2-6,y+9,2,Math.max(3,hh-18)); }
+        } else { g.setLineDash([3,3]); g.strokeStyle = `rgba(${sel ? col : TH.t},${sel ? .9 : .25})`; g.stroke(); g.setLineDash([]); }
         if (bw >= 24) {
         g.save(); g.beginPath(); g.rect(x1 + 2, y, Math.max(0, x2 - x1 - 4), hh); g.clip();
         g.fillStyle = wd.real ? `rgb(${TH.t})` : `rgba(${TH.t},.45)`; g.fillText((wd.b - wd.a >= 1 ? '✦ ' : '') + plainW(wd.word) + (wd.sp === false ? '-' : ''), stick(x1) + 5, y + hh / 2 + 1); g.restore();
@@ -257,7 +262,7 @@ function renderWave(force: boolean) {
     }
     // joined edges (touching words) get a bright joint so you can see what moves together
     const rb = W.boxes.filter(b => b.real && b.lane === lane).sort((p, q) => p.i - q.i || p.k - q.k);
-    for (let q = 0; q + 1 < rb.length; q++) if (rb[q].i === rb[q + 1].i && Math.abs(rb[q].b - rb[q + 1].a) <= JOIN) { g.fillStyle = `rgb(${TH.t})`; g.fillRect(X(rb[q].b) - 1, rb[q].y, 2, rb[q].h); }
+    for (let q = 0; q + 1 < rb.length; q++) if (rb[q].i === rb[q + 1].i && Math.abs(rb[q].b - rb[q + 1].a) <= JOIN) { g.fillStyle = `rgb(${TH.t})`; g.fillRect(X(rb[q].b) - 1, rb[q].y + rb[q].h - 7, 2, 4); }
     g.globalAlpha = 1;
   }
   if (W.drag?.type === 'box') { // Shift+drag selection rectangle

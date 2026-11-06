@@ -23,3 +23,9 @@ Unit coverage for pointer anchoring, zoom bounds, wheel units, fitting, ruler de
 ## Measured checks on the development PC
 
 142 unit tests passed. 44 editor browser tests plus a dedicated ten-minute real-audio spectrum test passed. A 1000-event wheel burst coalesced to two canvas clears (17–25 ms in the measured runs). Fitting the ten-minute spectrum took 97 ms including browser interaction and used one new tile; the worker supplied steps 4/16/64. These measurements are observations on this PC, not a hardware-independent latency guarantee.
+
+## Montage layout (1.5)
+
+The selected design is Montage. The main lyric preview remains full width above the bottom timeline. Exact timing is closed by default for new preferences; opening it places the existing inspector beside the lower canvas, preserving the preview width. Saved explicit inspector preferences remain supported. All prior commands, both vocal lanes, audio views, sync/undo, export fitting and automatic preview text saving remain available.
+
+Word blocks use quiet rounded fills, clear selected edges and smaller join indicators; the hit boxes and timing model are unchanged. Larger default lead/back lane heights remain resizable. A selected-word strip exposes timing, previous/next word, listen and exact-time controls. Dock resizing supports keyboard arrows/Home as well as dragging. Canvas resize observation repaints when the inspector or window changes size.

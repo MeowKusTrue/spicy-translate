@@ -9,7 +9,7 @@ const fixture = { v: 1, meta: { title: 'Editor fixture', artist: 'Test', lang: '
 ] };
 test.beforeEach(async ({ page, request }) => {
   await request.put('/api/project?by=page', { data: fixture });
-  await page.addInitScript(() => { localStorage.setItem('helpSeen', '1'); localStorage.setItem('dockH', '600'); });
+  await page.addInitScript(() => { localStorage.setItem('helpSeen', '1'); localStorage.setItem('wordInspector','1'); localStorage.setItem('dockH', '600'); });
   await page.goto('/'); await page.locator('#nav-sync').click();
   await page.locator('#segOrig').click();
   await expect(page.locator('#segOrig')).toHaveClass('on');

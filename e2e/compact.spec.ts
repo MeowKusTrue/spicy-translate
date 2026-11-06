@@ -8,7 +8,7 @@ const fixture = { v: 1, meta: { title: 'Fit all', artist: 'Test', lang: 'ru', mo
 ] };
 test.beforeEach(async ({ page, request }) => {
   await request.put('/api/project?by=page', { data: fixture });
-  await page.addInitScript(() => { localStorage.setItem('helpSeen', '1'); localStorage.setItem('dockH', '340'); });
+  await page.addInitScript(() => { localStorage.setItem('helpSeen', '1'); localStorage.setItem('wordInspector','1'); localStorage.setItem('dockH', '340'); });
   await page.setViewportSize({ width: 1600, height: 1000 }); await page.goto('/'); await page.locator('#nav-sync').click();
 });
 

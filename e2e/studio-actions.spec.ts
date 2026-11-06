@@ -8,7 +8,7 @@ const fixture = {v:1,meta:{title:'Protected studio',artist:'Test',lang:'ru',mode
 test.beforeEach(async({page,request})=>{await request.put('/api/project?by=page',{data:fixture});await page.addInitScript(()=>{localStorage.setItem('helpSeen','1');localStorage.setItem('dockH','340')});await page.setViewportSize({width:1600,height:1000});await page.goto('/');await page.locator('#nav-sync').click();});
 test('manual timing protects a whole phrase and survives reload and subsequent automation',async({page,request})=>{
  const project=async()=>(await(await request.get('/api/project')).json()).project;
- await page.locator('#syncLines .sl.cur .chip').nth(1).click();await page.locator('#wordEnd').fill('6.2');await page.locator('#btnWordApply').click();
+ await page.locator('#syncLines .sl.cur .chip').nth(1).click();await page.locator('#timelineExactTime').click();await page.locator('#wordEnd').fill('6.2');await page.locator('#btnWordApply').click();
  await expect.poll(async()=>(await project()).lines[0].approved?.orig).toBe(true);const manual=(await project()).lines[0].sync.orig;expect(manual.every((w:any)=>!w.g)).toBe(true);
  await page.reload();await page.locator('#nav-sync').click();await expect(page.locator('#ln0 .approved-line')).toBeVisible();
  let started=false;const next=structuredClone(fixture);next.lines[0].sync.orig=[{a:9,b:10,g:1},{a:11,b:12,g:1}];next.lines[1].sync.orig=[{a:23,b:24,g:1},{a:25,b:26,g:1}];

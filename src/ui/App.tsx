@@ -11,7 +11,6 @@ import { AlignPanel, BackingReview } from './AlignPanel.tsx';
 import { isApp, winClose, winMax, winMin } from '../desktop.ts';
 import { stopLine } from '../core/index.ts';
 import { ModePicker, linesShown } from './Studio.tsx';
-import { WordInspector, inspectorOpen } from './WordInspector.tsx';
 import { doRedo, doUndo } from '../sync.ts';
 import { openAlignPanel } from '../autoAlign.ts';
 import { SidebarResize } from './SidebarResize.tsx';
@@ -68,10 +67,9 @@ export function App() {
     </header>
     <div className="studio-nav"><Nav /><button className="sm" id="btnStudioModels" onClick={openAlignPanel}>Автоматизация</button><div className="studio-mode"><small>Задача проекта</small><ModePicker /></div></div>
     <EditorToolbar />
-    <main className={'page-' + S.page + (S.page === 'sync' && !linesShown() ? ' studio-hide-lines' : '') + (S.page === 'sync' && inspectorOpen() && !document.body.classList.contains('editor-focus') ? ' studio-inspecting' : '')}>
+    <main className={'page-' + S.page + (S.page === 'sync' && !linesShown() ? ' studio-hide-lines' : '')}>
       <div className="col" key={S.page}><Page /></div>
       <div className="col"><Stage /></div>
-      {S.page === 'sync' && inspectorOpen() && !document.body.classList.contains('editor-focus') && <WordInspector />}
       {S.page === 'sync' && linesShown() && <SidebarResize />}
     </main>
     <SyncDock />

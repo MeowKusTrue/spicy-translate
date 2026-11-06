@@ -36,7 +36,7 @@ test('original mode excludes translations from TTML and row action buttons never
 
 test('link and detach a real background phrase, preserve timings, undo linking', async ({ page, request }) => {
   const project = async () => (await (await request.get('/api/project')).json()).project;
-  await page.locator('#ln1 .compact-back').click(); await page.locator('#segBg').click();
+  await page.locator('#ln1 .compact-back').click(); await page.locator('#segBg').click(); await page.locator('#timelineExactTime').click();
   await page.locator('#backingParent').selectOption('0'); await page.locator('#btnLinkBacking').click();
   await expect.poll(async () => (await project()).lines.length).toBe(2);
   expect((await project()).lines[0].sync.bgo).toEqual(fixture.lines[1].sync!.bgo);
