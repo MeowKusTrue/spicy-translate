@@ -1,12 +1,12 @@
 // The one requestAnimationFrame loop: clock/seek bar, preview karaoke, "now" chip, line loop (L), waveform.
 import { mmss } from './core/index.ts';
-import { S, viewWords } from './state.ts';
+import { S, revision, viewWords } from './state.ts';
 import { now, pause, seekTo } from './audio.ts';
 import { previewFrame } from './preview.ts';
 import { W, drawWaveFrame } from './waveform/wave.ts';
 
 let clockTxt = '';
-let lastWave = 0, lastWaveVer = -1, lastWaveT = NaN;
+let lastWave = 0, lastWaveVer = -1, lastRev = -1, lastWaveT = NaN;
 function frame() {
   let t = now();
   if (!S.hasAudio && t > S.duration && S.playing) { pause(); S.vt = 0; t = 0; }
@@ -29,7 +29,7 @@ function frame() {
   // The expensive editor canvas gets 30 fps; lyric fill keeps the display's full frame rate.
   // Paused edits redraw from their event handlers, rather than burning every idle frame.
   const ms = performance.now();
-  if (S.dock && (S.playing || W.flash || W.drag || S.ver !== lastWaveVer || t !== lastWaveT || W.viewportDirty) && (!S.playing || W.viewportDirty || ms - lastWave >= 1000 / 30)) { lastWave = ms; drawWaveFrame(); lastWaveVer = S.ver; lastWaveT = t; }
+  if (S.dock && (S.playing || W.flash || W.drag || S.ver !== lastWaveVer || revision() !== lastRev || t !== lastWaveT || W.viewportDirty) && (!S.playing || W.viewportDirty || ms - lastWave >= 1000 / 30)) { lastWave = ms; drawWaveFrame(); lastWaveVer = S.ver; lastRev = revision(); lastWaveT = t; }
   requestAnimationFrame(frame);
 }
 export function startLoop() { requestAnimationFrame(frame); }

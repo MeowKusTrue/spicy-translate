@@ -59,6 +59,7 @@ export const S = {
 const subs = new Set<() => void>();
 let rev = 0;
 export function emit() { rev++; subs.forEach(f => f()); }
+export const revision = () => rev;
 export function useS() { return useSyncExternalStore(cb => { subs.add(cb); return () => { subs.delete(cb); }; }, () => rev); }
 
 export const r3 = (x: number) => Math.round(x * 1000) / 1000;
