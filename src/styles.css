@@ -149,6 +149,7 @@ details.menu{position:relative}
 details.menu>summary{list-style:none}details.menu>summary::-webkit-details-marker{display:none}
 details.menu[open]>summary{background:color-mix(in srgb,var(--txt) 14%,transparent)}
 .pop{position:absolute;right:0;top:calc(100% + 8px);z-index:40;min-width:270px;display:flex;flex-direction:column;gap:6px;padding:10px;border-radius:14px;background:var(--pop);border:1px solid var(--line);box-shadow:0 18px 50px rgba(0,0,0,.55)}
+.pop.gear{top:auto!important;bottom:calc(100% + 8px);max-height:calc(100vh - 150px);overflow:auto}
 details.menu.up .pop{top:auto;bottom:calc(100% + 8px)}
 .pop>button{text-align:left}
 .pop .opt{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:13px}

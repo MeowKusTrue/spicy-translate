@@ -265,12 +265,13 @@ export function pasteTimingHere() {
 /* ---------- shift every line after the playhead (or the whole song) — LRC from another version of the track ---------- */
 export function shiftLines(ms: number, all = false) {
   if (!ms || !S.lines.length) return;
-  const from = all ? -1 : now() - 0.01; let n = 0;
-  snap();
-  for (const l of S.lines) if (l.t >= from) { shiftLine(l, clone(l), ms / 1000); n++; }
-  if (!n) { S.undo.pop(); return toast('После курсора строк нет.', 'err'); }
+  const from = all ? -1 : now() - 0.01, ls = S.lines.filter(l => l.t >= from);
+  if (!ls.length) return toast('После курсора строк нет.', 'err');
+  const dd = Math.max(ms / 1000, -Math.min(...ls.map(l => l.t))), n = ls.length;
+  if (!dd) return toast('Дальше влево некуда: первая строка уже в 0:00.', 'err');
+  snap(); for (const l of ls) shiftLine(l, clone(l), dd);
   S.lines.sort((x, y) => x.t - y.t); afterLines();
-  toast(`${ms > 0 ? '+' : ''}${ms} мс: сдвинуто строк ${n}${all ? ' (вся песня)' : ' после курсора'}, со всеми словами. Ctrl+Z — отмена.`, 'ok');
+  toast(`${dd > 0 ? '+' : ''}${Math.round(dd * 1000)} мс: сдвинуто строк ${n}${all ? ' (вся песня)' : ' после курсора'}, со всеми словами. Ctrl+Z — отмена.`, 'ok');
 }
 
 /** the picked lines (list: click / Shift / Ctrl, wave band: box) move by ms with all their words; they stay picked */
