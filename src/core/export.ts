@@ -79,8 +79,7 @@ export function buildTTML(o: ExportOpts) {
   const vals = (m: MetaEntry) => m.value.map(v => v.trim()).filter(Boolean);
   const sw = [...new Set([...songwriters.map(s => s.trim()), ...meta.filter(m => m.key === 'songwriter').flatMap(vals)])].filter(Boolean).map(s => `<songwriter>${esc(s)}</songwriter>`).join('');
   const extra = meta.filter(m => m.key && m.key !== 'songwriter' && !m.key.startsWith('amll:')).flatMap(m => vals(m).map(v => `      <amll:meta key="${esc(m.key)}" value="${esc(v)}"/>\n`)).join('');
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:ttm="http://www.w3.org/ns/ttml#metadata"${secs.length || extra ? ' xmlns:amll="http://www.example.com/ns/amll"' : ''} itunes:timing="${wordTiming ? 'Word' : 'Line'}" xml:lang="${esc(lang)}">
+  return `<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:ttm="http://www.w3.org/ns/ttml#metadata"${secs.length || extra ? ' xmlns:amll="http://www.example.com/ns/amll"' : ''} itunes:timing="${wordTiming ? 'Word' : 'Line'}" xml:lang="${esc(lang)}">
   <head>
     <metadata>
 ${agents}

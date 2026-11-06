@@ -36,7 +36,10 @@ describe('import', () => {
       { t: 1, end: 3, text: 'x', tr: 'жёл|тый чайник', sync: { tr: [{ a: 1, b: 1.3 }, { a: 1.3, b: 1.6 }, { a: 1.6, b: 2.2 }] }, bg: { text: 'ого', tr: 'ага' } },
       { t: 4, end: 5.5, text: 'y', tr: 'синий кактус', agent: 'v2' },
     ];
-    const back = parseTTML(buildTTML({ lines: src }));
+    const exported = buildTTML({ lines: src });
+    expect(exported).toMatch(/^<tt\s/);
+    expect(exported).not.toContain('<?xml');
+    const back = parseTTML(exported);
     expect(back.map(l => l.text)).toEqual(['жёл|тый чайник', 'синий кактус']);
     expect(back[0].bg!.text).toBe('ага');
     expect(back[1].agent).toBe('v2');

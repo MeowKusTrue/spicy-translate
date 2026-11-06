@@ -26,7 +26,7 @@ function applyLive(j: { project: unknown }) {
   snapshot('перед обновлением с сервера'); // both sides are kept: ours here, the server's after it lands
   LIVE.applying = true;
   snap(); // Ctrl+Z takes the agent's edit back
-  try { loadProject(JSON.stringify(j.project), true); idbGet(trackKey()).then(b => { if (b && !S.hasAudio) loadAudioFile(b, true); }); } finally { setTimeout(() => { LIVE.applying = false; }, 300); }
+  try { loadProject(JSON.stringify(j.project), true); idbGet(trackKey()).then(b => { if (b && !S.hasAudio) loadAudioFile(b, true); }); } finally { LIVE.applying = false; }
 }
 let livePolling = false;
 async function livePoll() {

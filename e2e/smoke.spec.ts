@@ -26,7 +26,7 @@ test('load, F/G/H, join/syllables, export TTML', async ({ page }) => {
   for (const k of ['f', 'g', 'g', 'g', 'g', 'h']) { await page.keyboard.press(k); await page.waitForTimeout(80); }
   await page.keyboard.press('Space');
   await expect(page.locator('#syncLines .sl.cur .chip.t')).toHaveCount(5);
-  await expect(page.locator('#syncStat')).toContainText('синхронизировано строк: 1/3');
+  await expect(page.locator('#syncStat')).toContainText('Тайминги дорожки: 1/1');
 
   // join "фо|на" (syllables) and glue two words with M, then split one back with U
   await page.locator('#syncLines .chip', { hasText: /^фо$/ }).click();

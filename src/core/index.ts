@@ -12,3 +12,4 @@ export * from './timeline.ts';
 export * from './genius.ts';
 export * from './sections.ts';
 export * from './autoAlign.ts';
+export * from './editor.ts';

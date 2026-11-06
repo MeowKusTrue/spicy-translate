@@ -30,7 +30,8 @@ test('model choices reach the run; backing candidates require selection, preserv
   await page.locator('#alignDetectBack').check();
   await page.locator('#alignPanel .close').click();
   await page.locator('#btnAutoAlign').click();
-  await expect(page.locator('#backingReview')).toBeVisible();
+  const notices = new Set<string>();
+  await expect.poll(async () => { const notice = await page.locator('#dockMsg').textContent(); if (notice) notices.add(notice); return page.locator('#backingReview').count(); }, { message: 'Backing review should open after alignment' }).toBe(1).catch(error => { console.log({ query, notices: [...notices] }); throw error; });
   expect(query).toContain('asr=large-v3'); expect(query).toContain('sep=roformer');
   expect(query).toContain('aligner=mms'); expect(query).toContain('detectBack=1');
   await expect(page.locator('#btnBackingApply')).toBeDisabled();

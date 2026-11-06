@@ -1,4 +1,4 @@
-import { S, lineState, mainLayerFor, useS } from '../state.ts';
+import { S, useS } from '../state.ts';
 import { PAGES, setPage } from '../hotkeys.ts';
 import { MetaModal } from './MetaModal.tsx';
 import { AudioCard, ExportCard, HistoryCard, LinesCard, Next, SearchCard, TextCard, TranslateCard } from './Cards.tsx';
@@ -9,10 +9,11 @@ import { Drop } from './Drop.tsx';
 import { Palette, openPalette } from './Palette.tsx';
 import { AlignPanel, BackingReview } from './AlignPanel.tsx';
 import { isApp, winClose, winMax, winMin } from '../desktop.ts';
+import { stopLine } from '../core/index.ts';
 
 export function stepInfo() {
   const n = S.lines.length, tr = S.lines.filter(l => l.tr && l.tr.trim()).length;
-  let done = 0; S.lines.forEach((_, i) => { if (lineState(i, mainLayerFor(i)) === 'done') done++; });
+  const done = stopLine(S.lines, S.meta.mode).done;
   const st: [string, boolean][] = [['1 Текст', n > 0], ['2 Аудио', S.hasAudio], ['3 Перевод', n > 0 && tr === n], ['4 Синхра ' + (n ? done + '/' + n : ''), n > 0 && done === n], ['5 QA и экспорт', false]];
   const f = st.findIndex(x => !x[1]); return { st, cur: f < 0 ? 4 : f, n, tr, done };
 }

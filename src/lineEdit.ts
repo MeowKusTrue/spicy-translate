@@ -225,8 +225,12 @@ export function repeatChorus() {
   const ok = (i: number | undefined) => i != null && i >= 0 && i < S.lines.length && sameLines(S.lines, i).length > 0;
   const i = [S.sel?.i, CH.last].find(x => ok(x) && lineState(x!, S.layer) === 'done') ?? [S.sel?.i, CH.last].find(ok);
   if (i == null) return toast('У этой строки нет повторов с таким же текстом. Выбери слово в размеченной строке припева.', 'err');
+  applyRepeatedTiming(i);
+}
+export function repeatSelectedLayer() { if (S.sel) applyRepeatedTiming(S.sel.i, [S.layer]); }
+function applyRepeatedTiming(i: number, layers?: Layer[]) {
   const same = sameLines(S.lines, i);
-  snap(); const n = repeatTiming(S.lines, i);
+  snap(); const n = repeatTiming(S.lines, i, layers);
   if (!n) { S.undo.pop(); return toast('Переносить нечего: строка размечена не до конца, или повторы уже размечены вручную.', 'err'); }
   afterSyncChange(true);
   toast(`Тайминг перенесён на строк: ${n} из ${same.length}. Пунктир = авто, проверь на слух (G/H или мышью). Ctrl+Z — отмена.`, 'ok');

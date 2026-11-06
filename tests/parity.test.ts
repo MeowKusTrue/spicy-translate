@@ -35,7 +35,8 @@ describe('parity with reference core', () => {
       for (const wordSpread of [true, false])
         for (const offset of [0, -700, 250]) {
           const o = { lines, mode, wordSpread, offset, lang: 'ru', songwriters: ['A & B'] };
-          expect(C.buildTTML(o)).toBe(ref.buildTTML(o));
+          // Exports now start directly with <tt>, matching shared TTML files; content remains identical.
+          expect(C.buildTTML(o)).toBe(ref.buildTTML(o).replace(/^<\?xml[^?]*\?>\s*/, ''));
           expect(C.buildLRC(o)).toBe(ref.buildLRC(o));
           expect(C.buildSRT(o)).toBe(ref.buildSRT(o));
         }

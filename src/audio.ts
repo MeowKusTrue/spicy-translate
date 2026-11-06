@@ -6,6 +6,7 @@ export const audio = document.createElement('audio');
 audio.preload = 'auto';
 
 const CLK = { raw: -1, base: 0, pt: 0 };
+let playStop: ReturnType<typeof setTimeout> | undefined;
 export function now() {
   if (!S.hasAudio) return S.vt + (S.playing ? (performance.now() - S.vStart) / 1000 * S.rate : 0);
   const a = audio, ct = a.currentTime, p = performance.now();
@@ -16,8 +17,8 @@ export function now() {
   CLK.base = Math.abs(e) > 0.1 ? ct : pred + e * 0.25; CLK.pt = p; // big jump = seek/stall -> snap; small = ease in
   return CLK.base;
 }
-export function play() { if (S.hasAudio) audio.play(); else S.vStart = performance.now(); S.playing = true; emit(); }
-export function pause() { if (S.hasAudio) audio.pause(); else if (S.playing) S.vt = now(); S.playing = false; emit(); }
+export function play() { clearTimeout(playStop); playStop = undefined; if (S.hasAudio) audio.play(); else S.vStart = performance.now(); S.playing = true; emit(); }
+export function pause() { clearTimeout(playStop); playStop = undefined; if (S.hasAudio) audio.pause(); else if (S.playing) S.vt = now(); S.playing = false; emit(); }
 export function seekTo(t: number) {
   t = Math.max(0, t);
   if (S.hasAudio) audio.currentTime = t; else { S.vt = t; S.vStart = performance.now(); }
@@ -29,7 +30,6 @@ export function setRate(r: number) {
   S.rate = r; audio.playbackRate = r; emit();
 }
 export function setVolume(v: number) { audio.volume = v; S.vol = v; ls.set('vol', v); emit(); }
-let playStop: ReturnType<typeof setTimeout> | undefined;
 export function playWord(w: { a: number; b: number }) {
   clearTimeout(playStop); seekTo(w.a); play();
   playStop = setTimeout(pause, ((w.b - w.a) / S.rate) * 1000 + 60);

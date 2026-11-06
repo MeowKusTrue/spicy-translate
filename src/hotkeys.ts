@@ -1,8 +1,8 @@
 // Sync dock toggling + keyboard: F/G/H, A/D, Space, arrows, [ ] ', , . nudge, M/U join/split, N magnet, L loop, R, Del, Ctrl+Z.
-import { S, emit, isBg, isTr, ls, mkLayer, setVoff, toast, viewWords, wordsOf, type Page } from './state.ts';
+import { S, emit, isBg, isTr, layerText, ls, mkLayer, setVoff, toast, viewWords, wordsOf, type Page } from './state.ts';
 import { now, pause, play, seekTo, setRate } from './audio.ts';
 import { PV } from './preview.ts';
-import { doRedo, doUndo, joinWords, mark, nudgeWord, resetWord, setLayer, splitWord, stepWord, stepDoubt } from './sync.ts';
+import { doRedo, doUndo, joinWords, mark, nudgeWord, resetWord, setLayer, splitWord, stepWord, stepDoubt, stepReview } from './sync.ts';
 import { isApp, appZoom } from './desktop.ts';
 import { snapshot } from './persist.ts';
 import { folderSupported, saveToFolder } from './folder.ts';
@@ -13,6 +13,10 @@ import { cycleAgent, setAgent } from './agents.ts';
 export const PAGES: [Page, string][] = [['track', 'Трек'], ['text', 'Текст'], ['tr', 'Перевод'], ['sync', 'Синхра'], ['export', 'Экспорт']];
 /** switch the tab; «Синхра» opens the word-sync dock (wave, keys), the others close it */
 export function setPage(p: Page) {
+  if (p === 'sync' && !S.lines.some(l => layerText(l, S.layer).trim())) {
+    const layer = (['orig', 'bgo', 'tr', 'bg'] as const).find(k => S.lines.some(l => layerText(l, k).trim()));
+    if (layer) S.layer = layer;
+  }
   if (p !== 'sync' && p !== S.page) S.prevPage = p;
   S.page = p; ls.set('page', p);
   if (p === 'text' && (!S.full || !S.full.dirty)) S.full = fullDraft();
@@ -23,7 +27,13 @@ export function setPage(p: Page) {
     if (dock) { setTimeout(drawWave, 30); if (!ls.get('helpSeen', '')) { S.help = true; ls.set('helpSeen', '1'); } }
     PV.lastAct = -2;
   }
+  document.body.classList.toggle('editor-focus', p === 'sync' && ls.get('editorFocus', '0') === '1');
   updateKbd(); emit(); window.scrollTo({ top: 0 });
+}
+export function toggleEditorFocus() {
+  const focus = !document.body.classList.contains('editor-focus');
+  ls.set('editorFocus', focus ? '1' : '0'); document.body.classList.toggle('editor-focus', focus);
+  emit(); requestAnimationFrame(drawWave);
 }
 export function toggleDock(on?: boolean) { setPage((on ?? !S.dock) ? 'sync' : S.prevPage || 'tr'); }
 export function setSnap(on: boolean) { S.snap = on; ls.set('snap', on ? '1' : '0'); toast(on ? '🧲 Магнит включён (N). Ctrl при перетаскивании — отключает на лету.' : 'Магнит выключен (N).', 'ok'); }
@@ -35,7 +45,7 @@ export function updateKbd() {
 }
 const blurActive = () => { const a = document.activeElement; if (a instanceof HTMLElement && a !== document.body) a.blur(); };
 
-const KEYS = new Set(['KeyQ', 'KeyC', 'KeyB', 'KeyT', 'KeyE', 'Digit1', 'Digit2', 'Digit3', 'KeyV', 'KeyM', 'KeyU', 'KeyN', 'KeyL', 'KeyR', 'Comma', 'Period', 'Space', 'KeyF', 'KeyG', 'KeyH', 'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'BracketLeft', 'BracketRight', 'Quote', 'Delete', 'Backspace']);
+const KEYS = new Set(['KeyJ', 'KeyQ', 'KeyC', 'KeyB', 'KeyT', 'KeyE', 'Digit1', 'Digit2', 'Digit3', 'KeyV', 'KeyM', 'KeyU', 'KeyN', 'KeyL', 'KeyR', 'Comma', 'Period', 'Space', 'KeyF', 'KeyG', 'KeyH', 'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'BracketLeft', 'BracketRight', 'Quote', 'Delete', 'Backspace']);
 function onKey(e: KeyboardEvent) {
   if (!S.dock || S.help || S.metaEd || S.palette) return;
   const tg = e.target as HTMLInputElement, tag = tg.tagName;
@@ -72,6 +82,7 @@ function onKey(e: KeyboardEvent) {
   if (c === 'KeyL') return setLoop(!S.loop);
   if (c === 'KeyR') { if (S.sel) { const vw = viewWords(S.sel.i, S.layer).filter(x => x.a != null); seekTo(Math.max(0, (vw.length ? vw[0].a! : S.lines[S.sel.i].t) - 0.4)); } return; }
   if (c === 'KeyQ') return stepDoubt(e.shiftKey ? -1 : 1);
+  if (c === 'KeyJ') return stepReview(e.shiftKey ? -1 : 1);
   if (c === 'KeyA') return stepWord(-1);
   if (c === 'KeyD') return stepWord(1);
   if (c === 'Delete' || c === 'Backspace') return resetWord();

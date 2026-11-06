@@ -268,7 +268,7 @@ export function ExportCard() {
     </button>
     <label className="offset">Сдвиг всей лирики, мс<input type="number" id="offset" step="50" value={S.exp.offset} onChange={e => set(() => S.exp.offset = e.target.value)} /></label>
     {S.lines.length > 0 && <div className={'stop ' + (st.i < 0 ? 'ok' : '')} id="stopLine">{st.i < 0
-      ? <>Все строки размечены вручную ✓ ({st.n})</>
+      ? <>Тайминги заданы во всех строках ✓ ({st.n}). Проверь на слух.</>
       : <><span>Размечено строк: <b>{st.done}</b> из {st.n}.{doubts() ? <> Сомнительных слов авто-тайминга: <b>{doubts()}</b> (<kbd>Q</kbd> на вкладке «Синхра»).</> : null} Ты остановился на строке <b>{st.i + 1}</b>: «{plainW(S.lines[st.i].tr.trim() || S.lines[st.i].text || S.lines[st.i].bg?.text || '').slice(0, 60)}»</span>
         <button className="sm" id="btnStop" onClick={() => { gotoQa(st.i); setPage('sync'); }}>Продолжить отсюда →</button></>}</div>}
     <div className="row" style={{ marginTop: 12 }}>

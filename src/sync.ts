@@ -1,12 +1,12 @@
 // Word sync actions (hotkeys AND toolbar buttons use these) + undo/redo on text+sync snapshots.
-import { fitAndSort, plainW, sameLines, splitWords, syllabify, units, unitsText, type Layer } from './core/index.ts';
+import { editorReview, fitAndSort, plainW, retimeWord, sameLines, splitWords, syllabify, units, unitsText, type Layer } from './core/index.ts';
 import { S, conf, doubtful, emit, ensureSync, fillLine, layerText, lineState, ls, r3, setText, spreadLine, toast, viewWords, wordsOf, type ViewWord } from './state.ts';
 import { now, playWord } from './audio.ts';
 import { forgetWord, learnAndSpread } from './syllables.ts';
 import { buildPreview, refreshPreviewLine } from './preview.ts';
 import { projectJSON, scheduleSave } from './persist.ts';
 import { pushLive } from './live.ts';
-import { W, drawWave } from './waveform/wave.ts';
+import { W, centerOnSel, drawWave } from './waveform/wave.ts';
 
 /* ---------- undo ---------- */
 // whole lines: undo also covers inserted / deleted / moved lines
@@ -103,6 +103,23 @@ export function resetWord() {
   fillLine(S.sel.i, S.layer); afterSyncChange(false, S.sel.i);
 }
 export function playSel() { if (!S.sel) return; const w = viewWords(S.sel.i, S.layer)[S.sel.k]; if (w && w.a != null) playWord(w as ViewWord & { a: number; b: number }); }
+/** Numeric inspector and mouse dragging share the same word/phrase boundaries. */
+export function setWordTimes(a: number, b: number, roll = true): string | null {
+  if (!S.sel || !S.lines[S.sel.i]) return 'Сначала выбери слово.';
+  const { i, k } = S.sel, result = retimeWord(S.lines[i], S.layer, k, a, b, roll);
+  if ('error' in result) return result.error;
+  if (JSON.stringify(result.sync) === JSON.stringify(S.lines[i].sync?.[S.layer])) return null;
+  snap(); S.lines[i].sync![S.layer] = result.sync; afterSyncChange(false, i); return null;
+}
+export function stepReview(d: 1 | -1 = 1) {
+  const queue = editorReview(S.lines, S.layer);
+  if (!queue.length) return toast('На этой дорожке нет пропусков, авточерновиков и коротких слов.', 'ok');
+  const at = S.sel ? queue.findIndex(x => x.i === S.sel!.i && x.k === S.sel!.k) : -1;
+  const after = S.sel ? queue.findIndex(x => x.i > S.sel!.i || x.i === S.sel!.i && x.k > S.sel!.k) : 0;
+  const pos = at >= 0 ? (at + d + queue.length) % queue.length : d > 0 ? (after < 0 ? 0 : after) : (after <= 0 ? queue.length - 1 : after - 1);
+  const target = queue[pos]; selectWord(target.i, target.k); centerOnSel();
+  toast(`${pos + 1}/${queue.length}: ${target.reason}. J — дальше, Shift+J — назад.`);
+}
 const setLayerText = setText;
 
 export function joinWords() {

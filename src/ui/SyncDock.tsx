@@ -1,9 +1,10 @@
 // Bottom dock: top bar, waveform, word chips, F/G/H toolbar with "Строка ⋯" and ⚙ menus.
 import { useEffect, useRef, useState } from 'react';
-import { fmtTime, mmss, parseDur, plainW, units } from '../core/index.ts';
+import { fmtTime, layerProgress, mmss, parseDur, plainW, units } from '../core/index.ts';
+import { ReviewBar, WordInspector, inspectorOpen, toggleInspector } from './WordInspector.tsx';
 import { S, doubtful, isBg, isTr, layerText, lineState, ls, mkLayer, viewWords, wordsOf, emit } from '../state.ts';
 import { audio, playWord } from '../audio.ts';
-import { dockMouseDown, setLoop, setSnap, toggleDock } from '../hotkeys.ts';
+import { dockMouseDown, setLoop, setSnap, toggleDock, toggleEditorFocus } from '../hotkeys.ts';
 import { setupGrip } from '../dockSize.ts';
 import { SYL, forgetAll, setSylMem } from '../syllables.ts';
 import { setAgent } from '../agents.ts';
@@ -93,12 +94,12 @@ export function SyncDock() {
   const gr = useRef<HTMLDivElement>(null);
   useEffect(() => setupGrip(gr.current!), []);
   useEffect(() => { const f = () => drawWave(); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f); }, []);
-  let done = 0; S.lines.forEach((_, i) => { if (lineState(i, S.layer) === 'done') done++; });
+  const progress = layerProgress(S.lines, S.layer), inspect = inspectorOpen();
   const width = () => cv.current?.clientWidth || 800;
   return <div className={'dock' + (S.playing ? ' rec' : '')} id="dock" hidden={!S.dock} onMouseDown={dockMouseDown}>
     <div className="grip" ref={gr} title="Потяни, чтобы изменить высоту панели (двойной клик — как было)"></div>
     <div className="bar">
-      <b className="ttl">Разметка слов</b>
+      <b className="ttl">Редактор слов</b>
       <span className="tseg" title="Что размечаем: перевод или оригинал (T)">
         <button className={isTr(S.layer) ? 'on' : ''} id="segTr" onClick={() => setLayer(mkLayer(isBg(S.layer), true))}>Перевод</button>
         <button className={isTr(S.layer) ? '' : 'on'} id="segOrig" onClick={() => setLayer(mkLayer(isBg(S.layer), false))}>Оригинал</button>
@@ -113,7 +114,9 @@ export function SyncDock() {
       {W.vpeaks && <span className="tseg" title="Волна по всему миксу или по вырезанному голосу"><button className={S.waveVoice ? '' : 'on'} onClick={() => { S.waveVoice = false; emit(); drawWave(); }}>микс</button><button className={S.waveVoice ? 'on' : ''} onClick={() => { S.waveVoice = true; emit(); drawWave(); }}>голос</button></span>}
       <span className="hint-line" id="guideTxt"><Guide /></span>
       <small id="dockMsg" className={S.toast.cls}>{S.toast.msg}</small><span className={'kbd' + (S.typing ? ' warn' : '')} id="kbd">{S.typing ? '⌨ клавиши выключены — кликни по волне' : ''}</span>
-      <small className="stat" id="syncStat">{S.lines.length ? `синхронизировано строк: ${done}/${S.lines.length}` : ''}</small>
+      <small className="stat" id="syncStat">{progress.total ? `Тайминги дорожки: ${progress.done}/${progress.total}` : 'На этой дорожке нет текста'}</small>
+      <button className={'sm inspector-toggle' + (inspect ? ' on' : '')} id="btnWordInspector" aria-controls="wordInspector" aria-expanded={inspect} onClick={toggleInspector}>Свойства</button>
+      <button className="sm" id="btnEditorFocus" aria-pressed={document.body.classList.contains('editor-focus')} title="Развернуть редактор на всё окно" onClick={toggleEditorFocus}>{document.body.classList.contains('editor-focus') ? 'Обычный вид' : 'Фокус'}</button>
       <details className="menu">
         <summary className="btn sm" title="Настройки разметки">⚙</summary>
         <div className="pop">
@@ -136,9 +139,12 @@ export function SyncDock() {
     </div>
     {S.align && <AlignCard />}
     {!S.align && S.setup && <div className="runbar" title={'Установка авто-тайминга: ' + setupLabel()}><i style={{ width: S.setup.pct + '%' }} /></div>}
-    <canvas id="mini" ref={mini} title="Вся песня: клик/тяни — показать это место, 2× — играть отсюда. Зелёное — размечено, жёлтое — частично, розовое — отдельные бэки"></canvas>
-    <canvas id="wave" ref={cv}></canvas>
-    <div id="waveTip" className="wtip" hidden></div>
+    <ReviewBar />
+    <div className={'editor-workspace' + (inspect ? ' inspecting' : '')}>
+      <div className="timeline-surface">
+        <canvas id="mini" ref={mini} title="Вся песня: клик/тяни — показать это место, 2× — играть отсюда. Зелёное — размечено, жёлтое — частично, розовое — отдельные бэки"></canvas>
+        <canvas id="wave" ref={cv}></canvas>
+        <div id="waveTip" className="wtip" hidden></div>
     <div className={'sync-lines ' + S.chips} id="syncLines">{S.chips !== 'off' && <Chips />}<ChipsMode /></div>
     <div className="actions" id="wordBar">
       <span className="grp"><button className="sm ic" id="wbPrev" title="Предыдущее слово (A)" onClick={() => stepWord(-1)}>‹</button><button className="sm ic" id="wbNext" title="Следующее слово (D)" onClick={() => stepWord(1)}>›</button></span>
@@ -178,6 +184,9 @@ export function SyncDock() {
       </span>
       <span className="grp"><button className="sm ic" id="wbUndo" title="Отменить (Ctrl+Z)" onClick={doUndo}>↶</button><button className="sm ic" id="wbRedo" title="Вернуть (Ctrl+Shift+Z)" onClick={doRedo}>↷</button></span>
       <span id="wordInfo">{wordInfo()}</span>
+    </div>
+      </div>
+      {inspect && <WordInspector />}
     </div>
   </div>;
 }
