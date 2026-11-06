@@ -57,3 +57,14 @@ export function applySyllableDraft(line: Line, layer: Layer, text: string) {
   sync?.forEach(x => { if (x.a != null && x.b != null && !line.sync?.[layer]?.some(o => o.a === x.a && o.b === x.b)) { x.g = 1; delete x.c; } });
   return { text, sync };
 }
+
+/** Locate the complete word around a selected syllable, retaining exact spaces and other words. */
+export function selectedWordRange(text: string, k: number) {
+  let n = 0;
+  for (const m of text.matchAll(/[^\s]+(?:\u00a0[^\s]+)*/gu)) {
+    const count = units(m[0]).length;
+    if (k >= n && k < n + count) return { start: m.index!, end: m.index! + m[0].length, word: m[0], k: n };
+    n += count;
+  }
+  return null;
+}

@@ -129,15 +129,20 @@ export function laneY(lane: Lane, line?: number) {
 }
 export const lineAt = (t: number) => coreLineAt(S.lines, t);
 export const bandRows = () => coreBandRows(S.lines);
+let layoutVer = -1, layoutLayer: Layer | null = null;
 export function drawWave() {
   const cv = canvas(); if (!cv || !S.dock) return;
   const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
   if (!w || !h) return;
   if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
   const g = cv.getContext('2d')!; g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
-  for (const lane of ['main', 'bg'] as const) {
-    W.wordRows[lane] = trackRows(S.lines, laneLayer(lane));
-    W.wordN[lane] = Math.max(1, ...W.wordRows[lane].map(row => row + 1));
+  if (layoutVer !== S.ver || layoutLayer !== S.layer) {
+    layoutVer = S.ver; layoutLayer = S.layer;
+    for (const lane of ['main', 'bg'] as const) {
+      W.wordRows[lane] = trackRows(S.lines, laneLayer(lane));
+      W.wordN[lane] = Math.max(1, ...W.wordRows[lane].map(row => row + 1));
+    }
+    W.rows = bandRows(); W.nr = Math.max(1, ...W.rows.map(r => r + 1)); W.secs = sectionsOf(S.lines);
   }
   const t = now(), G = W.G = geo(h);
   if (S.playing && !W.drag) { if (t < W.start || t > W.start + w / W.px * 0.8) W.start = Math.max(0, t - w / W.px * 0.25); }
@@ -161,7 +166,6 @@ export function drawWave() {
     }
   } else { g.fillStyle = `rgba(${TH.t},.25)`; g.font = '12px system-ui'; g.textBaseline = 'middle'; g.fillText('Загрузи аудио (♪ аудио) — тут появится волна', 14, mid); }
   // song sections: colored blocks over the top of the wave
-  W.secs = sectionsOf(S.lines);
   for (const s of W.secs) {
     if (s.b < t0 || s.a > t1) continue;
     const x1 = X(s.a), x2 = X(s.b), col = secColor(s.label), y = G.wY + SEC_Y, on = W.drag?.type === 'sec' && W.drag.from === s.from;
@@ -188,7 +192,7 @@ export function drawWave() {
   }
   // source lines band (drag = move the whole line with all its words, double click = edit it in the list)
   g.font = '12px system-ui'; g.textBaseline = 'middle';
-  const rows = W.rows = bandRows(), nr = W.nr = Math.max(1, ...rows.map(r => r + 1));
+  const rows = W.rows, nr = W.nr;
   S.lines.forEach((l, li) => {
     if (l.end < t0 || l.t > t1) return;
     const hh = G.lH / nr, y = G.lY + rows[li] * hh;

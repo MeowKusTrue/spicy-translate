@@ -15,7 +15,7 @@ import { cycleAgent, setAgent } from './agents.ts';
 export const PAGES: [Page, string][] = [['track', 'Трек'], ['text', 'Текст'], ['tr', 'Перевод'], ['sync', 'Синхра'], ['export', 'Экспорт']];
 /** switch the tab; «Синхра» opens the word-sync dock (wave, keys), the others close it */
 export function setPage(p: Page) {
-  if (PREVIEW_EDIT.active && p !== S.page) return toast('Сначала сохрани или отмени правку в просмотре.', 'err');
+  if ((PREVIEW_EDIT.active || S.editDraft) && p !== S.page) return toast('Сначала сохрани или отмени правку в просмотре.', 'err');
   if (p === 'sync' && !S.lines.some(l => layerText(l, S.layer).trim())) {
     const layer = (['orig', 'bgo', 'tr', 'bg'] as const).find(k => S.lines.some(l => layerText(l, k).trim()));
     if (layer) S.layer = layer;
@@ -51,7 +51,7 @@ const blurActive = () => { const a = document.activeElement; if (a instanceof HT
 
 const KEYS = new Set(['KeyJ', 'KeyQ', 'KeyC', 'KeyB', 'KeyT', 'KeyE', 'Digit1', 'Digit2', 'Digit3', 'KeyV', 'KeyM', 'KeyU', 'KeyN', 'KeyL', 'KeyR', 'Comma', 'Period', 'Space', 'KeyF', 'KeyG', 'KeyH', 'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'BracketLeft', 'BracketRight', 'Quote', 'Delete', 'Backspace']);
 function onKey(e: KeyboardEvent) {
-  if (!S.dock || S.help || S.metaEd || S.palette) return;
+  if (S.editDraft || !S.dock || S.help || S.metaEd || S.palette) return;
   const tg = e.target as HTMLInputElement, tag = tg.tagName;
   if (tg.isContentEditable || tag === 'TEXTAREA' || tag === 'SELECT' || (tag === 'INPUT' && tg.type !== 'range' && tg.type !== 'checkbox' && tg.type !== 'radio' && tg.type !== 'file')) return;
   const c = e.code;

@@ -14,6 +14,7 @@ import { ModePicker, linesShown } from './Studio.tsx';
 import { WordInspector, inspectorOpen } from './WordInspector.tsx';
 import { doRedo, doUndo } from '../sync.ts';
 import { openAlignPanel } from '../autoAlign.ts';
+import { SidebarResize } from './SidebarResize.tsx';
 
 export function stepInfo() {
   const n = S.lines.length, tr = S.lines.filter(l => l.tr && l.tr.trim()).length;
@@ -61,7 +62,7 @@ export function App() {
       <button className="sm palbtn" id="btnPalette" title="Все действия с поиском" onClick={openPalette}>⌘ <kbd>Ctrl+K</kbd></button>
       <span className={'pill ' + (S.live?.cls || '')} id="liveLink" title="Связь с локальным сервером / MCP" hidden={!S.live}>{S.live?.msg}</span>
       <span className={'pill ' + S.save.cls} id="saveInd" title="Проект сохраняется автоматически в браузере">{S.save.msg}</span>
-      <button className="sm studio-undo" aria-label="Отменить" title="Ctrl+Z" disabled={!S.undo.length} onClick={doUndo}>↶</button><button className="sm studio-undo" aria-label="Повторить" title="Ctrl+Shift+Z" disabled={!S.redo.length} onClick={doRedo}>↷</button>
+      <button className="sm studio-undo" aria-label="Отменить" title="Ctrl+Z" disabled={!!S.editDraft || !S.undo.length} onClick={doUndo}>↶</button><button className="sm studio-undo" aria-label="Повторить" title="Ctrl+Shift+Z" disabled={!!S.editDraft || !S.redo.length} onClick={doRedo}>↷</button>
       <button className="pri sm" id="btnStudioExport" disabled={!S.lines.length} onClick={() => setPage('export')}>Экспорт TTML</button>
       {isApp && <WinButtons />}
     </header>
@@ -71,6 +72,7 @@ export function App() {
       <div className="col" key={S.page}><Page /></div>
       <div className="col"><Stage /></div>
       {S.page === 'sync' && inspectorOpen() && !document.body.classList.contains('editor-focus') && <WordInspector />}
+      {S.page === 'sync' && linesShown() && <SidebarResize />}
     </main>
     <SyncDock />
     <HelpModal />

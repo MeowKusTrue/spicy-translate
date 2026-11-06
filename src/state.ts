@@ -50,7 +50,8 @@ export const S = {
   spell: null as null | { busy: boolean; hits: import('./spell.ts').SpellHit[]; msg: string; ignored: string[] }, // spelling check of the lyrics
   genius: null as null | { q: string; hits: import('./genius.ts').GeniusHit[]; busy: boolean; msg: string; cls: string; text?: string; heads?: { row: number; label: string }[]; seed?: Line[]; title?: string; id?: number; ignored: string[] }, // «Текст с Genius» + its check
   full: null as null | { o: string; t: string; dirty: boolean }, // «Текст» tab draft
-  syllableReview: null as null | { i: number; layer: Layer; text: string },
+  syllableReview: null as null | { i: number; k: number; layer: Layer; text: string },
+  editDraft: null as null | { i: number; layer: Layer; line: Line; owner: 'preview' | 'syllables' | 'back' },
   find: null as null | { q: string; r: string; where: 'tr' | 'orig' | 'all'; cs: boolean; word: boolean },
 };
 
@@ -82,9 +83,11 @@ export function ensureSync(i: number, layer: Layer): WordSync[] {
   return s;
 }
 export type ViewWord = { word: string; sp: boolean; a: number | null; b: number | null; real?: boolean; g?: boolean; pending?: boolean; ghost?: boolean };
+export function displayLine(i: number, layer: Layer) { return S.editDraft?.i === i && S.editDraft.layer === layer ? S.editDraft.line : S.lines[i]; }
+export function setEditDraft(draft: typeof S.editDraft) { S.editDraft = draft; S.ver++; document.body.classList.toggle('text-drafting', !!draft); emit(); }
 // what to show/draw for a line+layer: real timings where set, ghost spread otherwise
 export function viewWords(i: number, layer: Layer): ViewWord[] {
-  const l = S.lines[i], us = units(layerText(l, layer)), sy = l.sync && l.sync[layer];
+  const l = displayLine(i, layer), us = units(layerText(l, layer)), sy = l.sync && l.sync[layer];
   if (sy && sy.length === us.length) {
     return us.map((u, k) => (sy[k].a != null && sy[k].b != null) ? { word: u.w, sp: u.sp, a: sy[k].a, b: sy[k].b, real: true, g: !!sy[k].g } : { word: u.w, sp: u.sp, a: null, b: null, pending: true });
   }

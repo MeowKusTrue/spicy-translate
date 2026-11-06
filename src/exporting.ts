@@ -17,7 +17,7 @@ export function opts(): ExportOpts {
     offset: parseInt(S.exp.offset, 10) || 0, meta: S.meta.md, roman: S.exp.roman };
 }
 export function prepareExport() {
-  if (PREVIEW_EDIT.active) { status('st2', 'Сначала сохрани или отмени правку текста в просмотре.', 'err'); return false; }
+  if (PREVIEW_EDIT.active || S.editDraft) { status('st2', 'Сначала сохрани или отмени правку текста в просмотре.', 'err'); return false; }
   fitLines(undefined, true); return true;
 }
 function checkExport() {

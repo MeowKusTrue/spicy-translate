@@ -20,7 +20,7 @@ export function toggleTimeline() {
 
 export function ModePicker() {
   const modes: [Mode, string][] = [['original', 'Оригинал'], ['translation', 'Перевод'], ['bilingual', 'Два языка']];
-  return <div className="project-mode" role="group" aria-label="Задача проекта">{modes.map(([v, label]) => <button key={v} id={'mode-' + v} aria-pressed={S.meta.mode === v} className={S.meta.mode === v ? 'on' : ''} onClick={() => { if (PREVIEW_EDIT.active) return toast('Сначала сохрани или отмени правку в просмотре.', 'err'); setMode(v); }}>{label}</button>)}</div>;
+  return <div className="project-mode" role="group" aria-label="Задача проекта">{modes.map(([v, label]) => <button key={v} id={'mode-' + v} aria-pressed={S.meta.mode === v} className={S.meta.mode === v ? 'on' : ''} onClick={() => { if (PREVIEW_EDIT.active || S.editDraft) return toast('Сначала сохрани или отмени правку в просмотре.', 'err'); setMode(v); }}>{label}</button>)}</div>;
 }
 
 export function TrackProgress() {

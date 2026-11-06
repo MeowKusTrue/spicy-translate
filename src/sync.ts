@@ -21,8 +21,8 @@ export function restore(json: string) {
   // Explicit undo to an empty project must not resurrect the imported text on reload.
   if (!S.lines.length) { ls.set('last', projectJSON()); pushLive(); }
 }
-export function doUndo() { if (!S.undo.length) return; S.redo.push(stateJSON()); restore(S.undo.pop()!); }
-export function doRedo() { if (!S.redo.length) return; S.undo.push(stateJSON()); restore(S.redo.pop()!); }
+export function doUndo() { if (S.editDraft || !S.undo.length) return; S.redo.push(stateJSON()); restore(S.undo.pop()!); }
+export function doRedo() { if (S.editDraft || !S.redo.length) return; S.undo.push(stateJSON()); restore(S.redo.pop()!); }
 /** background-only lines follow their words; lines stay ordered by start, the selection follows its line */
 export function fitLines() {
   const r = fitAndSort(S.lines, S.sel ? S.lines[S.sel.i] : null, S.autoFit ? { a: S.fitPad.a / 1000, b: S.fitPad.b / 1000 } : null); if (!r.moved) return false;
@@ -37,6 +37,7 @@ export function afterSyncChange(all: boolean, i = 0, fit = true) {
 /* ---------- word selection + marking ---------- */
 /** switch what the keys and the wave edit: track (main / bg) × language; both tracks stay visible on the wave */
 export function setLayer(l: Layer) {
+  if (S.editDraft) return toast("Сначала сохрани или отмени правку.", "err");
   S.layer = l;
   if (S.sel) S.sel.k = Math.max(0, Math.min(S.sel.k, wordsOf(S.sel.i, l).length - 1));
   emit(); drawWave();
@@ -49,6 +50,7 @@ export function confirmPhrase() {
   toast('Тайминги фразы отмечены проверенными. Ctrl+Z — отмена.', 'ok');
 }
 export function selectWord(i: number, k: number) {
+  if (S.editDraft) return;
   if (i < 0 || i >= S.lines.length) return;
   S.sel = { i, k };
   let ch = false; for (let j = Math.max(0, i - 1); j <= Math.min(S.lines.length - 1, i + 2); j++) ch = fillLine(j, S.layer) || ch;
@@ -112,6 +114,7 @@ export function resetWord() {
 export function playSel() { if (!S.sel) return; const w = viewWords(S.sel.i, S.layer)[S.sel.k]; if (w && w.a != null) playWord(w as ViewWord & { a: number; b: number }); }
 /** Numeric inspector and mouse dragging share the same word/phrase boundaries. */
 export function setWordTimes(a: number, b: number, roll = true): string | null {
+  if (S.editDraft) return 'Сначала сохрани или отмени правку.';
   if (!S.sel || !S.lines[S.sel.i]) return 'Сначала выбери слово.';
   const { i, k } = S.sel, result = retimeWord(S.lines[i], S.layer, k, a, b, roll);
   if ('error' in result) return result.error;

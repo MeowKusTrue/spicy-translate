@@ -3,9 +3,10 @@ import { mmss } from './core/index.ts';
 import { S, viewWords } from './state.ts';
 import { now, pause, seekTo } from './audio.ts';
 import { previewFrame } from './preview.ts';
-import { drawWave } from './waveform/wave.ts';
+import { W, drawWave } from './waveform/wave.ts';
 
 let clockTxt = '';
+let lastWave = 0, lastWaveVer = -1;
 function frame() {
   let t = now();
   if (!S.hasAudio && t > S.duration && S.playing) { pause(); S.vt = 0; t = 0; }
@@ -25,7 +26,10 @@ function frame() {
     const vw = viewWords(S.sel.i, S.layer).filter(x => x.a != null);
     if (vw.length) { const a = vw[0].a! - 0.4, b = vw[vw.length - 1].b! + 0.4; if (t > b || t < a - 1) seekTo(Math.max(0, a)); }
   }
-  if (S.dock) drawWave();
+  // The expensive editor canvas gets 30 fps; lyric fill keeps the display's full frame rate.
+  // Paused edits redraw from their event handlers, rather than burning every idle frame.
+  const ms = performance.now();
+  if (S.dock && (S.playing || W.flash || W.drag || S.ver !== lastWaveVer) && (!S.playing || ms - lastWave >= 1000 / 30)) { lastWave = ms; drawWave(); lastWaveVer = S.ver; }
   requestAnimationFrame(frame);
 }
 export function startLoop() { requestAnimationFrame(frame); }

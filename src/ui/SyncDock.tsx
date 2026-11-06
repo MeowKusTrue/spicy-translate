@@ -1,8 +1,8 @@
 // Bottom dock: top bar, waveform, word chips, F/G/H toolbar with "Строка ⋯" and ⚙ menus.
 import { useEffect, useRef, useState } from 'react';
-import { fmtTime, layerProgress, mmss, parseDur, plainW, units } from '../core/index.ts';
+import { fmtTime, layerProgress, mmss, parseDur, plainW, units, wordList } from '../core/index.ts';
 import { ReviewBar, WordInspector, inspectorOpen, toggleInspector } from './WordInspector.tsx';
-import { S, doubtful, isBg, isTr, layerText, lineState, ls, mkLayer, viewWords, wordsOf, emit } from '../state.ts';
+import { S, displayLine, doubtful, isBg, isTr, layerText, lineState, ls, mkLayer, viewWords, wordsOf, emit } from '../state.ts';
 import { audio, playWord } from '../audio.ts';
 import { dockMouseDown, setLoop, setSnap, toggleDock, toggleEditorFocus } from '../hotkeys.ts';
 import { setupGrip } from '../dockSize.ts';
@@ -43,7 +43,7 @@ function Chips() {
   if (!S.lines.length) return <div className="keys">Загрузи трек и аудио (♪), затем жми F / G / H в такт слову.</div>;
   const ci = S.sel ? S.sel.i : 0, rows = [], few = S.chips === 'small';
   for (let i = few ? ci : Math.max(0, ci - 1); i <= Math.min(S.lines.length - 1, few ? ci : ci + 2); i++) {
-    const ws = wordsOf(i, S.layer), us = units(layerText(S.lines[i], S.layer)), vw = viewWords(i, S.layer), sy = S.lines[i].sync && S.lines[i].sync![S.layer];
+    const l = displayLine(i, S.layer), text = layerText(l, S.layer), ws = wordList(text), us = units(text), vw = viewWords(i, S.layer), sy = l.sync?.[S.layer];
     rows.push(<div key={i} className={'sl' + (i === ci ? ' cur' : '')}>
       <span className="lab">{mmss(S.lines[i].t)}</span>
       {!ws.length && <span className="keys">{isBg(S.layer) ? '(нет бэка — двойной клик по дорожке «бэк» или E)' : S.layer === 'tr' ? '(нет перевода — E, чтобы вписать)' : '(пусто — E, чтобы вписать)'}</span>}
@@ -121,8 +121,8 @@ export function EditorToolbar() {
   const progress = layerProgress(S.lines, S.layer), inspect = inspectorOpen(), width = () => document.getElementById('wave')?.clientWidth || 800;
   return <div id="editorToolbar" className="editor-toolbar" ref={ref} hidden={S.page !== 'sync'}>
     <div className="editor-quickbar">
-      <button id="btnFitEveryLine" className="sm" onClick={() => fitLines()}>Подогнать все строки</button>
-      <button id="btnQuickSyllables" className="sm" onClick={openSyllableReview}>По слогам</button>
+      <button id="btnFitEveryLine" className="sm" disabled={!!S.editDraft} onClick={() => fitLines()}>Подогнать все строки</button>
+      <button id="btnQuickSyllables" className="sm" disabled={!!S.editDraft} onClick={openSyllableReview}>По слогам</button>
       <span className="quick-divider" />
       <button id="btnToggleLines" className="sm" aria-pressed={linesShown()} onClick={toggleLines}>Строки</button>
       <button id="btnToggleTimeline" className="sm" aria-pressed={timelineShown()} onClick={toggleTimeline}>Таймлайн</button>
@@ -138,7 +138,7 @@ export function EditorToolbar() {
       </span>
 
     </div>
-    <div id="editorCommands" className="editor-commands" hidden={!commandsShown()}>
+    <fieldset disabled={!!S.editDraft} id="editorCommands" className="editor-commands" hidden={!commandsShown()}>
     <div className="bar">
       <b className="ttl">Редактор слов</b>
       <button className={'sm' + (S.align || S.setup ? ' busy' : '')} id="btnAutoAlign" disabled={!!S.align || !!S.setup} title="Нейросеть расставит слова оригинала и бэка по аудио (черновик пунктиром; размеченное вручную не трогает). Нужен локальный сервер и Python-прототип." onClick={autoAlign}>{S.setup ? '⬇ ' + setupLabel() : S.align ? '⏳ ' + alignLabel() : !S.lines.length ? '✨ Распознать текст' : S.picked.size ? `✨ Авто-тайминг (строк: ${S.picked.size})` : '✨ Авто-тайминг'}</button>
@@ -209,7 +209,7 @@ export function EditorToolbar() {
       <span className="grp"><button className="sm ic" id="wbUndo" title="Отменить (Ctrl+Z)" onClick={doUndo}>↶</button><button className="sm ic" id="wbRedo" title="Вернуть (Ctrl+Shift+Z)" onClick={doRedo}>↷</button></span>
       <span id="wordInfo">{wordInfo()}</span>
     </div>
-    </div>
+    </fieldset>
     {S.align && <AlignCard />}
     {!S.align && S.setup && <div className="runbar"><i style={{ width: S.setup.pct + '%' }} /></div>}
     <SyllableReview />

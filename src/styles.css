@@ -69,7 +69,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .stage-top{position:relative;padding:18px 24px 6px}
 .stage-top b{font-size:17px;display:block}.stage-top span{color:var(--mut);font-size:13px}
 .lyrics{position:relative;flex:1;overflow:hidden;padding:0 28px;container-type:inline-size;-webkit-mask-image:linear-gradient(transparent,#000 14%,#000 80%,transparent);mask-image:linear-gradient(transparent,#000 14%,#000 80%,transparent)}
-.lyrics-inner{padding:38vh 0 40vh;transition:transform .55s cubic-bezier(.2,.8,.2,1)}
+.lyrics-inner{padding:38vh 0 40vh;transition:transform .2s cubic-bezier(.2,.8,.2,1)}
 .empty{color:var(--mut);text-align:center;margin-top:30vh;font-size:15px;position:relative}
 .player{position:relative;padding:14px 22px 18px;display:flex;gap:12px;align-items:center;border-top:1px solid var(--line);background:var(--glass);backdrop-filter:blur(10px)}
 .player input[type=range]{flex:1;accent-color:var(--acc)}
@@ -685,3 +685,26 @@ body.editor-focus .dock{height:calc(100dvh - 103px - var(--editorToolbarH,44px))
 .preview-edit #previewEditText{max-height:min(240px,32dvh);overflow-y:auto}
 
 main .compact-lines>h2{margin:0 13px 14px}
+/* Resizable line list, with a focusable separator and keyboard alternatives. */
+main.page-sync{position:relative}
+main.page-sync:not(.studio-hide-lines),html.app main.page-sync:not(.studio-hide-lines){grid-template-columns:var(--studioLinesWidth,255px) minmax(0,1fr)}
+main.page-sync.studio-inspecting:not(.studio-hide-lines),html.app main.page-sync.studio-inspecting:not(.studio-hide-lines){grid-template-columns:var(--studioLinesWidth,255px) minmax(0,1fr) 285px}
+.sidebar-resize{position:absolute;left:calc(var(--studioLinesWidth,255px) - 4px);top:0;bottom:0;width:8px;z-index:6;cursor:col-resize;touch-action:none;background:transparent;border-left:1px solid transparent}
+.sidebar-resize:hover,.sidebar-resize:focus-visible{background:color-mix(in srgb,var(--acc) 20%,transparent);border-color:var(--acc);outline:0}
+.list-language{display:flex;gap:3px;margin:12px 13px 8px;padding:3px;background:var(--field);border-radius:6px}
+.list-language button{flex:1;min-width:0;font-size:11px;min-height:30px;padding:3px;border:0;background:transparent;color:var(--mut)}
+.list-language button[aria-pressed=true]{background:var(--card);color:var(--acc)}
+.compact-line .addbg{background:transparent;border:0;color:var(--acc2);font-size:11px;min-height:26px;padding:2px 4px;margin-top:3px}
+.back-inline{margin-top:7px;min-width:0}.back-inline label{font-size:11px;color:var(--acc2);display:block;margin-bottom:5px}.back-inline input{width:100%;min-width:0;font-size:13px;padding:7px}.back-inline .row{flex-wrap:wrap;margin-top:7px;gap:5px}.back-inline button{min-height:28px;font-size:11px;padding:4px 7px}.back-inline small{color:var(--err)}
+fieldset.editor-commands{margin:0;min-width:0;border:0;border-top:1px solid var(--line)}
+.text-drafting #wave,.text-drafting #syncLines .chip,.text-drafting .word-inspector{pointer-events:none;opacity:.7}
+/* Keep the unsung side visibly dim: the previous .8 alpha concealed the sweep. */
+.stage .pl.act{--ga:1;--ge:.35}
+.stage .pl.act .bg{--ga:.85;--ge:.28}
+@media(max-width:1200px) and (min-width:801px){main.page-sync.studio-inspecting:not(.studio-hide-lines),html.app main.page-sync.studio-inspecting:not(.studio-hide-lines){grid-template-columns:var(--studioLinesWidth,255px) minmax(0,1fr) 250px}}
+@media(max-width:800px){main.page-sync.studio-inspecting:not(.studio-hide-lines),html.app main.page-sync.studio-inspecting:not(.studio-hide-lines){grid-template-columns:var(--studioLinesWidth,255px) minmax(0,1fr)}}
+@media(max-width:600px){.sidebar-resize{display:none}}
+
+@media(prefers-reduced-motion:reduce){.lyrics-inner{transition:none!important}.pl{transition:none}}
+/* Flex lists must not compress a multiline row below its contents. */
+.ln.compact-line{flex:0 0 auto}.compact-line .addbg{opacity:1}

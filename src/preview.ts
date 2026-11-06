@@ -1,14 +1,14 @@
 // Live preview that moves like Spicy Lyrics, so a maker sees what listeners will see.
 // Reimplemented from how Spicy behaves (its code is AGPL; nothing is copied):
-// - every word rides three springs (scale, lift, glow) whose goals follow curves over the word's progress;
+// - word scale, lift and glow follow media progress directly, without a second delayed animation clock;
 //   the fill is a soft gradient sweeping left to right;
-// - a syllable that lasts ≥ 1 s is drawn letter by letter: the letters share the time (ending 0.25 s early)
+// - a syllable that lasts ≥ 1 s is drawn letter by letter: the letters share its full timed duration
 //   and the one being sung swells, its neighbours a little less;
 // - a gap of ≥ 3 s between lines shows three breathing dots;
 // - lines not being sung are dimmed and blurred by their distance from the current one.
 // Built imperatively into #lyrIn (React owns only the container): per-frame painting must not go through React.
 import { getWords, liveLines, plainW, syncComplete, units, type Layer, type TimedWord } from './core/index.ts';
-import { S, layerText, mainLayerFor } from './state.ts';
+import { S, displayLine, layerText, mainLayerFor } from './state.ts';
 import { seekTo } from './audio.ts';
 import { PREVIEW_EDIT, editPreview } from './previewEdit.ts';
 
@@ -42,7 +42,6 @@ class Spring {
     return this.p;
   }
 }
-const easeSinOut = (t: number) => Math.sin(t * Math.PI / 2);
 const C = {
   scale: curve([[0, 0.95], [0.7, 1.0505], [1, 1]]),
   lift: curve([[0, 0.01], [0.9, -1 / 60], [1, 0]]), // × font size
@@ -54,10 +53,9 @@ const C = {
   dGlow: curve([[0, 0], [0.6, 1], [1, 1]]),
   dOp: curve([[0, 0.35], [0.6, 1], [1, 1]]),
 };
-const LETTER_MIN = 1, LETTER_EARLY = 0.25, GAP_DOTS = 3, DOT_PAD = 0.55, DOT_HIDE = 0.5, BLUR = 1.25;
+const LETTER_MIN = 1, GAP_DOTS = 3, DOT_PAD = 0.55, DOT_HIDE = 0.5, BLUR = 1.25;
 
 type Springs = { s: Spring; y: Spring; g: Spring; o?: Spring };
-const wordSprings = (): Springs => ({ s: new Spring(0.95, 0.88, 0.64), y: new Spring(0.01, 1.45, 0.4), g: new Spring(0, 1.18, 0.56) });
 const dotSprings = (): Springs => ({ s: new Spring(0.75, 0.7, 0.6), y: new Spring(0, 1.25, 0.4), g: new Spring(0, 1, 0.5), o: new Spring(0.35, 1, 0.5) });
 interface Part { el: HTMLElement; a: number; b: number; sp?: Springs; c: Record<string, number> }
 interface Word extends Part { letters?: Part[]; dot?: boolean }
@@ -65,7 +63,7 @@ interface PLine { el: HTMLElement; a: number; b: number; words: Word[]; i: numbe
 
 /** words of the main line + the small line under it (translation in bilingual mode, background vocals otherwise) */
 function lineWords(i: number) {
-  const l = S.lines[i], ml = mainLayerFor(i);
+  const l = displayLine(i, S.layer), ml = mainLayerFor(i);
   const wm = getWords(layerText(l, ml), l.sync && l.sync[ml], l.t, l.end);
   let wb: TimedWord[] | null = null;
   if (S.meta.mode === 'bilingual') { if (l.tr && l.tr.trim()) wb = getWords(l.tr.trim(), l.sync && l.sync.tr, l.t, l.end); }
@@ -82,13 +80,16 @@ function lineWords(i: number) {
 
 /* ---------- building ---------- */
 let LINES: PLine[] = [], dirty = false;
+let visibility: IntersectionObserver | null = null;
+const visible = new Set<Element>();
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const span = (cls: string, text = '') => { const e = document.createElement('span'); e.className = cls; e.textContent = text; return e; };
 function mkWords(host: HTMLElement, arr: TimedWord[], out: Word[]) {
   arr.forEach(w => {
     const txt = plainW(w.word), chars = [...txt], d = w.b - w.a;
     let wd: Word;
     if (d >= LETTER_MIN && chars.length) { // long syllable: letter by letter
-      const el = span('w lg'), b = w.b - LETTER_EARLY, step = (b - w.a) / chars.length;
+      const el = span('w lg'), b = w.b, step = (b - w.a) / chars.length;
       wd = { el, a: w.a, b, c: {}, letters: chars.map((ch, k) => { const le = span('lt' + (ch.trim() ? '' : ' sp'), ch); el.appendChild(le); return { el: le, a: w.a + k * step, b: w.a + (k + 1) * step, c: {} }; }) };
     } else wd = { el: span('w', txt), a: w.a, b: w.b, c: {} };
     host.appendChild(wd.el); out.push(wd);
@@ -107,6 +108,7 @@ export function buildPreview(keepPos?: boolean) {
   if (PREVIEW_EDIT.active) { dirty = true; return; }
   S.ver++; dirty = false;
   const box = inner(); if (!box) return;
+  visibility?.disconnect(); visible.clear();
   box.innerHTML = ''; LINES = [];
   if (!S.lines.length) { box.innerHTML = '<div class="empty">Тут появится живое превью лирики</div>'; return; }
   const R = ranges();
@@ -127,6 +129,8 @@ export function buildPreview(keepPos?: boolean) {
     el.onkeydown = e => { if (e.key === 'Enter' && e.target === el) { e.preventDefault(); editPreview(i, el); } };
     box.appendChild(el); LINES.push({ el, a: R[i].a, b: R[i].b, words, i });
   });
+  visibility = new IntersectionObserver(entries => { for (const e of entries) { if (e.isIntersecting) visible.add(e.target); else visible.delete(e.target); } }, { root: box.parentElement, rootMargin: '200px 0px' });
+  LINES.forEach(l => visibility!.observe(l.el));
   lastBlur = '';
   if (!keepPos) PV.lastAct = -2;
 }
@@ -169,7 +173,7 @@ function paintWord(w: Word, T: number, dt: number, fx: boolean) {
     return;
   }
   const q = st === 1 ? p : st / 2; // rest = curve(0), sung = curve(1)
-  const v = fx ? springs(w, wordSprings, C.scale(q), C.lift(q), C.glow(q), undefined, dt) : { s: 1, y: 0, g: 0 };
+  const v = fx ? { s: C.scale(q), y: C.lift(q), g: C.glow(q) } : { s: 1, y: 0, g: 0 };
   put(w, 'scale', v.s, 1e-3, num); put(w, 'transform', v.y, 1e-4, lift);
   if (!w.letters) {
     put(w, '--gp', st === 0 ? -20 : st === 2 ? 100 : -20 + 120 * p, 0.05, pct);
@@ -188,11 +192,11 @@ function paintWord(w: Word, T: number, dt: number, fx: boolean) {
       }
       if (ls === 0) { s = C.lScale(0); y = C.lLift(0); g = C.glow(0); }
       else if (ls === 2 && act < 0) g = C.glow(0.2);
-      gp = ls === 0 ? -20 : ls === 2 ? 100 : k === act ? -20 + 120 * easeSinOut(ap) : -20;
+      gp = ls === 0 ? -20 : ls === 2 ? 100 : k === act ? -20 + 120 * ap : -20;
     }
-    const lv = fx ? springs(l, wordSprings, s, y, g, undefined, dt) : { s: 1, y: 0, g: 0 };
+    const lv = fx ? { s, y, g } : { s: 1, y: 0, g: 0 };
     put(l, '--gp', gp, 0.05, pct); put(l, 'transform', lv.y * 2, 1e-4, lift); put(l, 'scale', lv.s, 1e-3, num);
-    put(l, '--gb', 4 + 12 * lv.g, 0.5, px); put(l, '--go', Math.min(lv.g * 1.85, 1), 0.01, num);
+    put(l, '--gb', 4 + 6 * lv.g, 0.5, px); put(l, '--go', Math.min(lv.g * .3, .3), 0.01, num);
   });
 }
 
@@ -233,6 +237,7 @@ export function previewFrame(t: number) {
     if (idx >= 0 && S.playing) { const r = document.getElementById('ln' + idx); if (r) r.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
   }
   if (SCR.manual && performance.now() > SCR.until) { SCR.manual = 0; applyScroll(); }
-  for (const L of LINES) for (const w of L.words) paintWord(w, T, dt, S.fx);
+  // Hidden lines need no per-letter style writes; active overlaps still paint even outside the viewport.
+  for (const L of LINES) if (visible.has(L.el) || (T >= L.a && T < L.b)) for (const w of L.words) paintWord(w, T, dt, S.fx && !reducedMotion.matches);
 }
 
