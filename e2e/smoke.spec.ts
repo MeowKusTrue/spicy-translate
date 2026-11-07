@@ -48,14 +48,14 @@ test('load, F/G/H, join/syllables, export TTML', async ({ page }) => {
 
   // export tab
   await page.locator('#nav-export').click();
-  await page.locator('#btnShow').click();
+  await page.locator('#btnShow').click(); if (await page.locator('#exportPreflight').isVisible()) await page.locator('#btnExportAnyway').click();
   const ttml = await page.locator('#out').textContent();
   expect(ttml).toContain('itunes:timing="Word"');
   expect(ttml).toMatch(/<span [^>]+>бумажные фона<\/span><span [^>]+>ри<\/span> <span [^>]+>плывут<\/span>/);
   const parseErr = await page.evaluate(x => new DOMParser().parseFromString(x!, 'application/xml').getElementsByTagName('parsererror').length, ttml);
   expect(parseErr).toBe(0);
   const dl = page.waitForEvent('download');
-  await page.locator('#btnDl').click();
+  await page.locator('#btnDl').click(); if (await page.locator('#exportPreflight').isVisible()) await page.locator('#btnExportAnyway').click();
   expect((await dl).suggestedFilename()).toBe('Nobody - Lanterns (ru).ttml');
 
   // autosave + live-link: the server sees the project
@@ -96,7 +96,7 @@ test('background vocals: (…) -> bg, bg-only line, delete + undo, word edit on 
   await expect(page.locator('#ln2 .compact-text').first()).toHaveText('over and quiet water');
 
   await page.locator('#nav-export').click();
-  await page.locator('#btnShow').click();
+  await page.locator('#btnShow').click(); if (await page.locator('#exportPreflight').isVisible()) await page.locator('#btnExportAnyway').click();
   const ttml = await page.locator('#out').textContent();
   expect(ttml).toMatch(/<p [^>]+><span ttm:role="x-bg"><span [^>]+>ooh<\/span><\/span><\/p>/);
 });

@@ -24,3 +24,38 @@ describe('remembered syllable splits', () => {
     expect(r.text).toBe('ма|ли|на груша'); expect(r.sync).toBeNull();
   });
 });
+
+import { units } from '../src/core/words.ts';
+import { repeatSyllablePlans } from '../src/core/russianSyllables.ts';
+import type { Line } from '../src/core/types.ts';
+
+it('keeps hyphens with the preceding syllable for remembered and existing splits', () => {
+  const dict = {}; learnSplits('а-|а-|а Бо-|боюсь,', dict);
+  expect(applySplits('а-а-а Бо-боюсь,', null, dict)!.text).toBe('а-|а-|а Бо-|боюсь,');
+  expect(units('а|-а|-а').map(u => u.w)).toEqual(['а-', 'а-', 'а']);
+});
+it('applies word boundaries only to repeat lines and retains their own timing', () => {
+  const lines: Line[] = [
+    { t: 1, end: 3, tr: '', text: 'Это малина', sync: { orig: [{a:1,b:2},{a:2,b:3}] } },
+    { t: 10, end: 12, tr: '', text: 'Это ма|лина', sync: { orig: [{a:10,b:11},{a:11,b:11.4},{a:11.4,b:12}] } },
+    { t: 20, end: 22, tr: '', text: 'Там малина' }
+  ];
+  const plans = repeatSyllablePlans(lines, lines[0], 'orig', 1, 'ма|ли|на');
+  expect(plans.map(p => p.i)).toEqual([0, 1]);
+  expect(plans[1].text).toBe('Это ма|ли|на');
+  expect(plans[1].sync![0]).toEqual({a:10,b:11});
+  expect(plans[1].sync!.at(-1)!.b).toBe(12);
+  expect(lines[1].text).toBe('Это ма|лина');
+});
+
+import { buildTTML } from '../src/core/export.ts';
+
+it('exports hyphens on the left syllable with exact original timing on lead and background', () => {
+  for (const text of ['а-|а-|а', 'а|-а|-а']) {
+    const sync = [{ a: 1, b: 2 }, { a: 2, b: 3 }, { a: 3, b: 4 }];
+    const xml = buildTTML({ lines: [{ t: 1, end: 4, text, tr: '', bg: {text, tr: ''}, sync: { orig: sync, bgo: sync } }], mode: 'original' });
+    const expected = '<span begin="0:01.000" end="0:02.000">а-</span><span begin="0:02.000" end="0:03.000">а-</span><span begin="0:03.000" end="0:04.000">а</span>';
+    expect(xml).toContain(expected + '<span ttm:role="x-bg">' + expected + '</span>');
+    expect(xml).not.toMatch(/>[-‐‑]а/);
+  }
+});

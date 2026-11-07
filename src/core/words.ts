@@ -6,7 +6,7 @@ export const NBSP = ' ';
 export function units(text: string | null | undefined): Unit[] {
   const out: Unit[] = [];
   String(text || '').split(/[^\S ]+/).filter(Boolean).forEach(tok => {
-    const parts = tok.split('|').filter(Boolean);
+    const parts = tok.replace(/\|([-‐‑]+)/gu, '$1|').split('|').filter(Boolean);
     parts.forEach((w, j) => out.push({ w, sp: j === parts.length - 1 }));
   });
   return out;
@@ -100,7 +100,7 @@ function cutWord(w: string, cuts: number[]) {
   const parts: string[] = []; let cur = '', n = 0, c = 0;
   for (const ch of w) { cur += ch; if (/\p{L}/u.test(ch) && ++n === cuts[c]) { parts.push(cur); cur = ''; c++; } }
   if (cur) { if (/\p{L}/u.test(cur) || !parts.length) parts.push(cur); else parts[parts.length - 1] += cur; } // trailing punctuation stays on the last syllable
-  return parts;
+  return units(parts.join('|')).map(u => u.w);
 }
 /**
  * Split the whole words of a layer that the dictionary knows (only = just these keys). Timings of a split word

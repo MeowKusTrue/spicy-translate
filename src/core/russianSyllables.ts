@@ -68,3 +68,21 @@ export function selectedWordRange(text: string, k: number) {
   }
   return null;
 }
+
+/** Apply a selected word's boundaries to exact repeat lines, preserving each occurrence's timing. */
+export function repeatSyllablePlans(lines: Line[], source: Line, layer: Layer, k: number, word: string) {
+  const original = editorText(source, layer), range = selectedWordRange(original, k);
+  if (!range) return [];
+  const prefix = original.slice(0, range.start).replace(/\|/g, '');
+  return lines.flatMap((line, i) => {
+    const text = editorText(line, layer);
+    if (text.replace(/\|/g, '') !== original.replace(/\|/g, '')) return [];
+    let offset = 0, start = 0;
+    while (start < text.length && offset < prefix.length) { if (text[start] !== '|') offset++; start++; }
+    const target = selectedWordRange(text, units(text.slice(0, start)).length);
+    if (!target) return [];
+    const stop = target.end;
+    const plan = applySyllableDraft(line, layer, text.slice(0, start) + word + text.slice(stop));
+    return 'error' in plan || plan.text === text ? [] : [{ i, ...plan }];
+  });
+}

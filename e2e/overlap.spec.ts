@@ -48,7 +48,7 @@ test('overlapping phrases have separate hit targets, edit independently, undo an
   await expect(page.locator('#pl1')).toHaveCSS('--blur', '0px');
   await page.screenshot({ path: test.info().outputPath('overlap-editor.png') });
   await page.locator('#nav-export').click();
-  await page.locator('#btnShow').click();
+  await page.locator('#btnShow').click(); if (await page.locator('#exportPreflight').isVisible()) await page.locator('#btnExportAnyway').click();
   const times = await page.locator('#out').evaluate(output => {
     const xml = new DOMParser().parseFromString(output.textContent || '', 'application/xml');
     return [...xml.getElementsByTagName('p')].map(p => [p.getAttribute('begin'), p.getAttribute('end')]);

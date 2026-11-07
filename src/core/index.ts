@@ -21,3 +21,5 @@ export * from './karaokeMotion.ts';
 export * from './approval.ts';
 export * from './repeatAll.ts';
 export * from './viewport.ts';
+
+export * from './exportLint.ts';

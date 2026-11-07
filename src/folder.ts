@@ -4,7 +4,7 @@
 import { buildTTML } from './core/index.ts';
 import { S, emit, status } from './state.ts';
 import { idbDel, idbGet, idbPut, loadProject, projectJSON, trackKey } from './persist.ts';
-import { opts, prepareExport } from './exporting.ts';
+import { opts, prepareExport, preflight } from './exporting.ts';
 
 type Invoke = (c: string, a?: unknown, o?: { headers: Record<string, string> }) => Promise<unknown>;
 const invoke = (window as unknown as { __TAURI__?: { core?: { invoke: Invoke } } }).__TAURI__?.core?.invoke;
@@ -76,7 +76,7 @@ export async function saveToFolder() {
   if (!S.lines.length) return status('st2', 'Нечего сохранять — загрузи текст.', 'err');
   if (!cur && !(await pickFolder())) return;
   if (!(await access())) return status('st2', 'Нет доступа к папке — разреши запись или выбери её заново.', 'err');
-  if (!prepareExport()) return;
+  if (!prepareExport() || await preflight() == null) return;
   const f = cur!, b = base();
   try {
     const have = new Set(await f.list());

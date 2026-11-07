@@ -30,7 +30,7 @@ test('original mode excludes translations from TTML and row action buttons never
   const overlaps = await page.locator('#ln0').evaluate(el => { const a = el.querySelector('.txt')!.getBoundingClientRect(), b = el.querySelector('.compact-menu')!.getBoundingClientRect(); return a.right > b.left; });
   expect(overlaps).toBe(false);
   await page.locator('#mode-bilingual').click(); await expect(page.locator('#ln0 .compact-translation')).toBeVisible();
-  await page.locator('#mode-original').click(); await page.locator('#btnStudioExport').click(); await page.locator('#btnShow').click();
+  await page.locator('#mode-original').click(); await page.locator('#btnStudioExport').click(); await page.locator('#btnShow').click(); if (await page.locator('#exportPreflight').isVisible()) await page.locator('#btnExportAnyway').click();
   await expect(page.locator('#out')).toContainText('тихое'); await expect(page.locator('#out')).not.toContainText('quiet');
 });
 

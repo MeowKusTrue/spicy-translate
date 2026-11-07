@@ -32,7 +32,7 @@ test('fit ALL lines and repeat it automatically when exporting; undo preserves t
   expect((await project()).lines.map((l: any) => l.sync)).toEqual(fixture.lines.map(l => l.sync));
   await page.getByRole('button', { name: 'Отменить', exact: true }).click();
   await expect.poll(bounds).toEqual(fixture.lines.map(l => [l.t, l.end]));
-  await page.locator('#btnStudioExport').click(); await page.locator('#btnShow').click();
+  await page.locator('#btnStudioExport').click(); await page.locator('#btnShow').click(); if (await page.locator('#exportPreflight').isVisible()) await page.locator('#btnExportAnyway').click();
   await expect.poll(bounds).toEqual([[1.5, 4.5], [3, 5], [6.5, 7], [11, 15]]);
   await expect(page.locator('#out')).toContainText('ttm:role="x-bg"');
 });
