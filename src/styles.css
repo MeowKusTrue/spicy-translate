@@ -767,3 +767,46 @@ main.page-sync .stage .lyrics-inner{--ls:clamp(27px,4.8cqw,46px)}main.page-sync 
 .export-preflight::backdrop{background:rgba(0,0,0,.65)}
 .export-preflight ol{padding-left:24px}.export-preflight li{padding:8px;border-bottom:1px solid var(--line)}
 .export-preflight>.row{position:sticky;bottom:-22px;padding:14px 0;background:var(--pop);justify-content:flex-end}
+
+/* Structured inline editor, independent from the karaoke font and glow. */
+.preview-edit-host{margin-bottom:24px!important;text-align:left!important}
+.preview-edit{display:flex;flex-direction:column;gap:12px;padding:18px;border:1px solid #647653;border-radius:14px;background:#1b2119;box-shadow:0 12px 36px #0006;max-width:100%;max-height:min(520px,62dvh);overflow:auto;font:400 14px/1.5 system-ui,sans-serif;color:#eef2e8;-webkit-text-fill-color:#eef2e8;text-align:left;letter-spacing:normal}
+.preview-edit-header{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}.preview-edit-header b{font-size:15px;font-weight:650}.preview-edit-header small{margin:0;font-size:12px;color:#bbc4b3;-webkit-text-fill-color:#bbc4b3}
+.preview-edit-tools{display:flex;gap:8px;flex-wrap:wrap}.preview-edit-tools button{font:500 12px/1.4 system-ui;padding:6px 10px;border-color:#48533f;background:#293123;color:#e6eddd;-webkit-text-fill-color:#e6eddd;min-height:32px}.preview-edit-tools button[aria-pressed=true]{border-color:#c6ed87;color:#d4f598;-webkit-text-fill-color:#d4f598}
+.preview-edit #previewEditText{flex:0 1 auto;min-height:76px;max-height:min(240px,26dvh);overflow:auto;padding:12px 14px;border:1px solid #58654c;border-radius:8px;background:#11170e;font:500 clamp(20px,2.1vw,30px)/1.5 system-ui,sans-serif;letter-spacing:normal;white-space:pre-wrap;overflow-wrap:anywhere;color:#f0f2eb;-webkit-text-fill-color:#f0f2eb;outline-offset:2px;caret-color:#d4f598}
+.preview-edit #previewEditText:focus{outline:2px solid #c6ed87;border-color:transparent}.preview-edit-help{margin:0;font:400 12px/1.5 system-ui;color:#bbc4b3;-webkit-text-fill-color:#bbc4b3}
+.preview-edit-actions{position:static;display:flex;align-items:center;flex-wrap:wrap;margin:0;gap:8px}.preview-edit-actions button{font:600 13px/1.4 system-ui;padding:8px 12px;min-height:36px}.preview-edit-stats{margin-right:auto;font:400 11px/1.5 system-ui;color:#bbc4b3;-webkit-text-fill-color:#bbc4b3}.preview-edit-error{position:static;margin:0!important;padding:0;background:none;font:400 12px/1.5 system-ui}
+@media(max-width:600px){.preview-edit{padding:12px;gap:10px}.preview-edit-header{gap:4px}.preview-edit #previewEditText{font-size:20px}.preview-edit-stats{flex-basis:100%}}
+
+.export-preflight{width:min(860px,calc(100vw - 32px));padding:24px}.export-preflight h2{margin-top:0}.export-preflight>p{font-size:13px;line-height:1.6;color:var(--mut)}
+.export-issue-list{display:flex;flex-direction:column;gap:12px}.export-issue{padding:16px;border:1px solid var(--line);border-radius:12px;background:color-mix(in srgb,var(--txt) 3%,var(--pop));font-size:13px;line-height:1.5}
+.export-issue-heading{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}.export-issue-heading b{font-size:13px}.export-issue-heading>span{font-size:11px;border:1px solid var(--line);border-radius:20px;padding:2px 8px}.export-issue-heading .err{color:var(--err,#f4a7a7)}
+.export-issue>small{display:block;color:var(--mut);margin-top:4px}.export-issue blockquote{margin:10px 0;padding:8px 12px;border-left:3px solid var(--acc);background:color-mix(in srgb,var(--acc) 7%,transparent);font-size:16px;font-weight:600;overflow-wrap:anywhere}
+.export-issue-context,.export-issue-advice{color:var(--mut);font-size:12px}.export-issue-context{border-left:2px solid var(--line);padding-left:10px}.export-issue-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.export-issue-actions button{white-space:normal;text-align:left;min-height:36px}.export-preflight>.row{z-index:1;flex-wrap:wrap;bottom:-24px}
+@media(max-width:600px){.export-preflight{padding:16px}.export-issue{padding:12px}.export-issue-actions button{flex:1 1 100%}.export-preflight>.row{bottom:-16px}}
+
+/* Editing owns the preview viewport so the player cannot cover the save controls. */
+.preview-drafting .stage-top,.preview-drafting .preview-edit-hint{display:none}
+.preview-drafting .stage .lyrics{mask-image:none;-webkit-mask-image:none;padding:12px 24px;cursor:default}
+.preview-drafting .lyrics-inner{height:100%;padding:0!important;transform:none!important;transition:none;display:flex;align-items:stretch}
+.preview-drafting .lyrics-inner>.pl:not(.preview-edit-host){display:none}
+.preview-drafting .lyrics-inner>.preview-edit-host{width:100%;height:100%;max-height:100%;margin:0!important;min-height:0}
+.preview-drafting .preview-edit{height:100%;max-height:100%;gap:10px;box-sizing:border-box}
+.preview-drafting .preview-edit-header,.preview-drafting .preview-edit-tools,.preview-drafting .preview-edit-actions,.preview-drafting .preview-edit-help,.preview-drafting .preview-edit-error{flex-shrink:0}
+.preview-drafting .preview-edit-actions{position:sticky;bottom:0;background:#1b2119;padding:6px 0;z-index:1}
+@media(max-width:600px){.preview-drafting .stage .lyrics{padding:8px}.preview-drafting .preview-edit-actions{bottom:0}}
+
+@media(min-width:601px) and (max-height:850px){
+  :root{--studioDockH:min(max(var(--dockH,440px),300px),54vh,max(180px,calc(100dvh - 103px - 100px - 300px)))}
+  main.page-sync .compact-lines>.hint{display:none}
+  main.page-sync .compact-lines>h2{margin-bottom:8px}
+  main.page-sync .compact-lines .line-search{margin-top:8px}
+  main.page-sync .compact-lines .lines{margin-top:8px;min-height:64px}
+}
+
+@media(min-width:601px) and (max-height:850px){
+  .preview-drafting .preview-edit{padding:12px;gap:6px;overflow:hidden}
+  .preview-drafting .preview-edit-help{display:none}
+  .preview-drafting .preview-edit #previewEditText{flex:1 1 76px;min-height:40px;padding:6px 10px;font-size:22px;line-height:1.3}
+  .preview-drafting .preview-edit-actions{position:static;padding:0}
+}
