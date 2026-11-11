@@ -12,7 +12,7 @@ import { setDockH, setupGrip } from '../dockSize.ts';
 import { SYL, forgetAll, setSylMem } from '../syllables.ts';
 import { setAgent } from '../agents.ts';
 import { stretchAll, copyTiming, fitLines, pasteTimingHere, repeatChorus, setAutoFit, setFitPad, shiftLines } from '../lineEdit.ts';
-import { DEVICES, STAGES, alignEta, alignLabel, alignPct, autoAlign, cancelAlign, openAlignPanel, setupLabel, stageFrac } from '../autoAlign.ts';
+import { DEVICES, STAGES, alignEta, alignLabel, alignPct, autoAlign, cancelAlign, importVocals, openAlignPanel, setupLabel, stageFrac } from '../autoAlign.ts';
 import { W, songLen, waveSpec } from '../waveform/wave.ts';
 const setWaveView = (v: typeof S.waveView) => { S.waveView = v; ls.set('waveView', v); emit(); drawWave(); };
 import {
@@ -86,7 +86,7 @@ function AlignCard() {
   const a = S.align!, plan = a.plan?.length ? a.plan : ['demucs', 'karaoke', 'align'], cur = plan.indexOf(a.stage), f = stageFrac();
   return <div className="alcard" id="alignCard">
     <div className="row"><b>✨ {plan.includes('transcribe') ? 'Распознаю и расставляю' : 'Авто-тайминг'}</b><small>{a.device ? DEVICES[a.device] || a.device : ''}</small><span className="sp" />
-      <b className="pct">{alignPct()}%</b><small>{alignEta() && 'ещё ' + alignEta()}</small><button className="sm" id="btnAlignCancel" onClick={cancelAlign}>Отменить</button></div>
+      <b className="pct">{alignPct()}%</b><small>{alignEta() && 'ещё ' + alignEta()}</small><button className="sm" id="btnAlignCancel" disabled={a.stage === 'import'} title={a.stage === 'import' ? 'Проверка загруженного файла: дождись завершения' : 'Отменить обработку'} onClick={cancelAlign}>Отменить</button></div>
     <div className="track"><i style={{ width: alignPct() + '%' }} /></div>
     <div className="stg">{plan.map((s, k) => <span key={s} className={k < cur ? 'ok' : k === cur ? 'on' : ''}>{k < cur ? '✓' : k === cur ? '⏳' : '○'} {STAGES[s] || s}{k === cur && (s === 'align' && a.total ? ` ${a.done}/${a.total}` : f ? ` ${Math.round(f * 100)}%` : '')}</span>)}</div>
     {a.sub && <small className="sub">{a.bytes ? `скачиваю модель${a.sub && !/^download/i.test(a.sub) ? ' ' + a.sub : ''} — ${mb(a.subDone)}${a.subTotal ? ' / ' + mb(a.subTotal) : ''} МБ (только в первый раз)` : a.sub}</small>}
@@ -178,10 +178,12 @@ export function EditorToolbar() {
     <fieldset disabled={!!S.editDraft && S.editDraft.owner !== 'preview'} id="editorCommands" className="editor-commands" hidden={(!studio && simple) || !tools}>
     <div className="bar">
       <b className="ttl">Редактор слов</b>
-      <button className={'sm' + (S.align || S.setup ? ' busy' : '')} id="btnAutoAlign" disabled={!!S.align || !!S.setup} title="Нейросеть расставит слова оригинала и бэка по аудио (черновик пунктиром; размеченное вручную не трогает). Нужен локальный сервер и Python-прототип." onClick={autoAlign}>{S.setup ? '⬇ ' + setupLabel() : S.align ? '⏳ ' + alignLabel() : !S.lines.length ? '✨ Распознать текст' : S.picked.size ? `✨ Авто-тайминг (строк: ${S.picked.size})` : '✨ Авто-тайминг'}</button>
+      <button className="sm" id="btnSeparateVoice" disabled={!S.hasAudio || !!S.align || !!S.setup} title="Только выделить и сохранить вокал. Текст и тайминги не меняются." onClick={() => autoAlign('separate')}>Выделить голос</button>
+      <button className={'sm' + (S.align || S.setup ? ' busy' : '')} id="btnAutoAlign" disabled={!!S.align || !!S.setup} title="Расставить существующие слова по сохранённому вокалу. Новое разделение и новые бэки не запускаются." onClick={() => autoAlign('words')}>{S.setup ? '⬇ ' + setupLabel() : S.align ? '⏳ ' + alignLabel() : S.picked.size ? `Расставить слова (${S.picked.size})` : 'Расставить слова'}</button>
+      <label className="btn sm" title="Загрузить вокал из RX или другого редактора: от начала трека, без обрезки и изменения скорости.">Загрузить вокал<input id="fileVocalsSync" type="file" accept="audio/*" hidden disabled={!S.hasAudio || !!S.align || !!S.setup} onChange={e => { const file = e.target.files?.[0]; if (file) importVocals(file); e.target.value = ''; }} /></label>
       <button className="sm ic" id="btnAlignPanel" title="Авто-тайминг: видеокарта, установка, удаление" onClick={openAlignPanel}>⋯</button>
       {W.peaks && <span className="tseg" title="Волна или спектрограмма: согласные и ноты видно лучше, магнит липнет к их атакам"><button className={S.waveView === 'wave' ? 'on' : ''} id="viewWave" onClick={() => setWaveView('wave')}>волна</button><button className={S.waveView === 'spec' ? 'on' : ''} id="viewSpec" disabled={!waveSpec()} title={waveSpec() ? '' : 'считаю спектрограмму…'} onClick={() => setWaveView('spec')}>{waveSpec() ? 'спектр' : 'спектр…'}</button></span>}
-      {W.vpeaks && <span className="tseg" title="Волна по всему миксу или по вырезанному голосу"><button className={S.waveVoice ? '' : 'on'} onClick={() => { S.waveVoice = false; emit(); drawWave(); }}>микс</button><button className={S.waveVoice ? 'on' : ''} onClick={() => { S.waveVoice = true; emit(); drawWave(); }}>голос</button></span>}
+      {W.vpeaks && <span className="tseg" title="Показать волну микса или голоса (не меняет звук)">Показать: <button className={S.waveVoice ? '' : 'on'} onClick={() => { S.waveVoice = false; emit(); drawWave(); }}>микс</button><button className={S.waveVoice ? 'on' : ''} onClick={() => { S.waveVoice = true; emit(); drawWave(); }}>голос</button></span>}
       <span className="hint-line" id="guideTxt"><Guide /></span>
       <small id="dockMsg" className={S.toast.cls}>{S.toast.msg}</small><span className={'kbd' + (S.typing ? ' warn' : '')} id="kbd">{S.typing ? '⌨ клавиши выключены — кликни по волне' : ''}</span>
       <small className="stat" id="syncStat">{progress.total ? `Тайминги дорожки: ${progress.done}/${progress.total}` : 'На этой дорожке нет текста'}</small>

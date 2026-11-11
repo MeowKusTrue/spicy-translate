@@ -14,6 +14,8 @@ import { startLoop } from './loop.ts';
 import { App } from './ui/App.tsx';
 import { initTheme } from './theme.ts';
 import { initWorkspaceLayout } from './ui/layout.ts';
+import { lastOriginalReference, readLastOriginal } from './audioCache.ts';
+import { session } from './projectSession.ts';
 
 // prefs
 S.snap = ls.get('snap', '1') !== '0';
@@ -48,9 +50,14 @@ startLoop();
 try {
   const last = ls.get('last', null);
   if (last) {
+    const reference = lastOriginalReference();
     LIVE.applying = true; loadProject(last); LIVE.applying = false;
-    const key = trackKey();
-    idbGet(key).then(b => { if (b && key === trackKey() && S.lines.length && !S.hasAudio) loadAudioFile(b, true); });
+    const key = trackKey(), generation = session.generation;
+    // A content reference also works for an audio-only project. Never fall back to a
+    // same-titled old blob when the referenced content is missing or failed to save.
+    (reference ? readLastOriginal(reference) : S.lines.length ? idbGet(key) : Promise.resolve(null)).then(b => {
+      if (b && generation === session.generation && key === trackKey() && !S.hasAudio) void loadAudioFile(b, true);
+    });
     S.save = { msg: '💾 восстановлено', cls: 'ok' }; emit();
   }
 } catch { LIVE.applying = false; }

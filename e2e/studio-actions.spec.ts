@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 const fixture = {v:1,meta:{title:'Protected studio',artist:'Test',lang:'ru',mode:'original',md:[]},lines:[
  {t:0,end:20,text:'тихое море',tr:'quiet sea',sync:{orig:[{a:2,b:3,g:1},{a:5,b:6,g:1}],tr:[{a:2,b:3},{a:5,b:6}]}},
  {t:22,end:32,text:'тихое море',tr:'keep translation',sync:{orig:[{a:24,b:26,g:1},{a:28,b:30,g:1}]}},
@@ -12,7 +13,7 @@ test('manual timing protects a whole phrase and survives reload and subsequent a
  await expect.poll(async()=>(await project()).lines[0].approved?.orig).toBe(true);const manual=(await project()).lines[0].sync.orig;expect(manual.every((w:any)=>!w.g)).toBe(true);
  await page.reload();await page.locator('#nav-sync').click();await expect(page.locator('#ln0 .approved-line')).toBeVisible();
  let started=false;const next=structuredClone(fixture);next.lines[0].sync.orig=[{a:9,b:10,g:1},{a:11,b:12,g:1}];next.lines[1].sync.orig=[{a:23,b:24,g:1},{a:25,b:26,g:1}];
- await page.route('**/api/align',r=>r.fulfill({json:started?{running:false,result:next}:{available:true,running:false}}));await page.route('**/api/align?*',r=>{started=true;return r.fulfill({json:{ok:true}})});await page.route('**/api/align/audio?*',r=>r.fulfill({json:{ok:true}}));
+ await page.route(/\/api\/align(?:\?.*)?$/,r=>{if(r.request().method()==='POST'){started=true;return r.fulfill({json:{ok:true}})}return r.fulfill({json:{available:true,running:false,vocals:true,result:started?next:null}})});await page.route('**/api/align/audio?*',r=>r.fulfill({json:{ok:true,audioKey:createHash('sha256').update(b).digest('hex'),vocals:true}}));await page.route('**/api/align/vocals*',r=>r.fulfill({contentType:'audio/wav',body:b}));
  const b=Buffer.alloc(44+16000*2);b.write('RIFF');b.writeUInt32LE(b.length-8,4);b.write('WAVEfmt ',8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(16000,24);b.writeUInt32LE(32000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write('data',36);b.writeUInt32LE(b.length-44,40);
  await page.locator('#fileAudio').setInputFiles({name:'protected.wav',mimeType:'audio/wav',buffer:b});await page.locator('#btnEditorCommands').click();await page.locator('#btnAutoAlign').click();await expect.poll(async()=>(await project()).lines[1].sync.orig[0].a).toBe(23);expect((await project()).lines[0].sync.orig).toEqual(manual);
 });

@@ -20,7 +20,7 @@ export function TimelineHeaders(){
  return <div className="timeline-headers" aria-label="Дорожки таймлайна">
   <button className={'lane-heading main-heading'+(!S.layer.startsWith('bg')?' active':'')} onClick={()=>setLayer(mkLayer(false,isTr(S.layer)))}><i/><b>Основа</b><small>{W.wordN.main>1?`${W.wordN.main} голоса`:'Ведущий голос'}</small></button>
   <button className={'lane-heading back-heading'+(S.layer.startsWith('bg')?' active':'')} onClick={()=>setLayer(mkLayer(true,isTr(S.layer)))}><i/><b>Бэки</b><small>{W.wordN.bg>1?`${W.wordN.bg} голоса`:'Второй план'}</small></button>
-  <div className="lane-heading audio-heading"><b>Аудио</b><small>{S.waveVoice?'Чистый голос':'Полный микс'}</small><div><button aria-pressed={!S.waveVoice} aria-label="Показать полный микс" onClick={()=>{S.waveVoice=false;emit();drawWave();}}>Микс</button><button disabled={!W.vpeaks} aria-pressed={S.waveVoice} aria-label="Показать выделенный голос" title={W.vpeaks?'Выделенный голос':'Сначала выдели голос через автоматизацию'} onClick={()=>{S.waveVoice=true;emit();drawWave();}}>Голос</button></div></div>
+  <div className="lane-heading audio-heading"><b>Показать</b><small>{S.waveVoice?'Выделенный голос':'Весь трек'}</small><div><button aria-pressed={!S.waveVoice} aria-label="Показать полный микс" onClick={()=>{S.waveVoice=false;emit();drawWave();}}>Микс</button><button disabled={!W.vpeaks} aria-pressed={S.waveVoice} aria-label="Показать выделенный голос" title={W.vpeaks?'Показать волну голоса (не меняет звук)':'Сначала выдели голос через автоматизацию'} onClick={()=>{S.waveVoice=true;emit();drawWave();}}>Голос</button></div></div>
   <div className="lane-heading phrases-heading"><b>Строки</b></div>
  </div>;
 }

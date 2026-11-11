@@ -2,7 +2,7 @@
 // its settings in the top-right corner, the player at the bottom.
 import { memo, useEffect, type CSSProperties } from 'react';
 import { S, emit, ls, setVoff } from '../state.ts';
-import { pause, play, seekTo, setRate, setVolume } from '../audio.ts';
+import { pause, play, seekTo, setRate, setVolume, playbackSource, hasVoiceAudio, setPlaybackSource } from '../audio.ts';
 import { PV } from '../preview.ts';
 import { loadAudioFile } from '../load.ts';
 import { trackKey } from '../persist.ts';
@@ -95,6 +95,7 @@ export function Stage() {
       <input aria-label="Позиция воспроизведения" type="range" id="seek" min="0" max={S.duration} step="0.05" defaultValue="0" onChange={e => seekTo(parseFloat(e.target.value))} />
       <div className="time" id="clock">0:00 / 0:00</div>
       {studio && <select id="studioPlaybackRate" aria-label="Скорость воспроизведения" value={S.rate} onChange={e => setRate(Number(e.target.value))}>{RATES.map(rate => <option key={rate} value={rate}>{rate}×</option>)}</select>}
+      <label title={hasVoiceAudio() ? 'Источник звука; вид таймлайна не меняется' : 'Только голос доступен после выделения через авто-тайминг'}>Слушать: <select id="playbackSource" aria-label="Слушать" disabled={!S.hasAudio} value={playbackSource()} onChange={e => setPlaybackSource(e.target.value as 'mix' | 'voice')}><option value="mix">весь трек</option><option value="voice" disabled={!hasVoiceAudio()}>только голос</option></select></label>
       <div className="player-volume">
         <button className="ic" id="btnMute" aria-label="Включить или выключить звук" title="Включить или выключить звук" onClick={() => { const v = S.vol; if (v > 0) { preMute = v; setVolume(0); } else setVolume(preMute || 0.3); }}>{S.vol === 0 ? '🔇' : S.vol < 0.4 ? '🔉' : '🔊'}</button>
         <Slider id="vol" min={0} max={1} step={0.01} value={S.vol} onChange={setVolume} title="Громкость" /><span className="val">{Math.round(S.vol * 100)}%</span>

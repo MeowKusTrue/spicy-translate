@@ -2,7 +2,7 @@ import { isApp } from '../desktop.ts';
 // Left column: 1 search/load, 2 translation + line editor, 3 export + QA.
 import { mmss, plainW, stopLine, wordList } from '../core/index.ts';
 import { S, doubtful, emit, lineState, mainLayerFor, status } from '../state.ts';
-import { seekTo } from '../audio.ts';
+import { seekTo, hasVoiceAudio } from '../audio.ts';
 import { buildPreview } from '../preview.ts';
 import { idbPut, listSnaps, newEmptyProject, loadProject, restoreSnap, scheduleSave, snapshot, trackKey, type Snap } from '../persist.ts';
 import { loadManual, loadTrack, openLyricsFile, search, setMode } from '../load.ts';
@@ -23,7 +23,7 @@ import { setPage } from '../hotkeys.ts';
 import { META_KEYS, openMeta } from './MetaModal.tsx';
 /** «✍ Автор: A, B · 💿 Album» for the export card */
 const metaSummary = () => S.meta.md.map(m => { const v = m.value.filter(x => x.trim()); const d = META_KEYS.find(k => k[0] === m.key); return v.length ? (d ? d[2] : m.key + ':') + ' ' + v.join(', ') : ''; }).filter(Boolean).join(' · ');
-import { openFolder } from '../autoAlign.ts';
+import { autoAlign, importVocals, openFolder } from '../autoAlign.ts';
 import { loadAudioFile } from '../load.ts';
 import { W } from '../waveform/wave.ts';
 import type { Page } from '../state.ts';
@@ -361,8 +361,11 @@ export function AudioCard() {
   return <section className="card">
     <h2>Аудио</h2>
     <div className="row" style={{ flexWrap: 'wrap' }}>
-      <label className="btn pri">♪ Выбрать аудиофайл<input type="file" accept="audio/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) loadAudioFile(f); e.target.value = ''; }} /></label>
+      <label className="btn pri">♪ Выбрать аудиофайл<input id="fileAudioCard" type="file" accept="audio/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) loadAudioFile(f); e.target.value = ''; }} /></label>
+      <button className="btn sm" id="btnExtractVocals" disabled={!S.hasAudio || !!S.align || !!S.setup} onClick={() => autoAlign('separate')}>Выделить голос</button>
+      <label className="btn sm" title="Вокал из RX/DAW: тот же старт и длительность, без обрезки и изменения темпа">Загрузить вокал из RX / файла<input id="fileVocalsCard" type="file" accept="audio/*" hidden disabled={!S.hasAudio || !!S.align || !!S.setup} onChange={e => { const file = e.target.files?.[0]; if (file) importVocals(file); e.target.value = ''; }} /></label>
       <span className={'hint' + (S.hasAudio ? ' okc' : '')} style={{ margin: 0 }}>{S.hasAudio ? (W.peaks ? '✓ аудио и волна готовы' : '✓ аудио подключено') : 'Или перетащи файл на страницу — по имени файла подберу текст.'}</span>
+      {hasVoiceAudio() && <span className="hint okc">✓ Вокал подключён. Выбор «Слушать» у плеера меняет звук.</span>}
     </div>
   </section>;
 }

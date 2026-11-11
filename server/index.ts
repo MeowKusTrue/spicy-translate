@@ -8,6 +8,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { directorySize } from './directorySize.ts';
@@ -154,7 +155,7 @@ async function setupAlign(want?: Backend) {
   step('готово', 100); SETUP.done = true;
 }
 /** bump when the editor needs new server endpoints (3: auto-timing install / GPU / open folder) */
-const API = 19; // 15: original project/export mode · 14: moved data paths and GPU memory · 13: selectable ASR / aligner and backing candidates · 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes · 10: install pins torch, Python found without LOCALAPPDATA · 11: installs noted for each other (python-path.txt) · 12: /api/spell
+const API = 21; // 21: independent separation/words and durable keyed audio · 20: ASR location of known lyric lines · 15: original project/export mode · 14: moved data paths and GPU memory · 13: selectable ASR / aligner and backing candidates · 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes · 10: install pins torch, Python found without LOCALAPPDATA · 11: installs noted for each other (python-path.txt) · 12: /api/spell
 /* ---------- Genius (lyrics makers take the text from there). No CORS for pages, so the server fetches them. ---------- */
 const GH = { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', 'accept-language': 'en-US,en;q=0.9' };
 type GeniusHit = { id: number; title: string; artist: string; url: string; art: string };
@@ -198,27 +199,114 @@ async function geniusWriters(id: string): Promise<{ writers: string[]; album: st
   return { writers: (s?.writer_artists || []).map(a => a.name), album: s?.album?.name || '' };
 }
 const AL = { running: false, stage: '', done: 0, total: 0, error: '', out: '', vocals: '', audio: '', device: '', log: [] as string[],
+  audioKey: '', runId: '', operation: '', sep: 'htdemucs', busy: false,
   plan: [] as string[], sub: '', subDone: 0, subTotal: 0, bytes: false, t0: 0, child: null as ReturnType<typeof spawn> | null, cancel: false };
 const alDir = () => { const d = path.join(DATA, 'align'); fs.mkdirSync(d, { recursive: true }); return d; };
-function readBody(req: http.IncomingMessage): Promise<Buffer> { return new Promise((res, rej) => { const ch: Buffer[] = []; req.on('data', c => ch.push(c)); req.on('end', () => res(Buffer.concat(ch))); req.on('error', rej); }); }
+function readBody(req: http.IncomingMessage, limit = 512 * 1024 * 1024): Promise<Buffer> { return new Promise((res, rej) => { const ch: Buffer[] = []; let size = 0; req.on('data', c => { size += c.length; if (size > limit) { ch.length = 0; rej(Object.assign(new Error('тело запроса слишком большое'), { status: 413 })); } else ch.push(c); }); req.on('end', () => res(Buffer.concat(ch))); req.on('error', rej); }); }
+const cacheDir = (key: string) => path.join(alDir(), 'cache', key);
+const separator = (u: URL) => u.searchParams.get('sep') === 'roformer' ? 'roformer' : 'htdemucs';
+function cachedVocal(key: string, sep: string): { file: string; source: string } {
+  if (!/^[a-f0-9]{64}$/.test(key)) return { file: '', source: '' };
+  const dir = cacheDir(key), imported = path.join(dir, 'imported.wav');
+  const committed = (file: string, marker: string, source: string, model?: string) => {
+    try {
+      const meta = JSON.parse(fs.readFileSync(marker, 'utf8'));
+      return fs.statSync(file).isFile() && fs.statSync(file).size > 0 && meta.source === source && (!model || meta.model === model);
+    } catch { return false; }
+  };
+  if (committed(imported, path.join(dir, 'imported.json'), 'imported')) return { file: imported, source: 'imported' };
+  const stems = path.join(dir, sep, 'out.spicy.stems');
+  if (sep === 'roformer') {
+    const file = path.join(stems, 'vocals-roformer.wav');
+    if (committed(file, file + '.json', 'roformer', 'vocals_mel_band_roformer.ckpt')) return { file, source: 'roformer' };
+  }
+  // A completed RoFormer -> Demucs fallback is reusable, but never labelled as RoFormer.
+  const file = path.join(stems, 'vocals.wav');
+  return committed(file, file + '.json', 'htdemucs', 'htdemucs') ? { file, source: 'htdemucs' } : { file: '', source: '' };
+}
+// Decode the full audio, not container metadata: rejects corrupt files and measures decoded duration.
+// The private Python's ffmpeg directory is prepended just as it is for align.py.
+function checkAudio(file: string, output?: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const py = alignEnv()?.py;
+    const p = spawn('ffmpeg', ['-nostdin', '-v', 'error', '-xerror', '-i', file, '-map', '0:a:0', '-vn', '-progress', 'pipe:1', ...(output ? ['-y', '-c:a', 'pcm_s16le', output] : ['-f', 'null', '-'])], { windowsHide: true, env: { ...process.env, PATH: (py ? path.dirname(py) + path.delimiter : '') + (process.env.PATH || '') } });
+    let text = '', duration = 0; const timer = setTimeout(() => { p.kill(); reject(new Error('проверка аудио: превышено время ожидания')); }, 180000);
+    p.stdout.on('data', d => { text += d; const lines = text.split(/\r?\n/); text = lines.pop() || ''; for (const line of lines) if (line.startsWith('out_time_us=')) duration = Math.max(duration, Number(line.slice(12)) / 1e6 || 0); });
+    p.stderr.on('data', () => {});
+    p.on('error', () => { clearTimeout(timer); reject(new Error('ffmpeg недоступен для проверки аудио')); });
+    p.on('close', code => { clearTimeout(timer); if (code || !duration) reject(new Error('не удалось декодировать аудио')); else resolve(duration); });
+  });
+}
 const json = (res: http.ServerResponse, o: unknown, code = 200) => { res.statusCode = code; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(o)); };
 async function alignRoute(req: http.IncomingMessage, res: http.ServerResponse, u: URL) {
   if (u.pathname === '/api/align/audio' && req.method === 'POST') { // the page uploads its audio once per track
-    const ext = (u.searchParams.get('ext') || 'mp3').replace(/[^a-z0-9]/gi, '').slice(0, 5) || 'mp3';
-    AL.audio = path.join(alDir(), 'audio.' + ext); fs.writeFileSync(AL.audio, await readBody(req));
-    fs.rmSync(path.join(alDir(), 'out.spicy.stems'), { recursive: true, force: true }); // the prototype caches stems next to its output (OUT minus .json + .stems): new audio = new stems
-    AL.vocals = '';
-    return json(res, { ok: true, bytes: fs.statSync(AL.audio).size });
+    if (AL.running || AL.busy) return json(res, { error: 'идёт операция с аудио' }, 409);
+    AL.busy = true;
+    try {
+      const body = await readBody(req); if (!body.length) return json(res, { error: 'пустое аудио' }, 400);
+      const key = createHash('sha256').update(body).digest('hex'), dir = cacheDir(key);
+      fs.mkdirSync(dir, { recursive: true });
+      // Fixed name is intentional: ffmpeg detects format from bytes, not an untrusted suffix.
+      const audio = path.join(dir, 'original');
+      if (!fs.existsSync(audio)) {
+        const temp = path.join(dir, randomUUID());
+        try { fs.writeFileSync(temp, body); fs.renameSync(temp, audio); }
+        finally { if (fs.existsSync(temp)) fs.unlinkSync(temp); }
+      }
+      const voc = cachedVocal(key, separator(u));
+      Object.assign(AL, { audio, audioKey: key, vocals: voc.file, sep: separator(u), out: '', error: '', runId: '', operation: '', stage: '' });
+      return json(res, { ok: true, bytes: body.length, audioKey: key, vocals: !!voc.file });
+    } finally { AL.busy = false; }
+  }
+  if (u.pathname === '/api/align/vocals' && req.method === 'POST') {
+    if (AL.running || AL.busy) return json(res, { error: 'идёт операция с аудио' }, 409);
+    const key = u.searchParams.get('audioKey') || '';
+    if (!/^[a-f0-9]{64}$/.test(key)) return json(res, { error: 'неверный audioKey' }, 400);
+    if (key !== AL.audioKey || !AL.audio) return json(res, { error: 'исходное аудио изменилось; загрузи его снова' }, 409);
+    AL.busy = true;
+    const dir = cacheDir(key), temp = path.join(dir, randomUUID()), wav = temp + '.wav', marker = temp + '.json';
+    try {
+      const body = await readBody(req); if (!body.length) return json(res, { error: 'пустой вокал' }, 400);
+      fs.writeFileSync(temp, body);
+      let original: number, vocal: number;
+      try { original = await checkAudio(AL.audio); vocal = await checkAudio(temp, wav); }
+      catch (e) { return json(res, { error: String((e as Error).message) }, 422); }
+      if (Math.abs(original - vocal) > Math.max(.25, original * .005)) return json(res, { error: 'длительность вокала не совпадает с оригиналом', originalDuration: original, vocalDuration: vocal }, 422);
+      fs.writeFileSync(marker, JSON.stringify({ source: 'imported', importedAt: new Date().toISOString(), originalDuration: original, vocalDuration: vocal }));
+      const target = path.join(dir, 'imported.wav'); fs.renameSync(wav, target);
+      fs.renameSync(marker, path.join(dir, 'imported.json'));
+      AL.vocals = target; AL.out = ''; AL.runId = ''; AL.error = '';
+      return json(res, { ok: true, bytes: body.length, audioKey: key, vocals: true, vocalSource: 'imported' });
+    } finally { for (const f of [temp, wav, marker]) if (fs.existsSync(f)) fs.unlinkSync(f); AL.busy = false; }
   }
   if (u.pathname === '/api/align' && req.method === 'POST') {
-    if (AL.running) return json(res, { error: 'уже идёт' }, 409);
+    if (AL.running || AL.busy) return json(res, { error: 'уже идёт' }, 409);
+    const operation = u.searchParams.get('operation') || 'align';
+    if (!['align', 'words', 'separate'].includes(operation)) return json(res, { error: 'неверная operation' }, 400);
+    if (u.searchParams.has('audioKey') && u.searchParams.get('audioKey') !== AL.audioKey) return json(res, { error: 'исходное аудио изменилось' }, 409);
     const env = alignEnv();
     if (!env) return json(res, { error: 'авто-тайминг не установлен — нажми «Установить авто-тайминг» (или поставь по experiments/auto-align/README.md, SPICY_ALIGN_DIR / SPICY_ALIGN_PY)' }, 501);
     if (!AL.audio || !fs.existsSync(AL.audio)) return json(res, { error: 'сначала загрузи аудио' }, 400);
-    const inp = path.join(alDir(), 'in.spicy.json'), out = path.join(alDir(), 'out.spicy.json');
-    fs.writeFileSync(inp, await readBody(req)); try { fs.unlinkSync(out); } catch {}
-    Object.assign(AL, { running: true, stage: 'start', done: 0, total: 0, error: '', out: '', vocals: '', device: '', log: [], plan: [], sub: '', subDone: 0, subTotal: 0, bytes: false, t0: Date.now(), cancel: false });
+    const sep = separator(u), vocal = cachedVocal(AL.audioKey, sep);
+    if (operation === 'words' && !vocal.file) return json(res, { error: 'сначала выдели или импортируй вокал' }, 409);
+    if (operation === 'words' && (u.searchParams.get('detectBack') === '1' || u.searchParams.get('transcribe') === '1')) return json(res, { error: 'words обрабатывает только существующий текст, без новых слов и бэков' }, 400);
+    const dir = path.join(cacheDir(AL.audioKey), sep); fs.mkdirSync(dir, { recursive: true });
+    const inp = path.join(dir, 'in.spicy.json'), out = path.join(dir, 'out.spicy.json');
+    AL.busy = true;
+    try {
+      const body = await readBody(req, 16 * 1024 * 1024);
+      try {
+        const project = JSON.parse(String(body)); if (!Array.isArray(project.lines)) throw new Error();
+        if (operation === 'words' && !project.lines.length) return json(res, { error: 'сначала добавь существующий текст' }, 400);
+      } catch { return json(res, { error: 'нужен проект с lines[]' }, 400); }
+      fs.writeFileSync(inp, body);
+    } finally { AL.busy = false; }
+    try { fs.unlinkSync(out); } catch {}
+    Object.assign(AL, { running: true, runId: randomUUID(), operation, sep, stage: 'start', done: 0, total: 0, error: '', out: '', vocals: vocal.file, device: '', log: [], plan: [], sub: '', subDone: 0, subTotal: 0, bytes: false, t0: Date.now(), cancel: false });
     const opt = C.alignArgs(u.searchParams);
+    if (operation === 'separate') opt.push('--separate-only');
+    // Legacy detect-back may need karaoke stems; words-only and imported audio never re-separate.
+    if (vocal.file && (operation !== 'align' || vocal.source === 'imported')) opt.push('--vocal-file', vocal.file);
     const p = spawn(env.py, [path.join(env.dir, 'align.py'), AL.audio, inp, '-o', out, '--json-progress', ...opt], { cwd: env.dir, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8', PATH: path.dirname(env.py) + path.delimiter + (process.env.PATH || '') } });
     let buf = '';
     p.stdout.on('data', d => {
@@ -237,7 +325,7 @@ async function alignRoute(req: http.IncomingMessage, res: http.ServerResponse, u
     AL.child = p;
     p.on('error', e => { AL.running = false; AL.error = e.message; });
     p.on('close', code => { AL.running = false; AL.child = null; if (AL.cancel) AL.error = 'отменено'; if (code && !AL.error) AL.error = `align.py завершился с кодом ${code}: ${AL.log.join('').slice(-400)}`; if (!AL.out && fs.existsSync(out)) AL.out = out; });
-    return json(res, { ok: true });
+    return json(res, { ok: true, runId: AL.runId });
   }
   if (u.pathname === '/api/align/gpu') return json(res, process.platform === 'win32' ? await detectGpu() : { names: [], backend: 'cpu', why: 'не Windows' });
   if (u.pathname === '/api/align/setup' && req.method === 'POST') {
@@ -271,11 +359,15 @@ async function alignRoute(req: http.IncomingMessage, res: http.ServerResponse, u
   }
   if (u.pathname === '/api/align' && req.method === 'GET') {
     const env = alignEnv(), result = !AL.running && AL.out && fs.existsSync(AL.out) ? JSON.parse(fs.readFileSync(AL.out, 'utf8')) : null;
-    return json(res, { available: !!env, canSetup: process.platform === 'win32' && !!(process.env.SPICY_ALIGN_DIR || fs.existsSync(path.join(root, 'experiments', 'auto-align'))), running: AL.running, stage: AL.stage, done: AL.done, total: AL.total, device: AL.device, error: AL.error, plan: AL.plan, sub: AL.sub, subDone: AL.subDone, subTotal: AL.subTotal, bytes: AL.bytes, elapsed: AL.running ? Date.now() - AL.t0 : 0, hasAudio: !!AL.audio, vocals: !!AL.vocals && fs.existsSync(AL.vocals), result });
+    const vocal = cachedVocal(AL.audioKey, u.searchParams.has('sep') ? separator(u) : AL.sep);
+    return json(res, { audioKey: AL.audioKey, runId: AL.runId, operation: AL.operation, vocalSource: vocal.source, available: !!env, canSetup: process.platform === 'win32' && !!(process.env.SPICY_ALIGN_DIR || fs.existsSync(path.join(root, 'experiments', 'auto-align'))), running: AL.running, stage: AL.stage, done: AL.done, total: AL.total, device: AL.device, error: AL.error, plan: AL.plan, sub: AL.sub, subDone: AL.subDone, subTotal: AL.subTotal, bytes: AL.bytes, elapsed: AL.running ? Date.now() - AL.t0 : 0, hasAudio: !!AL.audio, vocals: !!vocal.file, result });
   }
   if (u.pathname === '/api/align/vocals' && req.method === 'GET') { // the separated voice, for a clearer waveform
-    if (!AL.vocals || !fs.existsSync(AL.vocals)) return json(res, { error: 'нет' }, 404);
-    res.setHeader('content-type', 'audio/wav'); return fs.createReadStream(AL.vocals).pipe(res);
+    const key = u.searchParams.get('audioKey') || AL.audioKey;
+    if (!/^[a-f0-9]{64}$/.test(key)) return json(res, { error: 'неверный audioKey' }, 400);
+    const vocal = cachedVocal(key, u.searchParams.has('sep') ? separator(u) : AL.sep);
+    if (!vocal.file) return json(res, { error: 'нет' }, 404);
+    res.setHeader('content-type', 'audio/wav'); return fs.createReadStream(vocal.file).pipe(res);
   }
   json(res, { error: 'not found' }, 404);
 }
@@ -304,7 +396,7 @@ const server = http.createServer((req, res) => {
   if (u.pathname === '/api/spell' && req.method === 'POST') { readBody(req).then(b => spell(JSON.parse(String(b)))).then(r => json(res, r), e => json(res, { error: e.message }, 502)); return; }
   if (u.pathname === '/api/genius/writers') { geniusWriters(u.searchParams.get('id') || '').then(r => json(res, r), e => json(res, { error: e.message }, 502)); return; }
   if (u.pathname === '/api/genius/lyrics') { geniusText(u.searchParams.get('url') || '').then(text => json(res, { text }), e => json(res, { error: e.message }, 502)); return; }
-  if (u.pathname.startsWith('/api/align')) { alignRoute(req, res, u).catch(e => json(res, { error: String(e?.message || e) }, 500)); return; }
+  if (u.pathname.startsWith('/api/align')) { alignRoute(req, res, u).catch(e => json(res, { error: String(e?.message || e) }, e?.status || 500)); return; }
   if (u.pathname === '/' || u.pathname === '/index.html') {
     if (!fs.existsSync(htmlPath)) { res.statusCode = 503; res.setHeader('content-type', 'text/plain; charset=utf-8'); return res.end('Редактор не собран: запусти `npm run build` в ' + root); }
     res.setHeader('content-type', 'text/html; charset=utf-8'); return res.end(fs.readFileSync(htmlPath));
@@ -458,7 +550,7 @@ if (!process.argv.includes('--http')) {
     const { id, method, params } = msg;
     if (id === undefined) return; // notification
     try {
-      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.6.1' } } });
+      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.7.0' } } });
       if (method === 'ping') return send({ id, result: {} });
       if (method === 'tools/list') return send({ id, result: { tools: Object.entries(tools).map(([name, t]) => ({ name, description: t.description, inputSchema: t.schema })) } });
       if (method === 'tools/call') {

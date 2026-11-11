@@ -64,11 +64,11 @@ export async function liveInit() {
 }
 
 /** the editor is newer than the running server (e.g. the MCP server started before an update): say so and how to fix */
-export const SERVER_API = 19; // Genius (text, songwriters) goes through the server
+export const SERVER_API = 21; // Genius (text, songwriters) goes through the server
 export async function checkServer() {
   const api = await fetch('/api/version').then(r => r.ok ? r.json() : {}).then((j: { api?: number }) => +(j.api || 0)).catch(() => 0);
   if (api >= SERVER_API) return true;
   S.live = { msg: 'сервер устарел ⟳', cls: 'warn' }; emit();
-  toast('Сервер на этом порту запущен из старой версии (часто это MCP-сервер Claude, запущенный до обновления): Genius, авто-тайминг и папки не заработают. Перезапусти его: в Claude Code /mcp → spicy-translate → Reconnect, или закрой Claude Code и открой редактор снова.', 'err');
+  toast(`Интерфейс требует сервер API ${SERVER_API}, а на этом порту ${api ? 'работает API ' + api : 'версия недоступна'}. Сохрани проект и перезапусти сервер редактора. В приложении — закрой и открой его; для MCP — Reconnect сервера spicy-translate. Текст и ручные тайминги остаются доступны.`, 'err');
   return false;
 }

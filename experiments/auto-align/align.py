@@ -10,6 +10,7 @@ Fills lines[].sync.orig / .bgo with {a, b, g:1}; hand-marked spans (no g) are ke
 """
 import argparse, json, os, re, subprocess, sys, wave
 import numpy as np
+from line_windows import locate_line_windows
 
 SR = 16000
 FREE_PEN = 0.5   # per-frame cost of "not this line" at window edges; higher = line spreads wider
@@ -93,7 +94,13 @@ def viterbi(lp, toks, blank, free_pen=FREE_PEN, bias=None):
 
 def to_units(us, tok_unit, spans, fdur, t0, t1):
     """token spans -> [(a, b)] per unit; units without letters are put between neighbours"""
-    n = len(us); a = [None] * n; rb = [None] * n
+    n = len(us)
+    # Output is millisecond-rounded: reserve a positive representable slot per unit.
+    if not n or not np.isfinite(t0) or not np.isfinite(t1): return None
+    t0, t1 = np.ceil(t0 * 1000) / 1000, np.floor(t1 * 1000) / 1000
+    min_w = min(MIN_W, np.floor((t1 - t0) * 1000 / n + 1e-9) / 1000)
+    if min_w < .001: return None
+    a = [None] * n; rb = [None] * n
     for u, (s, e) in zip(tok_unit, spans):
         if a[u] is None: a[u] = t0 + s * fdur
         rb[u] = t0 + e * fdur
@@ -116,12 +123,15 @@ def to_units(us, tok_unit, spans, fdur, t0, t1):
         ai = max(a[i], out[-1][1]) if out else a[i]
         b = rb[i] + HOLD
         if i + 1 < n: b = min(b, max(a[i + 1], rb[i]))
-        b = min(b, t1)
+        ceiling = t1 - (n - i - 1) * min_w
+        b = min(b, ceiling)
         if b - ai < SHORT:  # too short to see: start earlier, into the previous word's hold (CTC onsets run late anyway)
             floor = max(rb[i - 1], out[-1][0] + MIN_W) if out else t0
             ai = max(min(ai, b - SHORT), floor)
             if out and out[-1][1] > ai: out[-1] = (out[-1][0], ai)
-        out.append((ai, max(b, ai + MIN_W)))
+        floor = out[-1][1] if out else t0
+        ai = min(max(ai, floor), ceiling - min_w)
+        out.append((ai, min(ceiling, max(b, ai + min_w))))
     return [(round(x, 3), round(y, 3)) for x, y in out]
 
 
@@ -189,11 +199,28 @@ def separate(song, work, device, karaoke=True, emit=lambda **k: None, sep='htdem
     os.makedirs(work, exist_ok=True)
     tag = '' if sep == 'htdemucs' else '-' + sep
     voc = os.path.join(work, f'vocals{tag}.wav')
+    def committed(file, source):
+        try:
+            with open(file + '.json', encoding='utf-8') as f: meta = json.load(f)
+            return os.path.isfile(file) and os.path.getsize(file) > 0 and meta == {'source': source, 'model': ROFORMER if source == 'roformer' else 'htdemucs'}
+        except (OSError, ValueError): return False
     emit(stage='demucs', done=0, total=1)
-    if sep == 'roformer' and not os.path.exists(voc):
-        try: roformer_vocals(song, voc, work)
-        except Exception as e: print(f'roformer failed ({type(e).__name__}: {e}); using htdemucs', file=sys.stderr); voc = os.path.join(work, 'vocals.wav')
-    if not os.path.exists(voc):
+    fallback = os.path.join(work, 'vocals.wav')
+    ready = committed(voc, sep)
+    if sep == 'roformer' and not ready:
+        if committed(fallback, 'htdemucs'): voc, ready = fallback, True
+        else:
+            temp_voc = voc + '.tmp.wav'
+            try:
+                roformer_vocals(song, temp_voc, work)
+                os.replace(temp_voc, voc)
+                ready = True
+            except Exception as e:
+                print(f'roformer failed ({type(e).__name__}: {e}); using htdemucs', file=sys.stderr)
+                voc, ready = fallback, committed(fallback, 'htdemucs')
+            finally:
+                if os.path.exists(temp_voc): os.remove(temp_voc)
+    if not ready:
         import torch
         from demucs.pretrained import get_model
         from demucs.apply import apply_model
@@ -203,10 +230,23 @@ def separate(song, work, device, karaoke=True, emit=lambda **k: None, sep='htdem
             ref = wav.mean(0); mu, sd = ref.mean(), ref.std() + 1e-8
             with torch.no_grad():
                 out = apply_model(m, ((wav - mu) / sd)[None], device=dev, split=True, overlap=0.25, progress=True)[0]  # progress: tqdm -> hook_tqdm
-            write_wav(voc, (out[m.sources.index('vocals')] * sd + mu).cpu().numpy(), m.samplerate)
+            temp_voc = voc + '.tmp.wav'
+            try:
+                write_wav(temp_voc, (out[m.sources.index('vocals')] * sd + mu).cpu().numpy(), m.samplerate)
+                os.replace(temp_voc, voc)
+            finally:
+                if os.path.exists(temp_voc): os.remove(temp_voc)
             del m; torch.cuda.empty_cache() if str(dev) == 'cuda' else None
         # DirectML has no complex STFT, which htdemucs needs: Demucs goes to the CPU there right away
         on_device('cpu' if dev_name(device) == 'dml' else device, demucs, 'demucs')
+    actual_sep = 'roformer' if os.path.basename(voc) == 'vocals-roformer.wav' else 'htdemucs'
+    marker = voc + '.json.tmp'
+    try:
+        with open(marker, 'w', encoding='utf-8') as f:
+            json.dump({'source': actual_sep, 'model': ROFORMER if actual_sep == 'roformer' else 'htdemucs'}, f)
+        os.replace(marker, voc + '.json')
+    finally:
+        if os.path.exists(marker): os.remove(marker)
     emit(stage='demucs', done=1, total=1)
     back = os.path.join(work, f'backing{tag}.wav')
     lead = os.path.join(work, f'lead{tag}.wav')
@@ -375,19 +415,23 @@ def transcribe(voc, device, lang=None, model='turbo', progress_stage='transcribe
     d = dev_name(device); cuda = d == 'cuda'
     asr = pipeline('automatic-speech-recognition', model=WHISPER_MODELS[model], dtype=torch.float16 if cuda else torch.float32,
                    device=device if d in ('cuda', 'xpu', 'cpu') else 'cpu')
-    gen = {'task': 'transcribe', **({'language': lang} if lang else {})}
+    gen = {'task': 'transcribe', 'num_beams': 1, **({'language': lang} if lang else {})}
     loud = np.sqrt(np.mean(voc ** 2)) + 1e-9
-    words, ws = [], windows(voc)
+    # Full large-v3 word timestamps retain cross-attention; 28 s can exhaust a 10 GB GPU.
+    words, ws = [], (windows(voc, most=12.0, least=8.0) if model == 'large-v3' else windows(voc))
     for k, (s, e) in enumerate(ws):
         stage(progress_stage, k, len(ws))
         x = voc[s:e]
         if np.sqrt(np.mean(x ** 2)) < 0.08 * loud: continue  # no singing here: Whisper would make something up
         out = asr({'raw': x, 'sampling_rate': SR}, return_timestamps='word', generate_kwargs=gen)
         if HALLUCINATIONS.search(out.get('text') or ''): continue
+        chunk_start = len(words)
         for c in out.get('chunks') or []:
             w = (c.get('text') or '').strip(); a, b = (c.get('timestamp') or (None, None))
             if not w or a is None: continue
-            if words and w[0] in '-–' and not w.startswith('--'):  # «А-а-а» comes as «А», «-а», «-а»: one word
+            if (len(words) > chunk_start and w[0] in '-–' and not w.startswith('--')
+                    and words[-1][2] is not None and words[-1][1] <= s / SR + float(a)
+                    and abs(s / SR + float(a) - words[-1][2]) <= 0.15):  # adjacent «А», «-а», «-а»: one word
                 words[-1][0] += w; words[-1][2] = s / SR + float(b if b is not None else a + 0.3); continue
             words.append([w, s / SR + float(a), s / SR + float(b) if b is not None else None])
     for k, w in enumerate(words):  # whisper leaves some ends open
@@ -482,17 +526,20 @@ def fill(project, aligned_for, force=False):
 
 
 def untangle(project):
-    """per layer, all lines as one sequence: an auto span (g) starts after the previous span ends and stops
-    at the next span's start (so a line's last word stops at the next line's first word); hand spans never move"""
-    for layer in ('orig', 'bgo'):
-        seq = [x for ln in project['lines'] for x in ((ln.get('sync') or {}).get(layer) or [])
-               if x and x.get('a') is not None and x.get('b') is not None]
-        protected = {id(x) for ln in project['lines'] if (ln.get('approved') or {}).get(layer) for x in ((ln.get('sync') or {}).get(layer) or [])}
-        for i, x in enumerate(seq):
-            if not x.get('g') or id(x) in protected: continue
-            if i: x['a'] = round(max(x['a'], seq[i - 1]['b']), 3)
-            if i + 1 < len(seq) and seq[i + 1]['a'] >= x['a'] + MIN_W: x['b'] = min(x['b'], seq[i + 1]['a'])
-            x['b'] = round(max(x['b'], x['a'] + MIN_W), 3)
+    """Repair auto spans within each independent line/layer; hand and approved spans never move."""
+    for ln in project['lines']:
+        for layer in ('orig', 'bgo'):
+            if (ln.get('approved') or {}).get(layer): continue
+            seq = [x for x in ((ln.get('sync') or {}).get(layer) or [])
+                   if x and x.get('a') is not None and x.get('b') is not None]
+            for i, x in enumerate(seq):
+                if not x.get('g'): continue
+                old = (x['a'], x['b'])
+                min_w = min(MIN_W, max(.001, x['b'] - x['a']))
+                if i: x['a'] = round(max(x['a'], seq[i - 1]['b']), 3)
+                if i + 1 < len(seq) and seq[i + 1]['a'] >= x['a'] + min_w: x['b'] = min(x['b'], seq[i + 1]['a'])
+                x['b'] = round(max(x['b'], x['a'] + min_w), 3)
+                if (x['a'], x['b']) != old: x['c'] = 0.0
 
 
 def report(project):
@@ -501,8 +548,8 @@ def report(project):
     for i, ln in enumerate(L):
         for layer in ('orig', 'bgo'):
             s = (ln.get('sync') or {}).get(layer) or []
-            r['overlaps'] += sum(s[k]['a'] < s[k - 1]['b'] - 0.002 for k in range(1, len(s)))
-            r['short'] += sum(x['b'] - x['a'] < 0.08 for x in s)
+            r['overlaps'] += sum(int(s[k]['a'] < s[k - 1]['b'] - 0.002) for k in range(1, len(s)))
+            r['short'] += sum(int(x['b'] - x['a'] < 0.08) for x in s)
         s = (ln.get('sync') or {}).get('orig')
         if not s: continue
         r['overlaps'] += int(prev is not None and s[0]['a'] < prev - 0.05)
@@ -521,11 +568,14 @@ def main(argv=None):
     ap.add_argument('--model', help='HF wav2vec2 CTC model instead of the per-language default')
     ap.add_argument('--pad', type=float, default=1.5, help='s of slack around LRC t..end (default 1.5)')
     ap.add_argument('--no-separation', action='store_true', help='align on the mix as is (a cappella / tests)')
+    ap.add_argument('--separate-only', action='store_true', help='extract vocals and return the unchanged project; no ASR or alignment')
+    ap.add_argument('--vocal-file', help='existing local vocal stem; never run separation when supplied')
     ap.add_argument('--no-karaoke', action='store_true', help='skip lead/backing split')
     ap.add_argument('--force', action='store_true', help='re-align hand-marked layers too and print error vs them')
     ap.add_argument('--json-progress', action='store_true', help='stdout: one JSON object per line (for the editor server)')
     ap.add_argument('--sep', choices=['htdemucs', 'roformer'], default='htdemucs', help='vocal separator')
     ap.add_argument('--transcribe', action='store_true', help='write the lyrics from the voice (Whisper) first; on by itself when the project has no lines')
+    ap.add_argument('--locate-lines', action='store_true', help='find known lyrics in ASR before fine alignment; skip unsupported lines rather than guess')
     ap.add_argument('--asr', choices=list(WHISPER_MODELS), default='turbo', help='Whisper model for lyrics and backing recognition')
     ap.add_argument('--detect-back', action='store_true', help='recognize new backing phrases; return review candidates, do not insert them')
     ap.add_argument('--song-lang', help='language of the song for --transcribe (ru, en…); default: detect')
@@ -551,13 +601,28 @@ def run(a, emit):
     PROG['emit'] = emit; hook_tqdm()
     with open(a.project, encoding='utf-8') as f: proj = json.load(f)
     if 'lines' not in proj: raise ValueError('not a Spicy Translate project (no lines)')
+    vocal_file = getattr(a, 'vocal_file', None)
+    separate_only = bool(getattr(a, 'separate_only', False))
+    if vocal_file and not os.path.isfile(vocal_file): raise ValueError('vocal file does not exist')
+    if separate_only:
+        if a.no_separation: raise ValueError('--separate-only cannot use --no-separation')
+        emit(plan=[] if vocal_file else ['demucs'])
+        work = os.path.abspath(os.path.splitext(a.out)[0] + '.stems')
+        if vocal_file: vpath = os.path.abspath(vocal_file)
+        else: _, _, vpath = separate(a.audio, work, dev, False, stage_emit, a.sep)
+        # Preserve every project field, including empty lyrics, timings and review candidates.
+        with open(a.out, 'w', encoding='utf-8') as f: json.dump(proj, f, ensure_ascii=False, indent=1)
+        emit(done=True, device=dev_name(dev), out=os.path.abspath(a.out), vocals=vpath)
+        return
     tr = a.transcribe or not proj['lines']
-    if a.detect_back and (a.no_separation or a.no_karaoke): raise ValueError('для поиска бэков нужно разделение вокала и бэка')
+    locate = bool(getattr(a, 'locate_lines', False)) and not tr
+    if a.detect_back and (a.no_separation or a.no_karaoke or vocal_file): raise ValueError('для поиска бэков нужно отдельное разделение вокала и бэка; готовая дорожка вокала его не содержит')
     karaoke = not a.no_karaoke and (not tr or a.detect_back)
     source_lines = list(proj['lines'])
-    emit(plan=[s for s, on in (('demucs', not a.no_separation), ('karaoke', not a.no_separation and karaoke), ('transcribe', tr), ('backing', a.detect_back), ('align', True)) if on])
+    emit(plan=[s for s, on in (('demucs', not a.no_separation and not vocal_file), ('karaoke', not a.no_separation and karaoke and not vocal_file), ('transcribe', tr), ('locate', locate), ('backing', a.detect_back), ('align', True)) if on])
     work = os.path.abspath(os.path.splitext(a.out)[0] + '.stems')
-    if a.no_separation: voc, back, vpath = decode(a.audio)[0], None, None
+    if vocal_file: voc, back, vpath = decode(vocal_file)[0], None, os.path.abspath(vocal_file)
+    elif a.no_separation: voc, back, vpath = decode(a.audio)[0], None, None
     else: voc, back, vpath = separate(a.audio, work, dev, karaoke, stage_emit, a.sep)
     if tr:  # no lyrics: Whisper writes them, the aligner below then times every word precisely
         stage('transcribe', 0, 1)
@@ -566,16 +631,25 @@ def run(a, emit):
         proj['lines'] = words_to_lines(transcribe(lead, dev, a.song_lang, a.asr)); a.force = True
         stage('transcribe', 1, 1, lines=len(proj['lines']))
         if not proj['lines']: raise ValueError('в голосе не нашлось слов')
+    located = None
+    if locate:
+        stage('locate', 0, 1)
+        recognized = transcribe(voc, dev, a.song_lang, a.asr, 'locate')
+        located = locate_line_windows(proj['lines'], [{'word': w, 'a': start, 'b': end} for w, start, end in recognized])
+        missing = [str(i + 1) for i, ln in enumerate(proj['lines']) if units(ln.get('text') or '') and i not in located]
+        if missing:
+            proj.setdefault('warnings', []).append('Не найдено надёжных опор для строк: ' + ', '.join(missing) + '. Их тайминги не изменены. Проверь текст и повторы припева.')
+        stage('locate', 1, 1, lines=len(located))
     if a.detect_back:
         stage('backing', 0, 1)
         if back is None:
-            proj['warnings'] = ['Не удалось выделить отдельную дорожку бэков. Новые бэки не распознавались; существующие строки обработаны.']
+            proj.setdefault('warnings', []).append('Не удалось выделить отдельную дорожку бэков. Новые бэки не распознавались; существующие строки обработаны.')
             proj['backingCandidates'] = []
         else:
             # The separator leaks lead vocals; candidates stay outside lines[] until reviewed.
             try: proj['backingCandidates'] = backing_candidates(transcribe(back, dev, a.song_lang, a.asr, 'backing'), source_lines)
             except Exception as e:
-                proj['warnings'] = [f'Распознавание новых бэков не удалось: {type(e).__name__}: {e}']
+                proj.setdefault('warnings', []).append(f'Распознавание новых бэков не удалось: {type(e).__name__}: {e}')
                 proj['backingCandidates'] = []
         stage('backing', 1, 1, candidates=len(proj['backingCandidates']))
     al, total = Aligner(dev, a.model, a.aligner), len(proj['lines'])
@@ -583,7 +657,9 @@ def run(a, emit):
     nonlocal_bal = [bal]
 
     def aligned_for(i, ln, layer, text):
-        t, end = float(ln['t']), float(ln.get('end') or ln['t'] + 10)
+        if located is not None and i not in located:
+            return None
+        t, end = located[i] if located is not None else (float(ln['t']), float(ln.get('end') or ln['t'] + 10))
         src = voc
         if layer == 'bgo' and back is not None:
             w = slice(max(0, int((t - a.pad) * SR)), int((end + a.pad) * SR))

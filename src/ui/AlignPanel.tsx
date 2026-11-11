@@ -43,11 +43,10 @@ export function AlignPanel() {
     <div className="help apanel">
       <button className="sm ic close" title="Закрыть (установка продолжится)" onClick={closeAlignPanel}>✕</button>
       <h3 id="alignPanelTitle">Автоматизация</h3>
-      <p>Нейросеть вырезает голос и расставляет слова оригинала и бэка — черновиком (пунктир), размеченное вручную не трогает. Ставится в папку приложения: свой Python, PyTorch и модели, система не меняется.</p>
+      <p>«Выделить голос» только готовит вокал; «Расставить слова» использует сохранённый или загруженный вокал и только существующий текст. Ручные тайминги не меняются, результат автоматики — черновик. Ставится в папку приложения: свой Python, PyTorch и модели, система не меняется.</p>
       <fieldset disabled={!!S.align}>
         <div className="align-presets" role="group" aria-label="Набор моделей">
           <button id="alignBalanced" className={!modelOptions.detectBack && modelOptions.asr === 'turbo' ? 'on' : ''} onClick={() => setModelOptions({ ...rec, sep: 'htdemucs', detectBack: false })}><b>Сбалансированный</b><small>Текст уже есть. Начни с таймингов основы.</small></button>
-          <button id="alignBackingPreset" className={modelOptions.detectBack ? 'on' : ''} onClick={() => setModelOptions({ ...rec, asr: 'large-v3', detectBack: true })}><b>Вокал и бэки</b><small>Поиск дополнительных фраз с прослушиванием перед импортом.</small></button>
           <button id="alignLightPreset" onClick={() => { setModelOptions({ sep: 'htdemucs', asr: 'turbo', aligner: 'w2v', detectBack: false }); p.pick = 'cpu'; emit(); }}><b>Без мощной видеокарты</b><small>Лёгкий набор на процессоре. Обработка будет дольше.</small></button>
         </div>
         <legend>Модели следующего запуска</legend>
@@ -56,16 +55,17 @@ export function AlignPanel() {
           <p>{backend ? `Для ${DEVICES[backend] || backend}: ${rec.sep === 'roformer' ? 'MelBand-RoFormer' : 'HTDemucs'} + Whisper Turbo + ${rec.aligner === 'w2v' ? 'wav2vec2' : 'MMS-FA'}.` : 'Определяю оборудование — затем предложу стартовый набор.'} Это начальные настройки, качество проверь на слух.</p>
           <button className="sm" id="btnAlignRecommended" disabled={!backend} onClick={() => setModelOptions(rec)}>Выбрать стартовый набор</button>
         </div>
+        <label className="row"><input id="alignLocateLines" type="checkbox" checked={modelOptions.locateLines} onChange={e => setModelOptions({ locateLines: e.target.checked })} />Сначала найти строки по аудио</label>
+        <p className="hint">Для текста без точных времён строк: Whisper найдёт опорные фразы, затем модель уточнит слова. Медленнее; запускается для всей песни. Неподтверждённые строки пропускаются с предупреждением. Повторы припева проверь на слух. Если построчные времена уже верны — оставь выключенным.</p>
         <details className="align-advanced" id="alignAdvanced"><summary>Настроить модели вручную</summary>
         <label className="fld">Выделение вокала<select id="alignSeparator" aria-describedby="alignSepHint" value={modelOptions.sep} onChange={e => setModelOptions({ sep: e.target.value as typeof modelOptions.sep })}><option value="htdemucs">HTDemucs</option><option value="roformer">MelBand-RoFormer</option></select></label>
         <p className="hint" id="alignSepHint">{modelOptions.sep === 'roformer' ? 'Попробуй на NVIDIA, если инструменты мешают слышать слова. Сравни с HTDemucs; на процессоре обработка может быть долгой.' : 'Начни с него на процессоре, AMD или Intel. Выделяет весь вокал; для поиска бэков дополнительно включи опцию ниже.'}</p>
-        <label className="fld">Распознавание текста и новых бэков<select id="alignAsr" aria-describedby="alignAsrHint" value={modelOptions.asr} onChange={e => setModelOptions({ asr: e.target.value as typeof modelOptions.asr })}><option value="turbo">Whisper large-v3-turbo — быстрее</option><option value="large-v3">Whisper large-v3 — полная модель, медленнее</option></select></label>
-        <p className="hint" id="alignAsrHint">{modelOptions.asr === 'turbo' ? 'Первый выбор для быстрого черновика и поиска бэков. Если пропускает слова — сравни с полной large-v3.' : 'Попробуй, если Turbo ошибается в словах. Требует больше памяти и времени; при нехватке памяти верни Turbo.'} На тайминги уже введённого текста этот выбор не влияет.</p>
+        <label className="fld">Поиск опорных фраз в готовом тексте<select id="alignAsr" aria-describedby="alignAsrHint" value={modelOptions.asr} onChange={e => setModelOptions({ asr: e.target.value as typeof modelOptions.asr })}><option value="turbo">Whisper large-v3-turbo — быстрее</option><option value="large-v3">Whisper large-v3 — полная модель, медленнее</option></select></label>
+        <p className="hint" id="alignAsrHint">{modelOptions.asr === 'turbo' ? 'Первый выбор для поиска опор готового текста. Если пропускает слова — сравни с полной large-v3.' : 'Попробуй, если Turbo ошибается в словах. Требует больше памяти и времени; при нехватке памяти верни Turbo.'} Для готового текста влияет на поиск опорных строк, только если включено «Сначала найти строки по аудио».</p>
         {gpu?.memoryTotal != null && <p className="hint" id="alignMemory">Память NVIDIA: {(gpu.memoryTotal / 1024).toFixed(1)} ГБ всего, {((gpu.memoryFree || 0) / 1024).toFixed(1)} ГБ свободно на момент проверки. Свободная память меняется; это не гарантия, что модель поместится.</p>}
         <label className="fld">Тайминги известного текста<select id="alignModel" aria-describedby="alignTimingHint" value={modelOptions.aligner} onChange={e => setModelOptions({ aligner: e.target.value as typeof modelOptions.aligner })}><option value="w2v">wav2vec2 — русский / английский</option><option value="mms">MMS-FA — многоязычный</option></select></label>
         <p className="hint" id="alignTimingHint">{modelOptions.aligner === 'w2v' ? 'Начни с него для русского или английского текста. Если тайминги съезжают, сравни ту же строку с MMS-FA.' : 'Попробуй для других языков или как альтернативу при неточных таймингах. Для русско-английского текста сравни с wav2vec2.'} Расставляет известные слова, новые слова не распознаёт.</p>
-        <label className="row"><input id="alignDetectBack" type="checkbox" checked={modelOptions.detectBack} onChange={e => setModelOptions({ detectBack: e.target.checked })} />Искать новые бэки по аудио</label>
-        <p className="hint">Включи, если нужны новые ад-либы и фоновые фразы. Выключи, если нужны только тайминги готового текста: обработка будет короче. Найденные бэки сначала откроются для прослушивания и выбора; существующие бэки размечаются и без поиска новых. Модели скачиваются при первом запуске.</p>
+        <p className="hint">Используется только текст, уже введённый в проект. Бэки остаются внутри своих строк; новые бэк-фразы не распознаются и не добавляются.</p>
         </details>
       </fieldset>
       {p.err && <div className="aprog"><small className="aerr">{p.err}</small></div>}

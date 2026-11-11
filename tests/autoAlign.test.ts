@@ -16,6 +16,11 @@ describe('auto alignment models and backing import', () => {
     expect(alignArgs(new URLSearchParams('sep=../../file&asr=--force&aligner=evil&lang=--force&detectBack=true')))
       .toEqual(['--sep', 'htdemucs', '--asr', 'turbo', '--aligner', 'w2v']);
   });
+  it('opts into locating known lyrics explicitly and rejects truthy strings', () => {
+    expect(alignArgs(new URLSearchParams('locateLines=1'))).toContain('--locate-lines');
+    expect(alignArgs(new URLSearchParams('locateLines=true'))).not.toContain('--locate-lines');
+    expect(alignArgs(new URLSearchParams(''))).not.toContain('--locate-lines');
+  });
   it('adds overlapping backing lines without changing lead, translation or hand timings; skips duplicates', () => {
     const lines: Line[] = [{ t: 1, end: 4, text: 'original', tr: 'перевод', sync: { orig: [{ a: 1, b: 4 }] }, bg: { text: 'эхо', tr: 'echo' } }];
     const original = structuredClone(lines);
@@ -25,6 +30,13 @@ describe('auto alignment models and backing import', () => {
     expect(result).toHaveLength(2); expect(result[0]).toEqual(lines[0]);
     expect(result[1].sync?.bgo).toEqual(c.sync?.bgo);
     expect(addBacking(result, [c])).toEqual(result);
+  });
+  it('keeps API versions aligned and packages the lyric locator', () => {
+    const files = ['../server/index.ts', '../src/live.ts', '../scripts/launch.mjs', '../desktop/src-tauri/src/main.rs'];
+    const versions = files.map(file => fs.readFileSync(new URL(file, import.meta.url), 'utf8').match(/(?:SERVER_API|API)(?::\s*u32)?\s*=\s*(\d+)/)?.[1]);
+    expect(versions).not.toContain(undefined); expect(new Set(versions).size).toBe(1);
+    const config = JSON.parse(fs.readFileSync(new URL('../desktop/src-tauri/tauri.conf.json', import.meta.url), 'utf8'));
+    expect(config.bundle.resources['../../experiments/auto-align/line_windows.py']).toBe('auto-align/line_windows.py');
   });
   it('allows the dialog command used by native confirmation in the desktop editor', () => {
     const c = JSON.parse(fs.readFileSync(new URL('../desktop/src-tauri/capabilities/editor.json', import.meta.url), 'utf8'));

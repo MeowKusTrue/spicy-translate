@@ -2,19 +2,18 @@
 // word timings come back flagged auto (dashed), hand-marked words are never touched. Also brings the separated voice.
 import { mergeAutoLayer } from './core/index.ts';
 import { S, emit, lineState, ls, toast } from './state.ts';
-import { addBacking, alignOptions, type AlignOptions } from './core/autoAlign.ts';
+import { alignOptions, type AlignOptions } from './core/autoAlign.ts';
 import { checkServer } from './live.ts';
-import { projectJSON, scheduleSave, snapshot } from './persist.ts';
+import { scheduleSave } from './persist.ts';
 import { afterSyncChange, snap } from './sync.ts';
-import { buildVoicePeaks, drawWave } from './waveform/wave.ts';
-import type { Layer, Line } from './core/index.ts';
-import { setLines } from './load.ts';
 
-let sentAudio: Blob | null = null;
-export let modelOptions: AlignOptions = (() => { try { return alignOptions(JSON.parse(ls.get('alignModels', '{}')!) || {}); } catch { return alignOptions(); } })();
-export function setModelOptions(value: Partial<AlignOptions>) { modelOptions = alignOptions({ ...modelOptions, ...value }); ls.set('alignModels', JSON.stringify(modelOptions)); emit(); }
-export const STAGES: Record<string, string> = { start: 'запуск', device: 'загружаю модели', demucs: 'вырезаю голос', karaoke: 'делю голос и бэк', transcribe: 'распознаю текст', backing: 'распознаю бэки', align: 'подгоняю слова' };
-const WEIGHT: Record<string, number> = { demucs: 30, karaoke: 15, transcribe: 25, backing: 25, align: 30 };
+import type { Layer, Line } from './core/index.ts';
+import { importVocalFile, runAudioWorkflow, type AudioOperation } from './audioWorkflow.ts';
+
+export let modelOptions: AlignOptions = (() => { try { return { ...alignOptions(JSON.parse(ls.get('alignModels', '{}')!) || {}), detectBack: false }; } catch { return alignOptions(); } })();
+export function setModelOptions(value: Partial<AlignOptions>) { modelOptions = { ...alignOptions({ ...modelOptions, ...value }), detectBack: false }; ls.set('alignModels', JSON.stringify(modelOptions)); emit(); }
+export const STAGES: Record<string, string> = { start: 'запуск', import: 'подключаю вокал', device: 'загружаю модели', demucs: 'вырезаю голос', karaoke: 'делю голос и бэк', transcribe: 'распознаю текст', locate: 'ищу строки по аудио', backing: 'распознаю бэки', align: 'подгоняю слова' };
+const WEIGHT: Record<string, number> = { demucs: 30, karaoke: 15, transcribe: 25, locate: 25, backing: 25, align: 30 };
 /** how far the current stage is, 0..1: its own counter, else the bar inside it (not a download: that only waits) */
 export function stageFrac(a = S.align) {
   if (!a) return 0;
@@ -35,68 +34,16 @@ export function alignEta() {
   const a = S.align, p = alignPct(); if (!a?.elapsed || p < 8 || p >= 99) return '';
   const s = Math.round(a.elapsed / 1000 * (100 - p) / p); return s < 60 ? `~${s} с` : `~${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
-export async function cancelAlign() { try { await api('/api/align', { method: 'DELETE' }); toast('Авто-тайминг: отменяю…'); } catch (e) { toast('Не вышло отменить: ' + (e as Error).message, 'err'); } }
+export async function cancelAlign() { if (S.align?.stage === 'import') return toast('Проверка загруженного вокала уже идёт. Дождись завершения; исходный микс не меняется.'); try { await api('/api/align', { method: 'DELETE' }); toast('Авто-тайминг: отменяю…'); } catch (e) { toast('Не вышло отменить: ' + (e as Error).message, 'err'); } }
 export const DEVICES: Record<string, string> = { cuda: 'видеокарта NVIDIA', xpu: 'видеокарта Intel', dml: 'видеокарта (DirectML)', cpu: 'процессор' };
 
 async function api(path: string, init?: RequestInit) { const r = await fetch(path, init); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status); return j; }
-export async function autoAlign() {
-  if (S.align || S.backingReview) return toast('Сначала закончи текущую разметку или сверку бэков.', 'err');
-  if (!S.audioBlob) return toast('Нужно аудио трека — вкладка «Трек» → «Выбрать аудиофайл».', 'err');
-  // no lyrics: write them from the voice (Whisper), then time every word
-  const transcribe = !S.lines.length;
-  if (transcribe && !await confirm('Текста нет — распознать его по голосу?\n\nНейросеть (Whisper) запишет слова и расставит их по времени — черновик, его надо будет проверить. В первый раз скачает выбранную модель.')) return;
-  let st; try { st = await api('/api/align'); } catch { return toast('Авто-тайминг работает через локальный сервер: открой редактор с `npm run serve` или MCP-сервера (http://127.0.0.1:8787).', 'err'); }
-  if (!st.available) return st.canSetup ? openAlignPanel() : toast('Авто-тайминг не установлен: нужен прототип experiments/auto-align и его Python — см. experiments/auto-align/README.md.', 'err');
-  if (!await checkServer()) return;
-  const sourceAudio = S.audioBlob, sourceLines = S.lines, title = S.meta.title, artist = S.meta.artist;
-  const options = { ...modelOptions };
-  const only = !transcribe && S.picked.size ? [...S.picked].sort((a, b) => a - b) : null; // picked lines: just those
-  S.align = { stage: 'start', done: 0, total: 0, device: '' }; emit();
-  try {
-    if (sentAudio !== S.audioBlob) { await api('/api/align/audio?ext=' + ((S.audioBlob as File).name?.split('.').pop() || 'mp3'), { method: 'POST', body: S.audioBlob }); sentAudio = S.audioBlob; }
-    await snapshot('перед авто-таймингом');
-    const body = only ? JSON.stringify({ ...JSON.parse(projectJSON()), lines: only.map(i => JSON.parse(projectJSON()).lines[i]) }) : projectJSON();
-    const query = new URLSearchParams({ sep: options.sep, asr: options.asr, aligner: options.aligner, detectBack: options.detectBack ? '1' : '0', lang: S.meta.lang });
-    if (transcribe) query.set('transcribe', '1');
-    await api('/api/align?' + query, { method: 'POST', body });
-    for (;;) {
-      await new Promise(r => setTimeout(r, 1000));
-      const j = await api('/api/align');
-      if (j.running) { S.align = { stage: j.stage || 'start', done: j.done || 0, total: j.total || 0, device: j.device || '', plan: j.plan, sub: j.sub, subDone: j.subDone, subTotal: j.subTotal, bytes: j.bytes, elapsed: j.elapsed }; emit(); continue; }
-      if (j.error) throw new Error(j.error);
-      if (!j.result) throw new Error('сервер не вернул результат');
-      if (S.audioBlob !== sourceAudio || S.lines !== sourceLines || S.meta.title !== title || S.meta.artist !== artist) throw new Error('проект сменился во время обработки — результат не применён');
-      if (transcribe) {
-        const ls = j.result.lines as Line[]; if (!ls.length) throw new Error('в голосе не нашлось слов');
-        setLines(ls, S.duration); scheduleSave();
-        toast(`Текст распознан: строк ${ls.length}, слова расставлены (пунктир). Это черновик — проверь слова (вкладка «Текст») и тайминги на слух; лучше взять текст с Genius и наложить его («Трек» → «Текст с Genius»).`, 'ok');
-      } else {
-      const n = merge(j.result.lines as Line[], only);
-      toast(`Авто-тайминг: расставлены слова в строках: ${n}. Это черновик (пунктир) — пройдись на слух, поправь мышью или G/H. ${S.autoFit ? 'Строки подогнаны под слова.' : 'Подогнать строки под слова — ⚙ → «Строки сами по словам».'} Ctrl+Z — отмена.`, 'ok');
-      }
-      if (j.result.backingCandidates?.length) {
-        S.backingReview = { candidates: j.result.backingCandidates, picked: new Set(), audio: sourceAudio, title, artist }; emit();
-      } else if (options.detectBack) toast('Новых бэков не найдено. Тихие голоса и ад-либы модель может пропустить.', 'ok');
-      for (const warning of j.result.warnings || []) toast(warning, 'err');
-      if (j.vocals) { const b = await fetch('/api/align/vocals').then(r => r.blob()); if (await buildVoicePeaks(b)) toast('Волна теперь по чистому голосу (переключатель «волна» в панели).', 'ok'); }
-      break;
-    }
-  } catch (e) { toast('Авто-тайминг: ' + (e as Error).message, 'err'); }
-  S.align = null; emit(); drawWave();
+export function autoAlign(operation: AudioOperation = 'words') {
+  return runAudioWorkflow(operation, { ...modelOptions, detectBack: false }, { openSetup: openAlignPanel, merge });
 }
-export async function acceptBacking() {
-  const r = S.backingReview; if (!r || !r.picked.size) return;
-  if (S.audioBlob !== r.audio || S.meta.title !== r.title || S.meta.artist !== r.artist) { S.backingReview = null; emit(); return toast('Проект сменился — бэки не добавлены.', 'err'); }
-  const next = addBacking(S.lines, [...r.picked].map(i => r.candidates[i]));
-  if (next.length > S.lines.length) {
-    await snapshot('перед импортом распознанных бэков');
-    // A user can switch projects while the snapshot is being written.
-    if (S.backingReview !== r || S.audioBlob !== r.audio || S.meta.title !== r.title || S.meta.artist !== r.artist) return;
-    snap(); S.lines = addBacking(S.lines, [...r.picked].map(i => r.candidates[i]));
-    S.picked.clear(); S.sel = null; afterSyncChange(true);
-  }
-  S.backingReview = null; emit(); toast('Выбранные бэки добавлены. Ctrl+Z — отмена.', 'ok');
-}
+export function importVocals(file: File) { return importVocalFile(file, modelOptions.sep); }
+/** Legacy review state cannot insert newly recognized backing phrases. */
+export function acceptBacking() { S.backingReview = null; emit(); toast('Используются только бэки, уже введённые внутри строк.'); }
 /** take auto timings for lines whose texts still match; anything marked by hand here stays as it is */
 function merge(res: Line[], only: number[] | null = null) {
   snap(); let n = 0;

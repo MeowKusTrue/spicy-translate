@@ -53,6 +53,9 @@ async function analyse(file: Blob, then: (s: Spec, on: number[]) => void) {
   } finally { ctx.close && ctx.close(); }
 }
 let gen = 0, vgen = 0; // a newer file drops the late spectrogram of an older one
+export function clearVoiceWave() {
+  vgen++; W.vpeaks = null; W.vspec = null; W.vonsets = []; S.waveVoice = false;
+}
 export function clearProjectWave() {
   gen++; vgen++;
   W.peaks = W.vpeaks = null; W.spec = W.vspec = null;
@@ -70,7 +73,7 @@ export async function buildPeaks(file: Blob) {
 }
 /** the separated voice (from auto-timing): a much clearer waveform, spectrogram and attacks for the magnet */
 export async function buildVoicePeaks(file: Blob) {
-  const my = ++vgen, pk = await analyse(file, (s, on) => { if (my === vgen) { W.vspec = s; W.vonsets = on; emit(); drawWave(); } }); if (!pk) return false;
+  const my = ++vgen, pk = await analyse(file, (s, on) => { if (my === vgen) { W.vspec = s; W.vonsets = on; emit(); drawWave(); } }); if (!pk || my !== vgen) return false;
   W.vpeaks = pk; if (!W.vspec) W.vonsets = onsets(pk, W.pps); S.waveVoice = true; return true;
 }
 export const waveSpec = () => S.waveVoice && W.vpeaks ? W.vspec : W.spec;

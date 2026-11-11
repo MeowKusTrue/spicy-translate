@@ -42,6 +42,18 @@ assert mono(r) and len({x[0] for x in r}) == 4, r
 # bug: one-letter word got MIN_W but the next word was not pushed (palma line 3)
 r = to_units([('у', True), ('меня', True)], [0, 1], [(100, 101), (101, 103)], 0.02, 15.0, 20.0)
 assert mono(r) and r[0][1] - r[0][0] >= 0.05 - 1e-9, r
+# Tight windows retain usable spans without expanding past the audio window.
+for us, owners, spans in [([('a', True)] * 3, [0, 1, 2], [(0, 1), (1, 2), (2, 3)]),
+                          ([('a', True), ('—', True), ('b', True)], [0, 2], [(0, 1), (1, 3)])]:
+    r = to_units(us, owners, spans, .02, 1., 1.06)
+    assert r and len(r) == 3 and mono(r) and r[0][0] >= 1. and r[-1][1] <= 1.06, r
+assert to_units([('a', True)], [0], [(0, 1)], .02, 1., 1.) is None
+assert to_units([('a', True)] * 3, [0, 1, 2], [(0, 1)] * 3, .02, 0., .002) is None
+r = to_units([('a', True)], [0], [(0, 1)], .02, 1.0004, 1.0206)
+assert r and 1.0004 <= r[0][0] < r[0][1] <= 1.0206, r
+# Even late token spans must not escape the available window.
+r = to_units([('a', True)] * 3, [0, 1, 2], [(10, 11), (11, 12), (12, 13)], .02, 0., .06)
+assert r and mono(r) and r[0][0] >= 0. and r[-1][1] <= .06, r
 # Latin words in a Russian line are transliterated for alignment instead of becoming letterless
 ru = {c: i for i, c in enumerate('<pad>|абвгдеёжзийклмнопрстуфхцчшщъыьэюя')}
 ids, owner = Aligner(None).tokens(units('Say ahh, море'), ru, 'ru')
@@ -62,13 +74,30 @@ assert L[2]['sync'] == {'bgo': [{'a': 4.3, 'b': 4.6, 'g': 1}, {'a': 5.3, 'b': 5.
 errs = fill(proj, fake, force=True)
 assert abs(errs['orig'][0] - 0.3) < 1e-9 and L[1]['sync']['orig'][0]['g'] == 1
 
-# untangle(): last word of a line stops at the next line's first word; hand spans stay
+# untangle(): repair within each line only; legitimate cross-line overlap stays.
 p2 = {'lines': [{'t': 0, 'end': 2, 'text': 'a b', 'sync': {'orig': [{'a': 0.5, 'b': 1.0, 'g': 1}, {'a': 1.0, 'b': 2.4, 'g': 1}]}},
                 {'t': 2, 'end': 4, 'text': 'c d', 'sync': {'orig': [{'a': 2.1, 'b': 2.5}, {'a': 2.45, 'b': 3.0, 'g': 1}]}}]}
 assert report(p2)['overlaps'] == 2
 untangle(p2)
 o0, o1 = p2['lines'][0]['sync']['orig'], p2['lines'][1]['sync']['orig']
-assert o0[1]['b'] == 2.1 and o1[0] == {'a': 2.1, 'b': 2.5} and o1[1]['a'] == 2.5 and report(p2)['overlaps'] == 0, p2
+assert o0[1]['b'] == 2.4 and o1[0] == {'a': 2.1, 'b': 2.5} and o1[1]['a'] == 2.5 and report(p2)['overlaps'] == 1, p2
+assert o1[1]['c'] == 0.0
+# A bad long span cannot push later independent phrases, in either vocal layer.
+for layer in ('orig', 'bgo'):
+    bad = {'a': 0., 'b': 90., 'g': 1, 'c': .99}
+    later = {'a': 2., 'b': 3., 'g': 1, 'c': .98}
+    p = {'lines': [{'sync': {layer: [bad]}}, {'sync': {layer: [later]}}]}
+    untangle(p)
+    assert bad == {'a': 0., 'b': 90., 'g': 1, 'c': .99}
+    assert later == {'a': 2., 'b': 3., 'g': 1, 'c': .98}
+# Both shortening and delaying an automatic span invalidate its confidence.
+p = {'lines': [{'sync': {'orig': [{'a': 0., 'b': 2., 'g': 1, 'c': .99},
+                                  {'a': 1., 'b': 1.5},
+                                  {'a': 1.4, 'b': 2., 'g': 1, 'c': .99}]}}]}
+untangle(p)
+x, hand, y = p['lines'][0]['sync']['orig']
+assert x == {'a': 0., 'b': 1., 'g': 1, 'c': 0.0} and y['a'] == 1.5 and y['c'] == 0.0
+assert hand == {'a': 1., 'b': 1.5}
 print('ok')
 
 # words_to_lines(): Whisper words -> lyric lines: break at pauses / sentence ends, no one-word tail of a long run
@@ -89,6 +118,30 @@ import tempfile, json, os, sys, types
 from contextlib import ExitStack
 from unittest.mock import patch
 from argparse import Namespace
+# ASR morphology joins only adjacent pieces in the same inference window.
+def chunk(text, a, b): return {'text': text, 'timestamp': (a, b)}
+fake_torch = types.SimpleNamespace(float32='float32')
+outputs = [
+    {'chunks': [chunk('А', 0., .1), chunk('-а', .1, .2), chunk('-а', .2, .3),
+                chunk('-late', 2., 2.2), chunk('–near', 2.2, 2.3), chunk('--dash', 2.3, 2.4)]},
+    {'chunks': [chunk('-new', 0., .2)]},
+    {'chunks': [chunk('open', 0., None), chunk('-far', 2., 2.2)]},
+]
+with patch.dict(sys.modules, {'torch': fake_torch, 'transformers': types.SimpleNamespace(pipeline=lambda *a, **k: iter_asr)}), \
+     patch.object(runner, 'windows', return_value=[(0, runner.SR * 3), (runner.SR * 20, runner.SR * 23), (runner.SR * 30, runner.SR * 33)]), \
+     patch.object(runner, 'stage'):
+    from unittest.mock import Mock
+    iter_asr = Mock(side_effect=outputs)
+    got = runner.transcribe(np.ones(runner.SR * 33), 'cpu')
+assert [w[0] for w in got] == ['А-а-а', '-late–near', '--dash', '-new', 'open', '-far'], got
+assert got[0][1:] == [0., .3] and got[3][1:] == [20., 20.2], got
+# Full Whisper must bound attention windows and disable inherited beam expansion.
+stub_asr = Mock(return_value={})
+with patch.dict(sys.modules, {'torch': fake_torch, 'transformers': types.SimpleNamespace(pipeline=lambda *a, **k: stub_asr)}), \
+     patch.object(runner, 'windows', return_value=[(0, runner.SR)]) as window_mock, patch.object(runner, 'stage'):
+    runner.transcribe(np.ones(runner.SR), 'cpu', model='large-v3')
+    assert window_mock.call_args.kwargs == {'most': 12.0, 'least': 8.0}
+    assert stub_asr.call_args.kwargs['generate_kwargs']['num_beams'] == 1
 with tempfile.TemporaryDirectory() as tmp:
     inp, out = os.path.join(tmp, 'in.json'), os.path.join(tmp, 'out.json')
     original = {'lines': [{'t': 0, 'end': 1, 'text': 'lead', 'tr': 'translation'}]}
@@ -132,3 +185,17 @@ snap_starts(protected, np.array([1.1, 2.1]), .2, .4)
 untangle(protected)
 assert protected == before, 'approval was not preserved through alignment / snap / untangle'
 print('approval checks passed')
+
+# The final postprocessor must not expand a feasible dense alignment past its window.
+dense = to_units([('a', False), ('b', True), ('c', True)], [0, 1, 2], [(0, 1), (1, 2), (2, 3)], .02, 0, .06)
+dense_project = {'lines': [{'sync': {'orig': [{'a': a, 'b': b, 'g': 1} for a, b in dense]}}]}
+untangle(dense_project)
+assert [(x['a'], x['b']) for x in dense_project['lines'][0]['sync']['orig']] == dense
+print('dense alignment survives final postprocessing')
+
+# Real model output contains NumPy scalars; progress/report JSON must remain serializable.
+from align import report
+import json
+numpy_project = {'lines': [{'t': 0, 'end': 1, 'sync': {'orig': [{'a': np.float64(.1), 'b': np.float64(.12), 'g': 1}, {'a': np.float64(.11), 'b': np.float64(.3), 'g': 1}]}}]}
+json.dumps(report(numpy_project))
+print('NumPy alignment report serializes')

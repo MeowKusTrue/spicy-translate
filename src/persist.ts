@@ -5,17 +5,18 @@ import { S, emit, ls, status } from './state.ts';
 import { buildPreview } from './preview.ts';
 import { LIVE, pushLive } from './live.ts';
 import { setLines, setMode } from './load.ts';
-import { audio, pause } from './audio.ts';
+import { audio, pause, clearVoiceAudio } from './audio.ts';
 import { clearProjectWave } from './waveform/wave.ts';
 import { detachFolder } from './folder.ts';
 import { session } from './projectSession.ts';
 import { PREVIEW_EDIT } from './previewEdit.ts';
 import { setPage } from './hotkeys.ts';
+import { clearLastOriginalReference, syncOriginalReference } from './audioCache.ts';
 function transitionBlocked() { return S.busyAuto || S.busyLlm || S.align || S.setup || S.editDraft || PREVIEW_EDIT.active; }
 
 export const explicitProject = () => ls.get('project:explicit') === '1';
 function detachProject() {
-  session.generation++; clearTimeout(saveT); pause();
+  session.generation++; clearLastOriginalReference(true); clearTimeout(saveT); pause(); clearVoiceAudio();
   audio.onloadedmetadata = null; audio.removeAttribute('src'); audio.load();
   if (S.audioUrl) URL.revokeObjectURL(S.audioUrl);
   S.audioUrl = ''; S.audioBlob = null; S.hasAudio = false; S.duration = S.srcDur = S.vt = 0;
@@ -63,6 +64,7 @@ export function saveProject() {
   const k = trackKey(); let ok = true;
   if (k) ok = ls.set('proj:' + k, JSON.stringify({ lang: S.meta.lang, md: S.meta.md, lines: S.lines.map(l => ({ t: l.t, end: l.end, text: l.text, tr: l.tr || '', sync: l.sync || null, agent: l.agent, bg: l.bg, sec: l.sec, approved: l.approved })) }));
   ok = ls.set('last', projectJSON()) && ok;
+  ok = syncOriginalReference() && ok;
   S.save = ok ? { msg: '💾 сохранено ' + new Date().toLocaleTimeString().slice(0, 8), cls: 'ok' } : { msg: '💾 браузер не даёт сохранить — скачай проект', cls: 'warn' }; emit();
   pushLive();
 }
@@ -135,7 +137,21 @@ export async function restoreSnap(s: Snap) {
   loadProject(s.json); saveProject();
   status('st1', `Вернул снимок «${s.title || 'без названия'}» от ${new Date(s.at).toLocaleString()}. Предыдущее состояние тоже в снимках.`, 'ok');
 }
-export async function idbPut(k: string, blob: Blob | null) { if (!k || !blob || blob.size > 120e6) return; try { const db = await idb(); db.transaction('audio', 'readwrite').objectStore('audio').put(blob, k); } catch {} }
+/** Resolve only after the whole write transaction commits (request success is not durability). */
+export async function idbPutAudioRecords(records: [string, Blob][]): Promise<boolean> {
+  if (!records.length || records.some(([key, blob]) => !key || blob.size > 120e6)) return false;
+  try {
+    const db = await idb();
+    return await new Promise<boolean>((resolve, reject) => {
+      const tx = db.transaction('audio', 'readwrite');
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = tx.onabort = () => resolve(false);
+      try { const store = tx.objectStore('audio'); for (const [key, blob] of records) store.put(blob, key); }
+      catch (error) { tx.abort(); reject(error); }
+    });
+  } catch { return false; }
+}
+export async function idbPut(k: string, blob: Blob | null): Promise<boolean> { return blob ? idbPutAudioRecords([[k, blob]]) : false; }
 export async function idbDel(k: string) { try { const db = await idb(); db.transaction('audio', 'readwrite').objectStore('audio').delete(k); } catch {} }
 export async function idbGet(k: string): Promise<Blob | null> { if (!k) return null; try { const db = await idb(); return await new Promise(res => { const r = db.transaction('audio').objectStore('audio').get(k); r.onsuccess = () => res(r.result || null); r.onerror = () => res(null); }); } catch { return null; } }
 

@@ -34,7 +34,7 @@ test('new project detaches audio and folder; history does not inherit them', asy
   b.write('RIFF'); b.writeUInt32LE(b.length - 8, 4); b.write('WAVEfmt ', 8); b.writeUInt32LE(16, 16);
   b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22); b.writeUInt32LE(16000, 24); b.writeUInt32LE(32000, 28);
   b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34); b.write('data', 36); b.writeUInt32LE(b.length - 44, 40);
-  await page.locator('input[type=file][accept="audio/*"]').first().setInputFiles({ name: 'sandbox.wav', mimeType: 'audio/wav', buffer: b });
+  await page.locator('#fileAudioCard').setInputFiles({ name: 'sandbox.wav', mimeType: 'audio/wav', buffer: b });
   await expect(page.getByText('✓ аудио и волна готовы', { exact: true })).toBeVisible();
   await page.locator('#nav-export').click();
   await page.locator('#btnFolderPick').click();
