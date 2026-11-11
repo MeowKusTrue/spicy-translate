@@ -8,6 +8,7 @@ import { spreadSplits } from './syllables.ts';
 import { setMeta, splitArtists } from './metadata.ts';
 import { idbGet, idbPut, restoreProject, snapshot, trackKey } from './persist.ts';
 import { CH, selectWord } from './sync.ts';
+import { session } from './projectSession.ts';
 import { W, buildPeaks, drawWave } from './waveform/wave.ts';
 
 export async function fetchSearch(q: string): Promise<LrclibHit[]> {
@@ -16,10 +17,12 @@ export async function fetchSearch(q: string): Promise<LrclibHit[]> {
   return r.json();
 }
 export async function search() {
+  const generation = session.generation;
   const q = S.q.trim(); if (!q) return;
   status('st1', 'Ищу…');
   try {
     const data = await fetchSearch(q);
+    if (generation !== session.generation) return;
     if (!data.length) { S.results = []; status('st1', 'Ничего не найдено. Попробуй вставить LRC вручную.', 'err'); return; }
     S.results = data;
     status('st1', `Найдено: ${data.length}. Выбери версию с меткой synced.`, 'ok');
@@ -48,9 +51,9 @@ export function loadManual(text: string, fileName = '') {
   status('st1', `${kind.toUpperCase()}: строк ${S.lines.length}${extra ? ' · ' + extra : ''}${kind === 'text' ? (dur ? ' · без таймингов: строки разложены по треку, точную синхру задай F/G' : ' · без таймингов: по 3.5 с на строку; с аудио разложу по длине трека') : ''}`, kind === 'text' ? 'err' : 'ok');
 }
 /** keep = the same song edited elsewhere (the agent): undo, layer, selection and playhead stay */
-export function setLines(lines: Line[], dur: number, keep = false) {
+export function setLines(lines: Line[], dur: number, keep = false, backedUp = false) {
   const hadLines = S.lines.length > 0;
-  if (S.lines.length && !keep) snapshot('перед загрузкой нового текста'); // the replaced project stays in the snapshots
+  if (S.lines.length && !keep && !backedUp) snapshot('перед загрузкой нового текста'); // the replaced project stays in the snapshots
   S.lines = lines; spreadSplits(); S.picked.clear(); S.pickAnchor = -1; // remembered syllable splits come in by themselves
   if (!keep) { S.undo = []; S.redo = []; }
   if (!keep || !hadLines) S.layer = S.meta.mode === 'original' ? 'orig' : lines.some(l => l.tr && l.tr.trim()) ? 'tr' : 'orig';
@@ -75,25 +78,29 @@ export function guessNames(fname: string) {
   return m ? { artist: m[1].trim(), title: m[2].trim() } : { artist: '', title: b };
 }
 export async function loadAudioFile(file: Blob & { name?: string }, fromCache?: boolean) {
+  const generation = session.generation;
   pause();
   const a = audio; if (S.audioUrl) URL.revokeObjectURL(S.audioUrl);
   S.audioUrl = URL.createObjectURL(file); a.src = S.audioUrl; S.hasAudio = true; S.audioBlob = file; a.playbackRate = S.rate; a.volume = S.vol;
-  const meta = new Promise<number>(r => { a.onloadedmetadata = () => { S.duration = Math.max(S.duration, a.duration); emit(); r(a.duration); }; setTimeout(() => r(0), 4000); });
+  const meta = new Promise<number>(r => { a.onloadedmetadata = () => { if (generation !== session.generation) return r(0); S.duration = Math.max(S.duration, a.duration); emit(); r(a.duration); }; setTimeout(() => r(0), 4000); });
   a.onended = pause;
   status('st1', fromCache ? 'Подтянул сохранённое аудио этого трека. Строю волну…' : 'Аудио подключено. Строю волну…', 'ok');
   const dur = await meta;
+  if (generation !== session.generation) return;
   restoreCover(true);
-  await buildPeaks(file); drawWave();
+  await buildPeaks(file); if (generation !== session.generation) return; drawWave();
   if (!S.lines.length && file.name) await autoFromAudio(file.name, dur);
   else if (trackKey()) idbPut(trackKey(), file);
   if (S.lines.length) status('st1', W.peaks ? 'Аудио и волна готовы.' : 'Аудио подключено (без волны).', 'ok');
 }
 async function autoFromAudio(fname: string, dur: number) {
+  const generation = session.generation;
   const { artist, title } = guessNames(fname); if (!title) return;
   status('st1', `Ищу текст по имени файла: «${(artist + ' ' + title).trim()}»…`);
   try {
     let q = (artist + ' ' + title).trim(), data = await fetchSearch(q);
     if (!data.length && artist) { q = title; data = await fetchSearch(q); }
+    if (generation !== session.generation) return;
     S.q = q;
     if (!data.length) { status('st1', 'Аудио есть, но текст по имени файла не нашёл — введи поиск вручную.', 'err'); return; }
     S.results = data;

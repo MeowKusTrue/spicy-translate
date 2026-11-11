@@ -1,0 +1,363 @@
+/* Load after styles.css. Classic is intentionally outside every selector.
+ * Keep karaoke typography, rendering and motion entirely in the base stylesheet.
+ * The dock budget never depends on selection or ResizeObserver measurements.
+ */
+html[data-layout="studio"] {
+  --studioHeaderH: 52px;
+  --studioNavH: 44px;
+  --studioChromeH: calc(var(--studioHeaderH) + var(--studioNavH));
+  --studioListW: clamp(180px, var(--studioLinesWidth, 280px), min(600px, 48vw));
+  --studioDockH: min(clamp(240px, var(--dockH, 360px), 38dvh), max(180px, calc(100dvh - var(--studioChromeH) - 44px - 300px)));
+  height: 100%;
+  overflow: hidden;
+}
+
+html[data-layout="studio"] body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--txt);
+}
+
+/* A single identity bar, followed by a single navigation row. */
+html[data-layout="studio"] header.studio-header {
+  position: relative;
+  height: var(--studioHeaderH);
+  min-height: var(--studioHeaderH);
+  padding: 0 16px;
+  gap: 10px;
+  flex-wrap: nowrap;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: none;
+}
+html[data-layout="studio"] header.studio-header .logo {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: var(--acc);
+  color: var(--acc-txt);
+  font-size: 15px;
+}
+html[data-layout="studio"] header.studio-header h1 { font-size: 14px; }
+html[data-layout="studio"] .studio-track { max-width: 240px; padding-left: 14px; }
+html[data-layout="studio"] .studio-layout-toggle,
+html[data-layout="studio"] .studio-projects-button {
+  min-height: 30px;
+  padding: 5px 9px;
+  font-size: 12px;
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+html[data-layout="studio"] .studio-layout-toggle[aria-pressed="true"] {
+  color: var(--acc);
+  border-color: var(--acc);
+}
+html[data-layout="studio"] .studio-nav {
+  height: var(--studioNavH);
+  min-height: var(--studioNavH);
+  padding: 0 16px;
+  gap: 10px;
+  flex-wrap: nowrap;
+  overflow: visible;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+html[data-layout="studio"] .studio-nav .nav {
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  background: transparent;
+}
+html[data-layout="studio"] .studio-nav .nav button {
+  height: var(--studioNavH);
+  padding: 8px 12px;
+  flex: none;
+  font-size: 12px;
+}
+html[data-layout="studio"] .studio-nav .nav button.on {
+  color: var(--txt);
+  border-bottom-color: var(--acc);
+  background: transparent;
+}
+html[data-layout="studio"] .studio-mode { display: flex; flex: none; gap: 8px; }
+html[data-layout="studio"] .workspace-menu { position: relative; flex: none; }
+html[data-layout="studio"] .workspace-menu > summary {
+  cursor: pointer;
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--txt);
+  background: var(--card);
+}
+html[data-layout="studio"] .workspace-menu > .pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: auto;
+  z-index: 30;
+  width: min(340px, calc(100vw - 24px));
+  max-height: min(520px, 70dvh);
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--pop);
+  color: var(--txt);
+}
+
+/* Keep the measured toolbar height in the workspace calculation, not dock height. */
+html[data-layout="studio"] main {
+  display: grid;
+  height: calc(100dvh - var(--studioChromeH));
+  min-height: 0;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  gap: 0;
+  grid-template-columns: var(--studioListW) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}
+html[data-layout="studio"] body.dock-open main {
+  height: calc(100dvh - var(--studioChromeH) - var(--studioDockH));
+  padding: 0;
+}
+html[data-layout="studio"] main.page-sync {
+  height: calc(100dvh - var(--studioChromeH) - var(--editorToolbarH, 44px));
+  grid-template-columns: var(--studioListW) minmax(0, 1fr);
+}
+html[data-layout="studio"] body.dock-open main.page-sync {
+  height: calc(100dvh - var(--studioChromeH) - var(--editorToolbarH, 44px) - var(--studioDockH));
+}
+html[data-layout="studio"] main.page-sync:not(.studio-hide-lines),
+html[data-layout="studio"] main.page-sync.studio-inspecting:not(.studio-hide-lines) {
+  grid-template-columns: var(--studioListW) minmax(0, 1fr);
+}
+html[data-layout="studio"] main.page-sync.studio-hide-lines,
+html[data-layout="studio"] main.page-sync.studio-hide-lines.studio-inspecting { grid-template-columns: minmax(0, 1fr); }
+html[data-layout="studio"] main.page-text { grid-template-columns: minmax(360px, 44%) minmax(0, 1fr); }
+html[data-layout="studio"] main > .col:first-child {
+  min-height: 0;
+  padding: 14px;
+  overflow: auto;
+  background: var(--card);
+  border-right: 1px solid var(--line);
+}
+html[data-layout="studio"] main.page-sync > .col:first-child { padding: 12px 0 0; overflow: hidden; }
+html[data-layout="studio"] main > .col:nth-child(2) { min-height: 0; padding: 0; }
+html[data-layout="studio"] .sidebar-resize { left: calc(var(--studioListW) - 4px); }
+html[data-layout="studio"] main.page-sync .linescard {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+html[data-layout="studio"] main.page-sync .linescard .lines {
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+html[data-layout="studio"] .compact-line .compact-text { font-size: 14px; }
+html[data-layout="studio"] .ln.compact-line { padding-top: 11px; padding-bottom: 11px; }
+html[data-layout="studio"] main .card h2 b { background: var(--field); color: var(--acc); }
+
+/* Preview is a neutral canvas; no selectors target karaoke words or lyric metrics. */
+html[data-layout="studio"] .stage,
+html[data-layout="studio"] body.dock-open .stage {
+  position: relative;
+  top: 0;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--stage);
+}
+html[data-layout="studio"] .stage-top { flex: none; padding: 10px 18px 6px; }
+html[data-layout="studio"] .stage-top .art { width: 32px; height: 32px; box-shadow: none; }
+html[data-layout="studio"] .stage-preview-label {
+  color: var(--mut);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+html[data-layout="studio"] .stage-context-actions {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 5px 18px 8px;
+}
+html[data-layout="studio"] .stage-context-actions button { min-height: 28px; padding: 4px 8px; font-size: 11px; }
+html[data-layout="studio"] .stage .player {
+  flex: none;
+  flex-wrap: nowrap;
+  gap: 9px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+  backdrop-filter: none;
+}
+html[data-layout="studio"] .stage .player #seek { min-width: 60px; width: 0; }
+html[data-layout="studio"] .stage .player .voffb { display: inline-flex; }
+html[data-layout="studio"] .player-volume { max-width: 145px; }
+html[data-layout="studio"] .player-volume #vol { width: 64px; }
+
+/* Advanced commands remain behind the accessible Tools button, not discarded. */
+html[data-layout="studio"] .editor-quickbar {
+  min-height: 44px;
+  padding: 6px 12px;
+  gap: 5px;
+}
+html[data-layout="studio"] .editor-quickbar #btnSimpleEditor { display: none; }
+html[data-layout="studio"] #btnEditorCommands { display: inline-flex; align-items: center; }
+html[data-layout="studio"]:not([data-editor-tools="open"]) #btnFitEveryLine,
+html[data-layout="studio"]:not([data-editor-tools="open"]) #btnQuickProperties,
+html[data-layout="studio"]:not([data-editor-tools="open"]) #selectionBar { display: none; }
+html[data-layout="studio"] .editor-commands {
+  max-height: min(280px, 34dvh);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+html[data-layout="studio"] .editor-commands .menu.up .pop {
+  position: fixed;
+  top: calc(var(--studioChromeH) + 44px);
+  bottom: auto;
+  max-height: 55dvh;
+  overflow: auto;
+}
+
+/* Fixed outer geometry prevents selected-word content from resizing the preview. */
+html[data-layout="studio"] .dock {
+  height: var(--studioDockH);
+  max-height: none;
+  min-height: 0;
+  padding: 0 12px 6px;
+  gap: 0;
+  background: var(--card);
+  border-top: 1px solid var(--line);
+  backdrop-filter: none;
+}
+html[data-layout="studio"] .montage-dock .timeline-tools {
+  min-height: 34px;
+  padding: 3px 0;
+  gap: 8px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+html[data-layout="studio"] .montage-dock .review-bar { min-height: 26px; padding: 0; flex-wrap: nowrap; overflow-x: auto; }
+html[data-layout="studio"] .montage-dock .editor-workspace { min-height: 0; overflow: hidden; }
+html[data-layout="studio"] .montage-dock .timeline-surface { min-height: 0; min-width: 0; overflow: auto; }
+html[data-layout="studio"] .montage-dock .timeline-overview { height: 22px; }
+html[data-layout="studio"] .montage-dock .timeline-tracks { min-height: 72px; }
+html[data-layout="studio"] .montage-dock .timeline-position { min-height: 23px; }
+html[data-layout="studio"] .montage-dock .sync-lines { min-height: 28px; max-height: 28px; flex: none; }
+html[data-layout="studio"] .montage-dock .timeline-selection {
+  height: 36px;
+  min-height: 36px;
+  flex-wrap: nowrap;
+  padding-top: 3px;
+}
+html[data-layout="studio"] .montage-dock .timeline-selected { flex-wrap: nowrap; overflow: hidden; }
+html[data-layout="studio"] .montage-dock .timeline-selected b,
+html[data-layout="studio"] .montage-dock .timeline-selected > span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+html[data-layout="studio"] .montage-dock .editor-workspace > .word-inspector { width: 270px; min-height: 0; overflow: auto; }
+html[data-layout="studio"] body.editor-focus .dock {
+  height: calc(100dvh - var(--studioChromeH) - var(--editorToolbarH, 44px));
+}
+
+html[data-layout="studio"] :is(button, summary, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--acc);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1280px) {
+  html[data-layout="studio"] header.studio-header { gap: 7px; padding: 0 12px; }
+  html[data-layout="studio"] .studio-track { max-width: 170px; }
+  html[data-layout="studio"] .studio-nav { padding: 0 12px; gap: 7px; }
+  html[data-layout="studio"] .studio-nav .nav button { padding: 8px 9px; }
+  html[data-layout="studio"] .studio-mode > small { display: none; }
+  html[data-layout="studio"] .stage .player { flex-wrap: wrap; }
+  html[data-layout="studio"] .stage .player #seek { flex: 1 1 150px; }
+}
+
+@media (max-width: 900px) {
+  html[data-layout="studio"] { --studioListW: clamp(180px, var(--studioLinesWidth, 250px), min(600px, 48vw)); }
+  html[data-layout="studio"] .studio-nav { gap: 5px; }
+  html[data-layout="studio"] .studio-mode { display: flex; }
+  html[data-layout="studio"] .project-mode button { padding: 4px 6px; }
+  html[data-layout="studio"] .studio-header .studio-undo { display: inline-flex; }
+  html[data-layout="studio"] .montage-dock .editor-workspace > .word-inspector { width: 235px; }
+  html[data-layout="studio"] .timeline-word-actions #timelineListenWord { display: inline-flex; }
+}
+
+/* On phones, scroll the workspace rather than compressing all three surfaces. */
+@media (max-width: 650px) {
+  html[data-layout="studio"],
+  html[data-layout="studio"] body { height: auto; overflow: auto; }
+  html[data-layout="studio"] header.studio-header { overflow-x: auto; }
+  html[data-layout="studio"] .studio-nav { overflow-x: auto; }
+  html[data-layout="studio"] .studio-nav .nav { flex: none; }
+  html[data-layout="studio"] .workspace-menu > .pop { position: fixed; top: var(--studioChromeH); right: 12px; }
+  html[data-layout="studio"] main,
+  html[data-layout="studio"] main.page-sync,
+  html[data-layout="studio"] body.dock-open main,
+  html[data-layout="studio"] body.dock-open main.page-sync {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+    padding-bottom: 0;
+  }
+  html[data-layout="studio"] main > .col:nth-child(2) { order: 0; height: 360px; flex: none; }
+  html[data-layout="studio"] main > .col:first-child { order: 1; min-height: 240px; max-height: 440px; }
+  html[data-layout="studio"] main.page-sync .linescard { min-height: 240px; }
+  html[data-layout="studio"] .dock { position: relative; height: 360px; }
+  html[data-layout="studio"] .montage-dock .editor-workspace.inspecting { flex-direction: row; }
+  html[data-layout="studio"] .montage-dock .editor-workspace.inspecting .timeline-surface { flex: 1 1 0; height: auto; min-height: 0; }
+  html[data-layout="studio"] .montage-dock .editor-workspace > .word-inspector { width: 210px; max-height: none; border-left: 1px solid var(--line); }
+  html[data-layout="studio"] .timeline-word-actions { overflow-x: auto; min-width: 0; }
+}
+
+html[data-layout="studio"] .stage-preview-label { padding: 3px 18px 7px; }
+html[data-layout="studio"] .studio-header #btnPalette { display: none; }
+html[data-layout="studio"] body.preview-drafting .stage-context-actions,
+html[data-layout="studio"] body.preview-drafting .stage-preview-label { display: none; }
+html[data-layout="studio"] main:not(.page-sync) { grid-template-columns: minmax(360px, 42%) minmax(0, 1fr); }
+@media (max-width: 650px) {
+  html[data-layout="studio"] main:not(.page-sync) { display: flex; }
+}
+html[data-layout="studio"] .studio-header #liveLink { display: none; }
+html[data-layout="studio"] .stage-top { position: absolute; right: 14px; top: 10px; padding: 0; z-index: 3; }
+html[data-layout="studio"] .stage-top .ttl,
+html[data-layout="studio"] .stage-top .art { display: none; }
+html[data-layout="studio"] body.preview-drafting .stage-top { display: none; }
+html[data-layout="studio"] .stage-preview-label { padding: 18px 62px 10px 22px; }
+html[data-layout="studio"] .stage-context-actions { justify-content: center; padding-bottom: 14px; gap: 8px; }
+html[data-layout="studio"] .stage-context-actions button { min-height: 34px; padding: 6px 12px; font-size: 12px; }
+html[data-layout="studio"] #studioPlaybackRate { width: 64px; min-height: 30px; font-size: 12px; padding: 4px 6px; }
+html[data-layout="studio"] .editor-toolbar { z-index: 35; }
+html[data-layout="studio"] .editor-tools-panel { position: absolute; top: 100%; left: 12px; right: 12px; max-height: min(420px, calc(100dvh - 160px)); overflow: auto; background: var(--pop); border: 1px solid var(--line); border-radius: 0 0 12px 12px; box-shadow: 0 16px 32px #0005; }
+html[data-layout="studio"] .editor-tools-panel[hidden] { display: none; }
+html[data-layout="studio"] .editor-tools-panel .editor-commands { max-height: none; overflow: visible; }
+html[data-layout="studio"]:not([data-editor-tools="open"]) .montage-dock .review-bar,
+html[data-layout="studio"]:not([data-editor-tools="open"]) .montage-dock #syncLines { display: none; }
+html[data-layout="studio"] .stage .lyrics { text-align: center; }
+/* No new animations or transitions: reduced-motion needs no additional override. */

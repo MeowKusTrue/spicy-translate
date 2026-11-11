@@ -1,6 +1,6 @@
 // The preview owns its DOM; keep the editing form in the very same lyric block.
 import { S, layerText, mainLayerFor, setEditDraft, toast } from './state.ts';
-import { pause } from './audio.ts';
+import { pause, seekTo } from './audio.ts';
 import { editText } from './lineEdit.ts';
 import { buildPreview } from './preview.ts';
 import { drawWave } from './waveform/wave.ts';
@@ -35,7 +35,10 @@ export function editPreview(i: number, host: HTMLElement, layer: Layer = mainLay
   const mode = document.createElement('button'); mode.type = 'button'; mode.id = 'btnPreviewMarkup'; mode.textContent = 'Показать слоги'; mode.setAttribute('aria-pressed','false');
   const insert = document.createElement('button'); insert.type = 'button'; insert.id = 'btnPreviewInsertBoundary'; insert.textContent = 'Вставить |'; insert.title = 'Граница слога в месте курсора';
   const reset = document.createElement('button'); reset.type = 'button'; reset.textContent = 'Сбросить правку'; reset.id = 'btnPreviewReset';
-  tools.append(mode, insert, reset);
+  const previous = document.createElement('button'); previous.type = 'button'; previous.id = 'btnPreviewPrevious'; previous.textContent = '← Предыдущая'; previous.disabled = i === 0;
+  const next = document.createElement('button'); next.type = 'button'; next.id = 'btnPreviewNext'; next.textContent = 'Следующая →'; next.disabled = i === S.lines.length - 1;
+  previous.title = next.title = 'Сохранить правку и открыть соседнюю строку';
+  tools.append(previous, next, mode, insert, reset);
   const input = document.createElement('span'); input.id = 'previewEditText'; input.contentEditable = 'plaintext-only'; input.textContent = visible; input.setAttribute('role', 'textbox');
   input.setAttribute('aria-label', 'Текст строки в просмотре'); input.setAttribute('aria-multiline', 'false');
   input.setAttribute('aria-describedby','previewEditHelp previewEditError'); input.spellcheck = true;
@@ -60,7 +63,7 @@ export function editPreview(i: number, host: HTMLElement, layer: Layer = mainLay
   form.onsubmit = e => { e.preventDefault(); savePreviewEdit(); };
   cancel.onclick = close;
   form.onclick = e => e.stopPropagation(); form.ondblclick = e => e.stopPropagation();
-  form.onkeydown = e => { e.stopPropagation(); if (e.key === 'Escape') { e.preventDefault(); close(); } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } };
+  form.onkeydown = e => { e.stopPropagation(); if (e.isComposing || e.keyCode === 229) return; if (e.key === 'Escape') { e.preventDefault(); close(); } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } };
   const update = () => {
     const raw = (input.textContent || '').replace(/\r?\n/g, ' ');
     marked = slashSyl(showSyllables ? raw : mergeMarkup(marked, raw), old);
@@ -92,10 +95,23 @@ export function editPreview(i: number, host: HTMLElement, layer: Layer = mainLay
   insert.onmousedown = e => e.preventDefault(); insert.onclick = () => {
     if (!showSyllables) switchMode();
     const offset = caret(), value = input.textContent || '';
+    if (!offset || offset === value.length || /[\s|]/u.test(value[offset - 1]) || /[\s|]/u.test(value[offset])) {
+      error.textContent = 'Поставь курсор внутри слова между слогами. У края слова и рядом с | граница не нужна.';
+      focusAt(offset); return;
+    }
     input.textContent = value.slice(0,offset) + '|' + value.slice(offset); focusAt(offset + 1); update();
   };
   reset.onclick = () => { marked = old; input.textContent = showSyllables ? old : visible; update(); focusAt((input.textContent || '').length); };
-  input.onkeydown = e => { e.stopPropagation(); if (e.key === 'Escape') { e.preventDefault(); close(); } else if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } };
+  const openAdjacent = (delta: number) => {
+    const index = i + delta;
+    if (!S.lines[index] || !savePreviewEdit()) return;
+    const row = document.getElementById('pl' + index);
+    if (!row) return;
+    const target = layer === 'bg' || layer === 'bgo' ? row.querySelector<HTMLElement>('.bg') || row : row;
+    seekTo(S.lines[index].t); editPreview(index, target, layer);
+  };
+  previous.onclick = () => openAdjacent(-1); next.onclick = () => openAdjacent(1);
+  input.onkeydown = e => { e.stopPropagation(); if (e.isComposing || e.keyCode === 229) return; if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowUp') { e.preventDefault(); openAdjacent(-1); } else if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowDown') { e.preventDefault(); openAdjacent(1); } else if (e.key === 'Escape') { e.preventDefault(); close(); } else if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } };
   actions.append(stats, cancel, save); form.append(header, tools, input, help, error, actions); host.append(form);
   update(); focusAt(visible.length);
 }

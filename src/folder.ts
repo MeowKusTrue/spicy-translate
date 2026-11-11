@@ -1,6 +1,7 @@
 // The project folder: TTML, project (.spicy.json) and the audio side by side. Ctrl+S writes there without asking.
 // App: the Windows folder dialog + app commands (lyrics / project / audio files only). Chrome / Edge: the browser's
 // folder picker, its handle kept in IndexedDB. A folder is linked per track (by artist - title).
+import { session } from './projectSession.ts';
 import { buildTTML } from './core/index.ts';
 import { S, emit, status } from './state.ts';
 import { idbDel, idbGet, idbPut, loadProject, projectJSON, trackKey } from './persist.ts';
@@ -13,6 +14,7 @@ const picker = (window as unknown as { showDirectoryPicker?: (o: object) => Prom
 /** the folder in use: a path in the app, a directory handle in the browser */
 type Folder = { label: string; list(): Promise<string[]>; text(n: string): Promise<string>; blob(n: string): Promise<Blob>; write(n: string, d: string | Blob): Promise<void> };
 let cur: Folder | null = null, curKey = '', curDir = '', curH: DirHandle | null = null;
+export function detachFolder() { cur = null; curKey = ''; curDir = ''; curH = null; S.folder = null; }
 export const folderSupported = () => !!invoke || (!!picker && window.self === window.top);
 
 const hex = (s: string) => [...new TextEncoder().encode(s)].map(b => b.toString(16).padStart(2, '0')).join('');
@@ -45,10 +47,11 @@ const use = (f: Folder | null, saved = 0) => { cur = f; curKey = trackKey(); S.f
 
 /** the folder linked to the current track (after a track change); the browser asks for access again on first use */
 export async function restoreFolder() {
+  const generation = session.generation;
   const k = trackKey(); if (k === curKey && cur) return;
   if (invoke) { const d = links()[k]; curDir = d || ''; return use(d ? appFolder(d) : null); }
   const h = k ? await idbGet('dir:' + k) as unknown as DirHandle | null : null;
-  if (trackKey() !== k || (curKey === k && cur)) return; // a newer link won meanwhile
+  if (generation !== session.generation || trackKey() !== k || (curKey === k && cur)) return; // a newer link won meanwhile
   curH = h && typeof h.getFileHandle === 'function' ? h : null; use(curH ? webFolder(curH) : null);
 }
 /** choose (or change) the folder of this project */
@@ -91,13 +94,14 @@ export async function saveToFolder() {
 /** open a project folder: the project (or a TTML) and the audio found there */
 export async function openProjectFolder() {
   if (!(await pickFolder())) return;
-  const f = cur!, names = await f.list();
+  const f = cur!, dir = curDir, handle = curH, names = await f.list();
   const proj = names.find(n => /\.spicy\.json$/i.test(n)), ttml = names.find(n => /\.ttml$/i.test(n)), audio = names.find(n => /\.(mp3|flac|wav|ogg|opus|m4a|aac)$/i.test(n));
   if (!proj && !ttml) return status('st1', `В «${f.label}» нет проекта (.spicy.json) или .ttml — сохрани в неё проект (Ctrl+S).`, 'err');
   const { loadAudioFile, openLyricsFile } = await import('./load.ts');
   if (proj) loadProject(await f.text(proj));
   else await openLyricsFile(new File([await f.text(ttml!)], ttml!));
-  await remember(invoke ? { dir: curDir } : { h: curH! }); // re-link under the loaded track's name
+  curDir = dir; curH = handle;
+  await remember(invoke ? { dir } : { h: handle! }); // re-link under the loaded track's name
   use(f);
   if (audio) loadAudioFile(new File([await f.blob(audio)], audio, { type: 'audio/' + (audio.split('.').pop() === 'mp3' ? 'mpeg' : audio.split('.').pop()) }));
 }

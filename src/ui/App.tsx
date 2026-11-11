@@ -14,6 +14,8 @@ import { ModePicker, linesShown } from './Studio.tsx';
 import { doRedo, doUndo } from '../sync.ts';
 import { openAlignPanel } from '../autoAlign.ts';
 import { SidebarResize } from './SidebarResize.tsx';
+import { setWorkspaceLayout, workspaceLayout } from './layout.ts';
+import { savePreviewEdit } from '../previewEdit.ts';
 
 export function stepInfo() {
   const n = S.lines.length, tr = S.lines.filter(l => l.tr && l.tr.trim()).length;
@@ -24,6 +26,7 @@ export function stepInfo() {
 
 /** tabs in the header: each shows how far that step is */
 function Nav() {
+  const studio = workspaceLayout() === 'studio';
   const { n, tr, done } = stepInfo(), errs = (S.qa || []).filter(x => x.sev === 'err').length;
   const badge: Record<string, [string, boolean]> = {
     track: [n ? (S.hasAudio ? '✓' : 'без ♪') : '', n > 0 && S.hasAudio],
@@ -33,7 +36,9 @@ function Nav() {
     export: [S.qa ? (errs ? '!' + errs : '✓') : '', !!S.qa && !errs],
   };
   return <nav className="nav" role="tablist">{PAGES.map(([id, label], k) => {
+    if (studio && (id === 'track' || id === 'tr' && S.meta.mode === 'original')) return null;
     const [b, ok] = badge[id];
+    if (studio && id === 'export') label = 'Проверка';
     return <button key={id} role="tab" aria-selected={S.page === id} id={'nav-' + id} className={S.page === id ? 'on' : ''} title={`Alt+${k + 1}`} disabled={!n && id !== 'track'} onClick={() => setPage(id)}>
       <i>{k + 1}</i>{label}{id === 'text' && S.full?.dirty ? ' •' : ''}{b && <em className={ok ? 'ok' : ''}>{b}</em>}
     </button>;
@@ -52,20 +57,24 @@ function Page() {
 
 export function App() {
   useS();
+  const studio = workspaceLayout() === 'studio';
+  const changeLayout = () => { if (!savePreviewEdit()) return; setWorkspaceLayout(studio ? 'classic' : 'studio'); };
   return <>
     <header className="studio-header" data-tauri-drag-region={isApp || undefined}>
       <div className="logo" data-tauri-drag-region={isApp || undefined}>S</div>
       <div className="brand" data-tauri-drag-region={isApp || undefined}><h1 data-tauri-drag-region={isApp || undefined}>Spicy Translate</h1><span data-tauri-drag-region={isApp || undefined}>синхронный перевод для Spicy Lyrics · TTML</span></div>
       <div className="studio-track"><b>{S.meta.title || 'Новый проект'}</b><small>{S.meta.artist || 'Загрузи текст и аудио, чтобы начать'}</small></div>
       <div style={{ flex: 1, alignSelf: 'stretch' }} data-tauri-drag-region={isApp || undefined}></div>
+      {studio && <button className="sm studio-projects-button" id="btnWorkspaceProjects" onClick={() => setPage('track')}>Проекты</button>}
+      <button className="sm studio-layout-toggle" id="btnWorkspaceLayout" title="Меняет только компоновку; анимация караоке сохраняется" aria-pressed={studio} onClick={changeLayout}>{studio ? 'Прежний вид' : 'Новый вид'}</button>
       <button className="sm palbtn" id="btnPalette" title="Все действия с поиском" onClick={openPalette}>⌘ <kbd>Ctrl+K</kbd></button>
       <span className={'pill ' + (S.live?.cls || '')} id="liveLink" title="Связь с локальным сервером / MCP" hidden={!S.live}>{S.live?.msg}</span>
       <span className={'pill ' + S.save.cls} id="saveInd" title="Проект сохраняется автоматически в браузере">{S.save.msg}</span>
       <button className="sm studio-undo" aria-label="Отменить" title="Ctrl+Z" disabled={!!S.editDraft || !S.undo.length} onClick={doUndo}>↶</button><button className="sm studio-undo" aria-label="Повторить" title="Ctrl+Shift+Z" disabled={!!S.editDraft || !S.redo.length} onClick={doRedo}>↷</button>
-      <button className="pri sm" id="btnStudioExport" disabled={!S.lines.length} onClick={() => setPage('export')}>Экспорт TTML</button>
+      <button className="pri sm" id="btnStudioExport" disabled={!S.lines.length} onClick={() => setPage('export')}>{studio ? 'Проверить и экспортировать' : 'Экспорт TTML'}</button>
       {isApp && <WinButtons />}
     </header>
-    <div className="studio-nav"><Nav /><button className="sm" id="btnStudioModels" onClick={openAlignPanel}>Автоматизация</button><div className="studio-mode"><small>Задача проекта</small><ModePicker /></div></div>
+    <div className="studio-nav"><Nav />{studio ? <details className="menu workspace-menu"><summary className="btn sm">{S.meta.mode === 'original' ? 'Оригинал' : S.meta.mode === 'translation' ? 'Перевод' : 'Два языка'} · Настройки</summary><div className="pop"><small>Что попадёт в TTML</small><ModePicker />{S.live && <small>{S.live.msg}</small>}<button className="sm" id="btnStudioModels" onClick={openAlignPanel}>Авто-тайминг и модели</button><button className="sm" onClick={openPalette}>Все действия · Ctrl+K</button></div></details> : <><button className="sm" id="btnStudioModels" onClick={openAlignPanel}>Автоматизация</button><div className="studio-mode"><small>Задача проекта</small><ModePicker /></div></>}</div>
     <EditorToolbar />
     <main className={'page-' + S.page + (S.page === 'sync' && !linesShown() ? ' studio-hide-lines' : '')}>
       <div className="col" key={S.page}><Page /></div>

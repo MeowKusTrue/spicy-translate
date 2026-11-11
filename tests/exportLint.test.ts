@@ -129,3 +129,35 @@ it('offers no draft when anchored gaps have no positive space for missing words'
     expect(line).toEqual(before);
   }
 });
+
+it('suggests replacing minority lookalike letters on each exported track without touching timing or source', () => {
+  const line: Line = {t:1,end:4,text:'plеase pleasе пpивет',tr:'',sync:{orig:[{a:1,b:2},{a:2,b:3},{a:3,b:4}]},bg:{text:'plеase',tr:''}};
+  const original=structuredClone(line), issues=lintExport({lines:[line],mode:'original'});
+  const mixed=issues.filter(x=>x.sev==='err' && x.msg.includes('русские и английские'));
+  expect(mixed).toHaveLength(4);
+  expect(mixed[0].fix!.line.text).toBe('please pleasе пpивет');
+  expect(mixed[1].fix!.line.text).toBe('plеase please пpивет');
+  expect(mixed[2].fix!.line.text).toBe('plеase pleasе привет');
+  expect(mixed[3].layer).toBe('bgo');expect(mixed[3].fix!.line.bg!.text).toBe('please');
+  for(const issue of mixed) expect(issue.fix!.line.sync).toEqual(line.sync);
+  expect(line).toEqual(original);
+  expect(lintExport({lines:[{...line,text:'please',bg:undefined}],mode:'original'}).some(x=>x.msg.includes('русские и английские'))).toBe(false);
+});
+it('does not guess mixed words without a dominant alphabet or with non-lookalike minority letters',()=>{
+  for(const text of ['aб','plaжse']) {
+    const issue=lintExport({lines:[{t:1,end:3,text,tr:''}],mode:'original'}).find(x=>x.msg.includes('русские и английские'))!;
+    expect(issue.sev).toBe('err');expect(issue.fix).toBeUndefined();
+  }
+});
+it('offers explicit finished/cut-off choices for ellipsis and leaves abbreviation periods alone',()=>{
+  for(const text of ['Ты играешь…','Ты играешь...']) {
+    const line:Line={t:1,end:3,text,tr:'',sync:{orig:[{a:1,b:2},{a:2,b:3}]}};
+    const issue=lintExport({lines:[line],mode:'original'}).find(x=>x.msg.startsWith('Многоточие'))!;
+    expect(issue.fixes!.map(x=>x.line.text)).toEqual(['Ты играешь','Ты играешь—']);
+    for(const fix of issue.fixes!) expect(fix.line.sync).toEqual(line.sync);
+    expect(line.text).toBe(text);
+  }
+  expect(lintExport({lines:[{t:1,end:3,text:'И т. д., и т. п.',tr:''}],mode:'original'}).some(x=>x.msg.startsWith('Многоточие'))).toBe(false);
+  const standalone=lintExport({lines:[{t:1,end:3,text:'Стой …',tr:''}],mode:'original'}).find(x=>x.msg.startsWith('Многоточие'))!;
+  expect(standalone.fixes).toHaveLength(1);
+});

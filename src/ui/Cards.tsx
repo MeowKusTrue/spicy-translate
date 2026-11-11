@@ -4,7 +4,7 @@ import { mmss, plainW, stopLine, wordList } from '../core/index.ts';
 import { S, doubtful, emit, lineState, mainLayerFor, status } from '../state.ts';
 import { seekTo } from '../audio.ts';
 import { buildPreview } from '../preview.ts';
-import { idbPut, listSnaps, loadProject, restoreSnap, scheduleSave, snapshot, trackKey, type Snap } from '../persist.ts';
+import { idbPut, listSnaps, newEmptyProject, loadProject, restoreSnap, scheduleSave, snapshot, trackKey, type Snap } from '../persist.ts';
 import { loadManual, loadTrack, openLyricsFile, search, setMode } from '../load.ts';
 import { selectWord, snap } from '../sync.ts';
 import { CompactLines } from './CompactLines.tsx';
@@ -379,6 +379,7 @@ export function HistoryCard() {
   const f = q.trim().toLowerCase(), shown = (list || []).filter(s => !f || (s.artist + ' ' + s.title).toLowerCase().includes(f));
   return <section className="card">
     <h2>Проекты и история <small>снимки в этом браузере</small></h2>
+    <button id="btnNewProject" onClick={async e => { const b = e.currentTarget; b.disabled = true; try { await newEmptyProject(); await load(); } finally { b.disabled = false; } }}>Новый пустой проект</button>
     <div className="row">
       <input type="text" placeholder="найти по названию…" value={q} onChange={e => setQ(e.target.value)} />
       <button className="sm" id="btnSnapNow" disabled={!S.lines.length} onClick={() => snapshot('вручную').then(load)}>📸 Снимок</button>

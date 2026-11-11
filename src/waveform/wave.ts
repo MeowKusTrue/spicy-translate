@@ -53,11 +53,18 @@ async function analyse(file: Blob, then: (s: Spec, on: number[]) => void) {
   } finally { ctx.close && ctx.close(); }
 }
 let gen = 0, vgen = 0; // a newer file drops the late spectrogram of an older one
+export function clearProjectWave() {
+  gen++; vgen++;
+  W.peaks = W.vpeaks = null; W.spec = W.vspec = null;
+  W.onsets = []; W.vonsets = []; W.multi = []; W.boxes = []; W.secs = [];
+  W.drag = W.pend = null; W.snapAt = null; W.flash = null; W.start = 0;
+}
 export async function buildPeaks(file: Blob) {
   const my = ++gen; vgen++;
   W.peaks = null; W.vpeaks = null; W.vonsets = []; W.spec = null; W.vspec = null; S.waveVoice = false;
   try {
     const pk = await analyse(file, (s, on) => { if (my === gen) { W.spec = s; W.onsets = on; emit(); drawWave(); } });
+    if (my !== gen) return;
     W.peaks = pk; if (pk && !W.spec) W.onsets = onsets(pk, W.pps);
   } catch (e) { status('st1', 'Волну построить не удалось (' + (e as Error).message + '), но аудио играет.', 'err'); }
 }

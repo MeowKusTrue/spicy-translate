@@ -9,6 +9,10 @@ import { trackKey } from '../persist.ts';
 import { clearCover, findCover, restoreCover, setCover } from '../cover.ts';
 import { restoreFolder } from '../folder.ts';
 import { setTheme, theme, type Theme } from '../theme.ts';
+import { workspaceLayout } from './layout.ts';
+import { editPreview, savePreviewEdit } from '../previewEdit.ts';
+import { openSyllableReview } from './SyllableReview.tsx';
+import { inspectorOpen, toggleInspector } from './WordInspector.tsx';
 
 // React must never re-render the lyrics container's children: preview.ts owns them.
 const Lyrics = memo(() => <div className="lyrics" id="lyr"><div className="lyrics-inner" id="lyrIn" /></div>);
@@ -63,7 +67,13 @@ function Settings() {
 export function Stage() {
   const key = trackKey();
   useEffect(() => { restoreCover(); restoreFolder(); }, [key]);
-  const bg = S.coverBg && S.cover;
+  const bg = S.coverBg && S.cover, studio = workspaceLayout() === 'studio';
+  const editSelected = () => {
+    if (!savePreviewEdit() || !S.sel) return;
+    const row = document.getElementById('pl' + S.sel.i); if (!row) return;
+    const host = S.layer === 'bg' || S.layer === 'bgo' ? row.querySelector<HTMLElement>('.bg') || row : row;
+    editPreview(S.sel.i, host, S.layer);
+  };
   return <div className={'stage' + (bg ? ' hascover' : '')}>
     {bg ? <div className="cbg" aria-hidden="true"><img src={S.cover} alt="" /><img src={S.cover} alt="" /></div> : <div className="glow"></div>}
     <div className="stage-top">
@@ -71,12 +81,18 @@ export function Stage() {
       <div className="ttl"><b id="pTitle">{S.meta.title || 'Превью'}</b><span id="pArtist">{S.lines.length || S.meta.artist ? S.meta.artist : 'Загрузи трек слева'}</span></div>
       <Settings />
     </div>
-    <div className="preview-edit-hint">Двойной клик по тексту или Enter на строке — править здесь</div>
+    {studio ? <div className="stage-preview-label">ПРЕДПРОСМОТР · {S.sel ? `СТРОКА ${S.sel.i + 1}` : 'ВЫБЕРИ СТРОКУ СЛЕВА'}</div> : <div className="preview-edit-hint">Двойной клик по тексту или Enter на строке — править здесь</div>}
     <Lyrics />
+    {studio && S.page === 'sync' && <div className="stage-context-actions">
+      <button className="sm" id="btnStageEditText" disabled={!S.sel || !!S.editDraft && S.editDraft.owner !== 'preview'} onClick={editSelected}>Править текст</button>
+      <button className="sm" id="btnStageSyllables" disabled={!S.sel || !!S.editDraft} onClick={openSyllableReview}>По слогам</button>
+      <button className="sm" id="btnStageExactTime" disabled={!S.sel || !!S.editDraft} aria-expanded={inspectorOpen()} onClick={toggleInspector}>Точное время</button>
+    </div>}
     <div className="player">
       <button className="round" id="btnPlay" title="Играть / пауза (Space)" onClick={() => S.playing ? pause() : play()}>{S.playing ? '❚❚' : '▶'}</button>
       <input aria-label="Позиция воспроизведения" type="range" id="seek" min="0" max={S.duration} step="0.05" defaultValue="0" onChange={e => seekTo(parseFloat(e.target.value))} />
       <div className="time" id="clock">0:00 / 0:00</div>
+      {studio && <select id="studioPlaybackRate" aria-label="Скорость воспроизведения" value={S.rate} onChange={e => setRate(Number(e.target.value))}>{RATES.map(rate => <option key={rate} value={rate}>{rate}×</option>)}</select>}
       <div className="player-volume">
         <button className="ic" id="btnMute" aria-label="Включить или выключить звук" title="Включить или выключить звук" onClick={() => { const v = S.vol; if (v > 0) { preMute = v; setVolume(0); } else setVolume(preMute || 0.3); }}>{S.vol === 0 ? '🔇' : S.vol < 0.4 ? '🔉' : '🔊'}</button>
         <Slider id="vol" min={0} max={1} step={0.01} value={S.vol} onChange={setVolume} title="Громкость" /><span className="val">{Math.round(S.vol * 100)}%</span>

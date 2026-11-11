@@ -24,6 +24,7 @@ import { setupMini, setupWave } from '../waveform/edit.ts';
 import { timelineShown, toggleTimeline, linesShown, toggleLines, commandsShown, toggleCommands } from './Studio.tsx';
 import { SyllableReview, openSyllableReview } from './SyllableReview.tsx';
 import { stepInfo } from './App.tsx';
+import { workspaceLayout } from './layout.ts';
 
 function Guide() {
   const { cur, n } = stepInfo();
@@ -139,17 +140,29 @@ function TimelineSelection() {
 
 export function EditorToolbar() {
   const ref = useRef<HTMLDivElement>(null);
+  const [simple, setSimple] = useState(() => ls.get('simpleEditor', '0') === '1');
+  const studio = workspaceLayout() === 'studio', tools = commandsShown(), minimal = studio ? !tools : simple;
+  useEffect(() => { document.documentElement.dataset.editorTools = tools ? 'open' : 'closed'; }, [tools]);
+  useEffect(() => {
+    if (!studio || !tools) return;
+    const outside = (event: PointerEvent) => { if (event.target instanceof Node && !ref.current?.contains(event.target)) toggleCommands(); };
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && !event.defaultPrevented) { toggleCommands(); document.getElementById('btnEditorCommands')?.focus(); } };
+    document.addEventListener('pointerdown', outside); document.addEventListener('keydown', escape);
+    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
+  }, [studio, tools]);
+  const changeLayout = () => { const next = !simple; setSimple(next); ls.set('simpleEditor', next ? '1' : '0'); };
   useEffect(() => { const el = ref.current; if (!el) return; const resize = () => { document.documentElement.style.setProperty('--editorToolbarH', el.getBoundingClientRect().height + 'px'); drawWave(); }; const o = new ResizeObserver(resize); o.observe(el); resize(); return () => o.disconnect(); }, []);
   const progress = layerProgress(S.lines, S.layer), inspect = inspectorOpen(), width = () => document.getElementById('wave')?.clientWidth || 800;
   return <div id="editorToolbar" className="editor-toolbar" ref={ref} hidden={S.page !== 'sync'}>
     <div className="editor-quickbar">
-      <button id="btnFitEveryLine" className="sm" disabled={!!S.editDraft && S.editDraft.owner !== 'preview'} onClick={() => fitLines()}>Подогнать все строки</button>
+      <button id="btnSimpleEditor" className="sm" aria-pressed={simple} onClick={changeLayout}>{simple ? 'Все инструменты' : 'Упростить вид'}</button>
+      <button hidden={minimal} id="btnFitEveryLine" className="sm" disabled={!!S.editDraft && S.editDraft.owner !== 'preview'} onClick={() => fitLines()}>Подогнать все строки</button>
       <button id="btnQuickSyllables" className="sm" disabled={!!S.editDraft && S.editDraft.owner !== 'preview'} onClick={openSyllableReview}>По слогам</button>
       <span className="quick-divider" />
       <button id="btnToggleLines" className="sm" aria-pressed={linesShown()} onClick={toggleLines}>Строки</button>
       <button id="btnToggleTimeline" className="sm" aria-pressed={timelineShown()} onClick={toggleTimeline}>Таймлайн</button>
-      <button id="btnQuickProperties" className="sm" aria-pressed={inspect} onClick={toggleInspector}>Свойства</button>
-      <button id="btnEditorCommands" className="sm" aria-expanded={commandsShown()} aria-controls="editorCommands" onClick={toggleCommands}>Команды ▾</button>
+      <button hidden={minimal} id="btnQuickProperties" className="sm" aria-pressed={inspect} onClick={toggleInspector}>Свойства</button>
+      <button hidden={!studio && simple} id="btnEditorCommands" className="sm" aria-expanded={tools} aria-controls="editorCommands" onClick={toggleCommands}>{studio ? 'Инструменты' : 'Команды ▾'}</button>
       <span className="tseg" title="Что размечаем: перевод или оригинал (T)">
         <button className={isTr(S.layer) ? 'on' : ''} id="segTr" onClick={() => setLayer(mkLayer(isBg(S.layer), true))}>Перевод</button>
         <button className={isTr(S.layer) ? '' : 'on'} id="segOrig" onClick={() => setLayer(mkLayer(isBg(S.layer), false))}>Оригинал</button>
@@ -160,8 +173,9 @@ export function EditorToolbar() {
       </span>
 
     </div>
-    <SelectionBar />
-    <fieldset disabled={!!S.editDraft && S.editDraft.owner !== 'preview'} id="editorCommands" className="editor-commands" hidden={!commandsShown()}>
+    <div className={studio ? 'editor-tools-panel' : undefined} hidden={studio && !tools}>
+    {studio ? (tools && <SelectionBar />) : simple ? <p className="hint" style={{ margin: '4px 14px 8px' }}>1. Выбери строку слева. 2. Двойной клик по тексту — правка. 3. Тяни слова на таймлайне — время. Готово? Открой «Экспорт».</p> : <SelectionBar />}
+    <fieldset disabled={!!S.editDraft && S.editDraft.owner !== 'preview'} id="editorCommands" className="editor-commands" hidden={(!studio && simple) || !tools}>
     <div className="bar">
       <b className="ttl">Редактор слов</b>
       <button className={'sm' + (S.align || S.setup ? ' busy' : '')} id="btnAutoAlign" disabled={!!S.align || !!S.setup} title="Нейросеть расставит слова оригинала и бэка по аудио (черновик пунктиром; размеченное вручную не трогает). Нужен локальный сервер и Python-прототип." onClick={autoAlign}>{S.setup ? '⬇ ' + setupLabel() : S.align ? '⏳ ' + alignLabel() : !S.lines.length ? '✨ Распознать текст' : S.picked.size ? `✨ Авто-тайминг (строк: ${S.picked.size})` : '✨ Авто-тайминг'}</button>
@@ -233,6 +247,7 @@ export function EditorToolbar() {
       <span id="wordInfo">{wordInfo()}</span>
     </div>
     </fieldset>
+    </div>
     {S.align && <AlignCard />}
     {!S.align && S.setup && <div className="runbar"><i style={{ width: S.setup.pct + '%' }} /></div>}
     <SyllableReview />

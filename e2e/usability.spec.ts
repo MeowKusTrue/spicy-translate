@@ -64,3 +64,20 @@ test('small preview keeps Save above the player and inserts a boundary at the ca
   expect(save!.y+save!.height).toBeLessThanOrEqual(player!.y);
   await page.locator('#btnPreviewSave').click();await expect.poll(async ()=>(await project(request)).lines[0].text).toBe('мо|ре');
 });
+
+test('simple editor hides advanced commands, keeps editing available and remembers the choice', async ({page,request}) => {
+  await seed(page,request,[{t:1,end:4,text:'Привет',tr:'',sync:{orig:[{a:1,b:4}]}}]);
+  await page.locator('#nav-sync').click();
+  await page.locator('#btnSimpleEditor').click();
+  await expect(page.locator('#btnSimpleEditor')).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('#btnFitEveryLine')).toBeHidden();
+  await expect(page.locator('#btnEditorCommands')).toBeHidden();
+  await expect(page.locator('#btnQuickSyllables')).toBeVisible();
+  await page.locator('#ln0 .t').click(); await page.locator('#pl0').dblclick();
+  await expect(page.locator('#previewEditText')).toBeVisible();
+  await page.locator('#btnPreviewCancel').click();
+  await page.reload(); await page.locator('#nav-sync').click();
+  await expect(page.locator('#btnSimpleEditor')).toHaveAttribute('aria-pressed','true');
+  await page.locator('#btnSimpleEditor').click();
+  await expect(page.locator('#btnEditorCommands')).toBeVisible();
+});

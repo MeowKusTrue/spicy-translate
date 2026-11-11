@@ -2,9 +2,10 @@
 import { S, emit, toast } from './state.ts';
 import { isApp } from './desktop.ts';
 import { W } from './waveform/wave.ts';
-import { idbGet, loadProject, projectJSON, snapshot, trackKey } from './persist.ts';
+import { explicitProject, idbGet, loadProject, projectJSON, snapshot, trackKey } from './persist.ts';
 import { loadAudioFile } from './load.ts';
 import { snap } from './sync.ts';
+import { session } from './projectSession.ts';
 
 // in the desktop app the server is the app's own (or a running MCP server it found): say «сервер», not «MCP»
 const OK = isApp ? 'сервер ✓' : 'MCP: связь ✓', BAD = isApp ? 'нет связи с сервером' : 'MCP: нет связи';
@@ -26,15 +27,18 @@ function applyLive(j: { project: unknown }) {
   snapshot('перед обновлением с сервера'); // both sides are kept: ours here, the server's after it lands
   LIVE.applying = true;
   snap(); // Ctrl+Z takes the agent's edit back
-  try { loadProject(JSON.stringify(j.project), true); idbGet(trackKey()).then(b => { if (b && !S.hasAudio) loadAudioFile(b, true); }); } finally { LIVE.applying = false; }
+  try { loadProject(JSON.stringify(j.project), true); const generation = session.generation, key = trackKey(); idbGet(key).then(b => { if (generation === session.generation && key === trackKey() && b && !S.hasAudio) loadAudioFile(b, true); }); } finally { LIVE.applying = false; }
 }
 let livePolling = false;
 async function livePoll() {
   if (livePolling || W.drag || W.pend) return;
   livePolling = true;
+  const generation = session.generation;
   try {
-    const j = await (await fetch('/api/project')).json(); LIVE.on = true;
-    if (j.rev !== LIVE.rev) { const fromAgent = j.by === 'mcp' && LIVE.rev >= 0; LIVE.rev = j.rev; if (fromAgent || (!S.lines.length && j.project && j.project.lines)) {
+    const j = await (await fetch('/api/project')).json();
+    if (generation !== session.generation) return;
+    LIVE.on = true;
+    if (j.rev !== LIVE.rev) { const fromAgent = j.by === 'mcp' && LIVE.rev >= 0 && !(explicitProject() && !S.lines.length); LIVE.rev = j.rev; if (fromAgent || (!explicitProject() && !S.lines.length && j.project && j.project.lines)) {
         if (otherSong(j.project) && !await confirm(`Агент (MCP) открыл другой проект: «${name(j.project)}». Заменить им «${name({ meta: S.meta })}»? (текущий сохранится в снимках)`)) { snapshot('проект агента (не открыт)', JSON.stringify(j.project)); return; }
         applyLive(j); toast('Агент (MCP) обновил проект. Отменить его правку — Ctrl+Z.', 'ok');
       } }
@@ -44,9 +48,12 @@ async function livePoll() {
 export async function liveInit() {
   if (!/^https?:$/.test(location.protocol)) return;
   addEventListener('pagehide', () => navigator.sendBeacon?.('/api/bye')); // a server started by the launcher stops when the last tab closes
+  const generation = session.generation;
   try {
     const r = await fetch('/api/project'); if (!r.ok) return; const j = await r.json(); LIVE.on = true; LIVE.rev = j.rev;
-    if (j.project && j.project.lines && j.project.lines.length) {
+    if (generation !== session.generation) { pushLive(); setInterval(livePoll, 1500); return; }
+    if (explicitProject()) { pushLive(); }
+    else if (j.project && j.project.lines && j.project.lines.length) {
       if (otherSong(j.project) && !await confirm(`На сервере (MCP) открыт другой проект: «${name(j.project)}».\nЗдесь сейчас: «${name({ meta: S.meta })}».\n\nOK — открыть проект с сервера (твой сохранится в снимках).\nОтмена — оставить свой и отправить его на сервер (серверный сохранится в снимках).`)) {
         snapshot('проект с сервера (не открыт)', JSON.stringify(j.project)); pushLive();
       } else applyLive(j);

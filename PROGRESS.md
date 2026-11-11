@@ -1,6 +1,8 @@
 # PROGRESS
 
 ## Текущий этап
+2026-11-11: 1.6.0 — new Studio layout is default; header switch restores Classic and persists the choice. Rare commands live in a dismissible Tools panel; preview text/syllable/time actions and playback speed are directly accessible. New stylesheet is scoped to Studio; preview.ts, karaokeMotion.ts, loop.ts and base styles.css are unchanged. Verified: typecheck, 159 unit tests, 65 browser tests (existing geometry explicitly Classic + new Studio scenarios), build; Studio checks repeated after final visual adjustments. Screenshot outputs: exports/design-review/. Release packaging: Windows x64 installer, SHA-256 and UI screenshots.
+2026-11-11: included in 1.6.0 — simple editor toggle; preview boundary/IME fixes and adjacent-line navigation; durable New empty project + history restore with audio/folder reset; export lint lookalike-letter corrections and explicit ellipsis choices. Verified: typecheck, 159 unit tests, build, 60 sandbox browser tests. History restore intentionally requires reconnecting audio; broader legacy asynchronous Genius/cover/spell operations are not fully session-scoped.
 2026-11-07: 1.5.4 — карточки линтера с текстом/временем/дорожкой, переходом к обеим фразам, черновой раскладкой и явным сдвигом/подтверждением наложений; новый редактор внутри предпросмотра с видимыми слогами, сбросом и сохранением; адаптация низких окон.
 2026-11-07: 1.5.3 — дефисы слева от границ слогов в памяти, редакторе и TTML; разбиение выбранного слова во всех одинаковых строках активной дорожки; линтер перед TTML-экспортом с явными исправлениями и Ctrl+Z.
 2026-11-07: релиз 1.5.2 — сдвиг всей песни («← вся песня», влево не сжимает начало), меню ⚙ открывается вверх и прокручивается; пуш по SSH работает.

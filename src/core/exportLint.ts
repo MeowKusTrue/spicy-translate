@@ -53,6 +53,32 @@ export function lintExport(o: ExportOpts): ExportIssue[] {
     for (const layer of layers) {
       const before = editorText(line, layer);
       if (!before.trim()) continue;
+      const replaceText = (text: string): Line => {
+        const fixed = structuredClone(line);
+        if (layer === 'orig') fixed.text = text;
+        else if (layer === 'tr') fixed.tr = text;
+        else if (fixed.bg) fixed.bg[layer === 'bg' ? 'tr' : 'text'] = text;
+        return fixed;
+      };
+      const lookalikes: Record<string, string> = { А:'A', В:'B', С:'C', Е:'E', Н:'H', К:'K', М:'M', О:'O', Р:'P', Т:'T', Х:'X', а:'a', е:'e', о:'o', р:'p', с:'c', у:'y', х:'x' };
+      const reverse = Object.fromEntries(Object.entries(lookalikes).map(([a,b]) => [b,a]));
+      const mixed = [...before.matchAll(/[\p{L}|]+/gu)].filter(m => /[\p{Script=Cyrillic}]/u.test(m[0]) && /[\p{Script=Latin}]/u.test(m[0]));
+      for (const match of mixed) {
+        const word = match[0], cyr = [...word].filter(c => /\p{Script=Cyrillic}/u.test(c)).length, lat = [...word].filter(c => /\p{Script=Latin}/u.test(c)).length;
+        const minority = cyr < lat ? /\p{Script=Cyrillic}/u : /\p{Script=Latin}/u, mapping = cyr < lat ? lookalikes : reverse;
+        const canFix = cyr !== lat && [...word].every(c => !minority.test(c) || mapping[c]);
+        const corrected = [...word].map(c => minority.test(c) ? mapping[c] || c : c).join('');
+        const text = before.slice(0,match.index) + corrected + before.slice(match.index! + word.length);
+        issues.push({ i, layer, sev:'err', msg:`«${word.replace(/\|/g,'')}»: русские и английские буквы в одном слове.`,
+          advice:'Проверь язык слова. Похожие буквы из другой раскладки нужно заменить; произвольные смешанные названия требуют ручной проверки.',
+          ...(canFix ? {fix:{label:`Заменить на «${corrected.replace(/\|/g,'')}» без сдвига времени`,line:replaceText(text)}} : {}) });
+      }
+      if (/…|\.{3,}/u.test(before)) {
+        const remove = before.replace(/…|\.{3,}/gu,''), dash = before.replace(/…|\.{3,}/gu,'—');
+        const fixes = [{label:'Фраза оборвана — заменить многоточие на —',line:replaceText(dash)}];
+        if (wordList(remove).length === wordList(before).length) fixes.unshift({label:'Фраза закончена — убрать многоточие',line:replaceText(remove)});
+        issues.push({i,layer,sev:'warn',msg:'Многоточие: проверь, закончена фраза или слово оборвано.',advice:'Пауза обозначается временем, а не многоточием. Оборванное слово заканчивается на —. Выбери вариант на слух; времена слов сохраняются.',fixes});
+      }
       const sy = line.sync?.[layer], words = wordList(before);
       if (!syncComplete(sy, words.length) && (mode === 'bilingual' || o.wordSpread !== false)) {
         const issue = layer === main ? issues.find(x => x.i === i && x.msg === 'слова не размечены — будет равномерный спред') : undefined;
