@@ -120,7 +120,9 @@ export function buildPreview(keepPos?: boolean) {
     el.ondblclick = e => {
       e.preventDefault(); const bg = (e.target as HTMLElement).closest('.bg') as HTMLElement | null;
       const layer = bg ? (S.meta.mode === 'bilingual' ? 'tr' : S.meta.mode !== 'original' && l.bg?.tr.trim() ? 'bg' : 'bgo') : mainLayerFor(i);
-      editPreview(i, bg || el, layer);
+      const host = bg || el, word = (e.target as HTMLElement).closest('.w');
+      const wordIndex = word ? [...host.children].filter(node => node.classList.contains('w')).indexOf(word) : -1;
+      editPreview(i, host, layer, wordIndex >= 0 ? wordIndex : undefined);
     };
     el.onkeydown = e => { if (e.key === 'Enter' && e.target === el) { e.preventDefault(); editPreview(i, el); } };
     box.appendChild(el); LINES.push({ el, ref: l, a: R[i].a, b: R[i].b, words, i });

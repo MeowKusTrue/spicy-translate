@@ -10,7 +10,7 @@ import { clearCover, findCover, restoreCover, setCover } from '../cover.ts';
 import { restoreFolder } from '../folder.ts';
 import { setTheme, theme, type Theme } from '../theme.ts';
 import { workspaceLayout } from './layout.ts';
-import { editPreview, savePreviewEdit } from '../previewEdit.ts';
+import { cancelPreviewEdit, PREVIEW_EDIT, editPreview, savePreviewEdit } from '../previewEdit.ts';
 import { openSyllableReview } from './SyllableReview.tsx';
 import { inspectorOpen, toggleInspector } from './WordInspector.tsx';
 
@@ -84,9 +84,11 @@ export function Stage() {
     {studio ? <div className="stage-preview-label">ПРЕДПРОСМОТР · {S.sel ? `СТРОКА ${S.sel.i + 1}` : 'ВЫБЕРИ СТРОКУ СЛЕВА'}</div> : <div className="preview-edit-hint">Двойной клик по тексту или Enter на строке — править здесь</div>}
     <Lyrics />
     {studio && S.page === 'sync' && <div className="stage-context-actions">
+      {PREVIEW_EDIT.active ? <><small id="previewInlineHint">Границы | видны · Enter — сохранить · Tab — следующая строка · Esc — отменить</small><button className="sm" id="btnPreviewSave" onClick={savePreviewEdit}>Сохранить</button><button className="sm" id="btnPreviewCancel" onClick={cancelPreviewEdit}>Отмена</button></> : <>
       <button className="sm" id="btnStageEditText" disabled={!S.sel || !!S.editDraft && S.editDraft.owner !== 'preview'} onClick={editSelected}>Править текст</button>
       <button className="sm" id="btnStageSyllables" disabled={!S.sel || !!S.editDraft} onClick={openSyllableReview}>По слогам</button>
       <button className="sm" id="btnStageExactTime" disabled={!S.sel || !!S.editDraft} aria-expanded={inspectorOpen()} onClick={toggleInspector}>Точное время</button>
+      </>}
     </div>}
     <div className="player">
       <button className="round" id="btnPlay" title="Играть / пауза (Space)" onClick={() => S.playing ? pause() : play()}>{S.playing ? '❚❚' : '▶'}</button>

@@ -359,5 +359,17 @@ html[data-layout="studio"] .editor-tools-panel[hidden] { display: none; }
 html[data-layout="studio"] .editor-tools-panel .editor-commands { max-height: none; overflow: visible; }
 html[data-layout="studio"]:not([data-editor-tools="open"]) .montage-dock .review-bar,
 html[data-layout="studio"]:not([data-editor-tools="open"]) .montage-dock #syncLines { display: none; }
-html[data-layout="studio"] .stage .lyrics { text-align: center; }
+/* Keep original per-singer alignment; editing must not recenter the lyrics. */
+html[data-layout="studio"] .preview-inline-text { display: inline; font: inherit; letter-spacing: inherit; line-height: inherit; color: var(--txt); -webkit-text-fill-color: var(--txt); background: transparent; border: 0; padding: 0; margin: 0; outline: none; white-space: pre-wrap; overflow-wrap: anywhere; caret-color: var(--acc); user-select: text; -webkit-user-select: text; }
+html[data-layout="studio"] .preview-inline-host { position: relative; filter: none !important; --blur: 0px !important; opacity: 1 !important; }
+html[data-layout="studio"] .preview-inline-error { position: absolute; left: 0; top: 100%; font: 12px/1.4 system-ui; color: var(--err); -webkit-text-fill-color: var(--err); background: var(--stage); }
+html[data-layout="studio"] .preview-inline-error:empty { display: none; }
+html[data-layout="studio"] .stage-context-actions { min-height: 48px; }
+html[data-layout="studio"] #previewInlineHint { font: 11px/1.4 system-ui; color: var(--mut); }
+html[data-layout="studio"] .preview-inline-text:focus-visible { outline: none; }
+html[data-layout="studio"] .preview-inline-text:empty { display: inline-block; min-width: 1ch; min-height: 1em; }
+html[data-layout="studio"] body.preview-inline-drafting .stage .lyrics { mask-image: none; -webkit-mask-image: none; cursor: text; }
+html[data-layout="studio"] body.text-drafting.preview-inline-drafting #wave,
+html[data-layout="studio"] body.text-drafting.preview-inline-drafting #syncLines .chip,
+html[data-layout="studio"] body.text-drafting.preview-inline-drafting .word-inspector { pointer-events: auto; opacity: 1; }
 /* No new animations or transitions: reduced-motion needs no additional override. */

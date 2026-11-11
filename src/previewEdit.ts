@@ -5,10 +5,13 @@ import { editText } from './lineEdit.ts';
 import { buildPreview } from './preview.ts';
 import { drawWave } from './waveform/wave.ts';
 import { snap } from './sync.ts';
-import { fmtTime, mergeMarkup, slashSyl, textDraftLine, units, type Layer } from './core/index.ts';
+import { fmtTime, mergeMarkup, selectedWordRange, slashSyl, textDraftLine, units, type Layer } from './core/index.ts';
+import { workspaceLayout } from './ui/layout.ts';
 
 export const PREVIEW_EDIT = { active: false, dirty: false };
 let finishEdit: (() => boolean) | null = null;
+let cancelEdit: (() => void) | null = null;
+export function cancelPreviewEdit() { cancelEdit?.(); }
 export function savePreviewEdit() { return finishEdit ? finishEdit() : true; }
 function beforeTimelineAction(e: Event) {
   if (!PREVIEW_EDIT.active || !(e.target instanceof Element) || !e.target.closest('#dock, #editorToolbar, #wordInspector, .player, .compact-lines, .studio-nav')) return;
@@ -18,7 +21,8 @@ document.addEventListener('pointerdown', beforeTimelineAction, true);
 document.addEventListener('wheel', beforeTimelineAction, { capture: true, passive: false });
 document.addEventListener('click', beforeTimelineAction, true);
 document.addEventListener('keydown', beforeTimelineAction, true);
-export function editPreview(i: number, host: HTMLElement, layer: Layer = mainLayerFor(i)) {
+export function editPreview(i: number, host: HTMLElement, layer: Layer = mainLayerFor(i), wordIndex?: number) {
+  if (workspaceLayout() === 'studio') return editInline(i, host, layer, wordIndex);
   if (PREVIEW_EDIT.active || S.editDraft) return toast('Сохрани или отмени текущую правку текста.', 'err');
   const line = S.lines[i]; if (!line) return;
   pause();
@@ -49,7 +53,8 @@ export function editPreview(i: number, host: HTMLElement, layer: Layer = mainLay
   const save = document.createElement('button'); save.type = 'submit'; save.className = 'pri'; save.textContent = 'Сохранить'; save.id = 'btnPreviewSave';
   const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = 'Отмена'; cancel.id = 'btnPreviewCancel';
 
-  const close = () => { finishEdit = null; document.body.classList.remove('preview-drafting'); PREVIEW_EDIT.active = false; PREVIEW_EDIT.dirty = false; setEditDraft(null); form.remove(); host.classList.remove('preview-edit-host'); buildPreview(true); document.getElementById('pl' + i)?.focus({ preventScroll: true }); };
+  const close = () => { finishEdit = null; cancelEdit = null; document.body.classList.remove('preview-drafting'); PREVIEW_EDIT.active = false; PREVIEW_EDIT.dirty = false; setEditDraft(null); form.remove(); host.classList.remove('preview-edit-host'); buildPreview(true); document.getElementById('pl' + i)?.focus({ preventScroll: true }); };
+  cancelEdit = close;
   finishEdit = () => {
     const raw = (input.textContent || '').replace(/\r?\n/g, ' ').trim();
     const value = slashSyl(showSyllables ? raw : mergeMarkup(marked, raw), old);
@@ -114,5 +119,55 @@ export function editPreview(i: number, host: HTMLElement, layer: Layer = mainLay
   input.onkeydown = e => { e.stopPropagation(); if (e.isComposing || e.keyCode === 229) return; if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowUp') { e.preventDefault(); openAdjacent(-1); } else if ((e.ctrlKey || e.metaKey) && e.key === 'ArrowDown') { e.preventDefault(); openAdjacent(1); } else if (e.key === 'Escape') { e.preventDefault(); close(); } else if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); form.requestSubmit(); } };
   actions.append(stats, cancel, save); form.append(header, tools, input, help, error, actions); host.append(form);
   update(); focusAt(visible.length);
+}
+function editInline(i: number, host: HTMLElement, layer: Layer, wordIndex?: number) {
+  if (PREVIEW_EDIT.active || S.editDraft) return toast('Сохрани или отмени текущую правку текста.', 'err');
+  const line = S.lines[i]; if (!line) return;
+  if ((layer === 'bg' || layer === 'bgo') && !host.classList.contains('bg')) {
+    const background = document.createElement('span'); background.className = 'bg'; host.append(background); host = background;
+  }
+  const old = layerText(line, layer), range = wordIndex == null ? null : selectedWordRange(old, wordIndex);
+  if (wordIndex != null && !range) return;
+  const spans = [...host.children].filter((node): node is HTMLElement => node instanceof HTMLElement && node.classList.contains('w'));
+  const start = range?.start ?? 0, end = range?.end ?? old.length;
+  const first = range ? spans[range.k] : host.firstChild;
+  const last = range ? spans[range.k + units(range.word).length - 1] : null;
+  if (range && (!first || !last)) return;
+  pause();
+  const root = document.getElementById('pl' + i)!;
+  const input = document.createElement('span'); input.id = 'previewEditText'; input.className = 'preview-inline-text';
+  input.contentEditable = 'plaintext-only'; input.spellcheck = true; input.textContent = old.slice(start,end);
+  input.setAttribute('role','textbox'); input.setAttribute('aria-label',range ? 'Слово в просмотре, включая границы слогов' : 'Текст строки в просмотре, включая границы слогов');
+  input.setAttribute('aria-multiline','false'); input.setAttribute('aria-describedby','previewInlineHint');
+  const domRange = document.createRange();
+  if (range) { domRange.setStartBefore(first!); domRange.setEndAfter(last!); }
+  else { domRange.selectNodeContents(host); const background = [...host.children].find(n=>n.classList.contains('bg')); if (background) domRange.setEndBefore(background); }
+  const original = domRange.extractContents(); domRange.insertNode(input);
+  const error = document.createElement('span'); error.id = 'previewEditError'; error.className = 'preview-inline-error'; error.setAttribute('role','alert'); root.append(error);
+  root.classList.add('preview-inline-host'); document.body.classList.add('preview-inline-drafting');
+  PREVIEW_EDIT.active = true; PREVIEW_EDIT.dirty = false; S.layer = layer; S.sel = {i,k:range?.k ?? 0};
+  const value = () => old.slice(0,start) + slashSyl((input.textContent || '').replace(/\r?\n/g,' '),old.slice(start,end)) + old.slice(end);
+  const clean = () => { finishEdit = null; cancelEdit = null; PREVIEW_EDIT.active = PREVIEW_EDIT.dirty = false; document.body.classList.remove('preview-inline-drafting'); root.classList.remove('preview-inline-host'); error.remove(); setEditDraft(null); };
+  const cancel = () => { input.replaceWith(original); clean(); buildPreview(true); };
+  cancelEdit = cancel;
+  finishEdit = () => {
+    const text = value().trim();
+    if (!text || !input.textContent?.trim()) { error.textContent = 'Введи текст или нажми Esc для отмены.'; input.setAttribute('aria-invalid','true'); input.focus(); return false; }
+    if (/(^|\s|\|)\||\|($|\s)/.test(text)) { error.textContent = 'Граница | должна стоять внутри слова.'; input.setAttribute('aria-invalid','true'); input.focus(); return false; }
+    if (S.lines[i] !== line || layerText(line,layer) !== old) { error.textContent = 'Строка изменилась извне. Скопируй правку перед отменой.'; return false; }
+    input.replaceWith(original); clean();
+    if (text !== old) { snap(); editText(i,layer,text); } else buildPreview(true);
+    return true;
+  };
+  const update = () => { error.textContent=''; input.removeAttribute('aria-invalid'); const text=value(); PREVIEW_EDIT.dirty=text!==old; setEditDraft({i,layer,owner:'preview',line:textDraftLine(line,layer,text)}); drawWave(); };
+  input.oninput=update;
+  input.onclick=e=>e.stopPropagation(); input.ondblclick=e=>e.stopPropagation();
+  input.onkeydown=e=>{ e.stopPropagation(); if(e.isComposing || e.keyCode===229) return;
+    if(e.key==='Escape') {e.preventDefault();cancel();}
+    else if(e.key==='Enter') {e.preventDefault();savePreviewEdit();}
+    else if(e.key==='Tab') {e.preventDefault();const next=i+(e.shiftKey?-1:1);if(!S.lines[next] || !savePreviewEdit()) return; const row=document.getElementById('pl'+next);if(row){seekTo(S.lines[next].t);editPreview(next,layer==='bg'||layer==='bgo'?row.querySelector<HTMLElement>('.bg')||row:row,layer);}}
+  };
+  update(); input.focus({preventScroll:true});
+  const selection=window.getSelection(), caret=document.createRange();caret.selectNodeContents(input);caret.collapse(false);selection?.removeAllRanges();selection?.addRange(caret);
 }
 window.addEventListener('beforeunload', e => { if (PREVIEW_EDIT.dirty) { e.preventDefault(); e.returnValue = ''; } });
