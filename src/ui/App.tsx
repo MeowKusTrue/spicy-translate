@@ -8,6 +8,7 @@ import { HelpModal } from './HelpModal.tsx';
 import { Drop } from './Drop.tsx';
 import { Palette, openPalette } from './Palette.tsx';
 import { AlignPanel } from './AlignPanel.tsx';
+import { TranscriptionReview } from './TranscriptionReview.tsx';
 import { isApp, winClose, winMax, winMin } from '../desktop.ts';
 import { stopLine } from '../core/index.ts';
 import { ModePicker, linesShown } from './Studio.tsx';
@@ -86,6 +87,7 @@ export function App() {
     <MetaModal />
     <Palette />
     <AlignPanel />
+    <TranscriptionReview />
     <Drop />
   </>;
 }

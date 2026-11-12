@@ -86,7 +86,7 @@ export function guessNames(fname: string) {
 }
 export async function loadAudioFile(file: Blob & { name?: string }, fromCache?: boolean) {
   const generation = session.generation;
-  pause(); clearVoiceAudio(); clearProjectWave(); S.waveVoice = false; clearLastOriginalReference(true);
+  pause(); S.transcriptionReview = null; clearVoiceAudio(); clearProjectWave(); S.waveVoice = false; clearLastOriginalReference(true);
   const a = audio; if (S.audioUrl) URL.revokeObjectURL(S.audioUrl);
   S.audioUrl = URL.createObjectURL(file); a.src = S.audioUrl; S.hasAudio = true; S.audioBlob = file; a.playbackRate = S.rate; a.volume = S.vol;
   if (!fromCache) ls.set('project:explicit', '1');

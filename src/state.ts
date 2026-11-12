@@ -34,6 +34,7 @@ export const S = {
   align: null as null | { stage: string; done: number; total: number; device: string; plan?: string[]; sub?: string; subDone?: number; subTotal?: number; bytes?: boolean; elapsed?: number }, // auto-timing in progress
   alignPanel: null as null | { gpu: import('./autoAlign.ts').Gpu | null; st: import('./autoAlign.ts').SetupState | null; pick: string; err: string },
   backingReview: null as null | { candidates: Line[]; picked: Set<number>; audio: Blob | null; title: string; artist: string },
+  transcriptionReview: null as null | { lines: Line[]; audio: Blob; generation: number; project: string },
   setup: null as null | { step: string; pct: number }, // auto-timing install in progress
   ver: 0, // bumps whenever preview timings change
   // form fields

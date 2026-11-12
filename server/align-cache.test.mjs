@@ -61,8 +61,14 @@ test('durable hash cache, isolated operations, RX import and conflict safety', {
       fs.writeFileSync(vocal + '.json', JSON.stringify({source, model: source === 'roformer' ? 'vocals_mel_band_roformer.ckpt' : 'htdemucs'}));
       fs.appendFileSync(path.join(__dirname, 'extractions.log'), source + '\\n');
     }
-    console.log(JSON.stringify({plan: args.includes('--separate-only') ? ['demucs'] : ['align']}));
-    setTimeout(() => { fs.copyFileSync(args[1], out); console.log(JSON.stringify({done:true, out, vocals:vocal})); }, 250);
+    fs.appendFileSync(path.join(__dirname, 'runs.log'), JSON.stringify(args) + '\\n');
+    const project = JSON.parse(fs.readFileSync(args[1], 'utf8'));
+    if (args.includes('--transcribe')) {
+      if (!args.includes('--vocal-file') || args.includes('--detect-back') || project.lines.length) process.exit(9);
+      project.lines = [{t:0, end:1, text:'recognized words', tr:'', sync:{orig:[{a:0,b:.5,g:1},{a:.5,b:1,g:1}]}}];
+    }
+    console.log(JSON.stringify({plan: args.includes('--separate-only') ? ['demucs'] : args.includes('--transcribe') ? ['transcribe', 'align'] : ['align']}));
+    setTimeout(() => { fs.writeFileSync(out, JSON.stringify(project)); console.log(JSON.stringify({done:true, out, vocals:vocal})); }, 250);
   `);
   let child;
   const start = async () => {
@@ -76,7 +82,9 @@ test('durable hash cache, isolated operations, RX import and conflict safety', {
     let r = await request('/api/align/audio?ext=wav', 'POST', original);
     assert.deepEqual(r.data, { ok: true, bytes: original.length, audioKey: key, vocals: false });
     const project = { lines: [{ t: 0, end: 1, text: 'existing words', tr: 'unchanged translation' }], meta: { title: 'unchanged' }, backingCandidates: [{ text: 'keep' }] };
+    const emptyProject = { lines: [], meta: { title: 'no lyrics', artist: 'preserve me' }, warnings: ['keep'], backingCandidates: [] };
     r = await request('/api/align?operation=words', 'POST', JSON.stringify(project)); assert.equal(r.status, 409);
+    assert.equal((await request('/api/align?operation=transcribe', 'POST', JSON.stringify(emptyProject))).status, 409);
     r = await request('/api/align?operation=separate', 'POST', JSON.stringify(project)); assert.equal(r.status, 200);
     const separateRun = r.data.runId; assert.match(separateRun, /^[a-f0-9-]{36}$/);
     assert.equal((await request('/api/align')).data.runId, separateRun);
@@ -96,6 +104,31 @@ test('durable hash cache, isolated operations, RX import and conflict safety', {
     r = await request('/api/align?operation=words', 'POST', JSON.stringify(project)); assert.equal(r.status, 200);
     assert.notEqual(r.data.runId, separateRun, 'each accepted run has unique ownership');
     status = await finished(); assert.equal(status.runId, r.data.runId); assert.deepEqual(status.result, project); assert.equal(status.operation, 'words');
+    const liveProject = (await request('/api/project')).data;
+    const extractionLog = path.join(fake, 'extractions.log'), runsLog = path.join(fake, 'runs.log');
+    const beforeTranscribe = fs.readFileSync(extractionLog, 'utf8');
+    const runsBeforeRejects = fs.readFileSync(runsLog, 'utf8');
+    assert.equal((await request('/api/align?operation=transcribe', 'POST', JSON.stringify(project))).status, 409);
+    assert.equal((await request('/api/align?operation=transcribe&detectBack=1', 'POST', JSON.stringify(emptyProject))).status, 400);
+    assert.equal((await request('/api/align?operation=transcribe&audioKey=' + '0'.repeat(64), 'POST', JSON.stringify(emptyProject))).status, 409);
+    assert.equal(fs.readFileSync(runsLog, 'utf8'), runsBeforeRejects, 'rejected requests never start ML');
+    r = await request('/api/align?operation=transcribe&audioKey=' + key, 'POST', JSON.stringify(emptyProject));
+    assert.equal(r.status, 200); assert.notEqual(r.data.runId, status.runId);
+    assert.equal((await request('/api/align')).data.runId, r.data.runId);
+    assert.equal((await request('/api/align?operation=words', 'POST', JSON.stringify(project))).status, 409);
+    status = await finished();
+    assert.equal(status.runId, r.data.runId); assert.equal(status.operation, 'transcribe');
+    assert.deepEqual(status.plan, ['transcribe', 'align']);
+    assert.deepEqual({ ...status.result, lines: [] }, emptyProject, 'metadata and review fields survive recognition');
+    assert.equal(status.result.lines[0].text, 'recognized words');
+    assert.ok(status.result.lines[0].sync.orig.every(w => w.g === 1), 'recognized timings are draft');
+    assert.deepEqual((await request('/api/project')).data, liveProject, 'result never overwrites live project');
+    const cachedArgs = JSON.parse(fs.readFileSync(runsLog, 'utf8').trim().split('\n').at(-1));
+    assert.ok(cachedArgs.includes('--transcribe'));
+    const cachedVocalPath = cachedArgs[cachedArgs.indexOf('--vocal-file') + 1];
+    assert.equal(cachedVocalPath, path.join(tmp, 'data', 'align', 'cache', key, 'htdemucs', 'out.spicy.stems', 'vocals.wav'));
+    assert.deepEqual(fs.readFileSync(cachedVocalPath), original);
+    assert.equal(fs.readFileSync(extractionLog, 'utf8'), beforeTranscribe, 'transcribe never separates');
     // Only committed, identity-matching markers may advertise a generated stem.
     const cache = path.join(tmp, 'data', 'align', 'cache', key), roformer = path.join(cache, 'roformer', 'out.spicy.stems');
     fs.mkdirSync(roformer, { recursive: true });
@@ -136,6 +169,13 @@ test('durable hash cache, isolated operations, RX import and conflict safety', {
     const getVocal = () => fetch(base + '/api/align/vocals?audioKey=' + key + '&sep=roformer').then(r => r.arrayBuffer()).then(x => Buffer.from(x));
     const imported = await getVocal(); assert.ok(imported.length > 44);
     assert.equal((await request('/api/align?sep=roformer')).data.vocalSource, 'imported');
+    const importedMarkerBefore = fs.readFileSync(importMarker, 'utf8');
+    assert.equal((await request('/api/align?operation=transcribe&sep=roformer', 'POST', JSON.stringify(emptyProject))).status, 200);
+    status = await finished(); assert.equal(status.vocalSource, 'imported'); assert.equal(status.result.lines[0].text, 'recognized words');
+    const importedArgs = JSON.parse(fs.readFileSync(runsLog, 'utf8').trim().split('\n').at(-1));
+    assert.equal(importedArgs[importedArgs.indexOf('--vocal-file') + 1], importFile);
+    assert.deepEqual(await getVocal(), imported); assert.equal(fs.readFileSync(importMarker, 'utf8'), importedMarkerBefore);
+    assert.equal(fs.readFileSync(extractionLog, 'utf8'), beforeTranscribe);
     assert.equal((await request('/api/align/vocals?audioKey=' + key, 'POST', Buffer.from('not audio'))).status, 422);
     assert.deepEqual(await getVocal(), imported);
     assert.equal((await request('/api/align/vocals?audioKey=' + key, 'POST', wav(2))).status, 422);

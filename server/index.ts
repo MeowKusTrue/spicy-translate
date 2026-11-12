@@ -155,7 +155,7 @@ async function setupAlign(want?: Backend) {
   step('готово', 100); SETUP.done = true;
 }
 /** bump when the editor needs new server endpoints (3: auto-timing install / GPU / open folder) */
-const API = 21; // 21: independent separation/words and durable keyed audio · 20: ASR location of known lyric lines · 15: original project/export mode · 14: moved data paths and GPU memory · 13: selectable ASR / aligner and backing candidates · 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes · 10: install pins torch, Python found without LOCALAPPDATA · 11: installs noted for each other (python-path.txt) · 12: /api/spell
+const API = 22; // 22: explicit empty-track transcription from cached vocal · 21: independent separation/words and durable keyed audio · 20: ASR location of known lyric lines · 15: original project/export mode · 14: moved data paths and GPU memory · 13: selectable ASR / aligner and backing candidates · 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes · 10: install pins torch, Python found without LOCALAPPDATA · 11: installs noted for each other (python-path.txt) · 12: /api/spell
 /* ---------- Genius (lyrics makers take the text from there). No CORS for pages, so the server fetches them. ---------- */
 const GH = { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', 'accept-language': 'en-US,en;q=0.9' };
 type GeniusHit = { id: number; title: string; artist: string; url: string; art: string };
@@ -282,13 +282,14 @@ async function alignRoute(req: http.IncomingMessage, res: http.ServerResponse, u
   if (u.pathname === '/api/align' && req.method === 'POST') {
     if (AL.running || AL.busy) return json(res, { error: 'уже идёт' }, 409);
     const operation = u.searchParams.get('operation') || 'align';
-    if (!['align', 'words', 'separate'].includes(operation)) return json(res, { error: 'неверная operation' }, 400);
+    if (!['align', 'words', 'separate', 'transcribe'].includes(operation)) return json(res, { error: 'неверная operation' }, 400);
     if (u.searchParams.has('audioKey') && u.searchParams.get('audioKey') !== AL.audioKey) return json(res, { error: 'исходное аудио изменилось' }, 409);
     const env = alignEnv();
     if (!env) return json(res, { error: 'авто-тайминг не установлен — нажми «Установить авто-тайминг» (или поставь по experiments/auto-align/README.md, SPICY_ALIGN_DIR / SPICY_ALIGN_PY)' }, 501);
     if (!AL.audio || !fs.existsSync(AL.audio)) return json(res, { error: 'сначала загрузи аудио' }, 400);
     const sep = separator(u), vocal = cachedVocal(AL.audioKey, sep);
-    if (operation === 'words' && !vocal.file) return json(res, { error: 'сначала выдели или импортируй вокал' }, 409);
+    if ((operation === 'words' || operation === 'transcribe') && !vocal.file) return json(res, { error: 'сначала выдели или импортируй вокал' }, 409);
+    if (operation === 'transcribe' && u.searchParams.get('detectBack') === '1') return json(res, { error: 'transcribe распознаёт только основной текст, без новых бэков' }, 400);
     if (operation === 'words' && (u.searchParams.get('detectBack') === '1' || u.searchParams.get('transcribe') === '1')) return json(res, { error: 'words обрабатывает только существующий текст, без новых слов и бэков' }, 400);
     const dir = path.join(cacheDir(AL.audioKey), sep); fs.mkdirSync(dir, { recursive: true });
     const inp = path.join(dir, 'in.spicy.json'), out = path.join(dir, 'out.spicy.json');
@@ -298,6 +299,7 @@ async function alignRoute(req: http.IncomingMessage, res: http.ServerResponse, u
       try {
         const project = JSON.parse(String(body)); if (!Array.isArray(project.lines)) throw new Error();
         if (operation === 'words' && !project.lines.length) return json(res, { error: 'сначала добавь существующий текст' }, 400);
+        if (operation === 'transcribe' && project.lines.length) return json(res, { error: 'transcribe доступен только для проекта без текста; существующие строки не заменяются' }, 409);
       } catch { return json(res, { error: 'нужен проект с lines[]' }, 400); }
       fs.writeFileSync(inp, body);
     } finally { AL.busy = false; }
@@ -305,7 +307,8 @@ async function alignRoute(req: http.IncomingMessage, res: http.ServerResponse, u
     Object.assign(AL, { running: true, runId: randomUUID(), operation, sep, stage: 'start', done: 0, total: 0, error: '', out: '', vocals: vocal.file, device: '', log: [], plan: [], sub: '', subDone: 0, subTotal: 0, bytes: false, t0: Date.now(), cancel: false });
     const opt = C.alignArgs(u.searchParams);
     if (operation === 'separate') opt.push('--separate-only');
-    // Legacy detect-back may need karaoke stems; words-only and imported audio never re-separate.
+    if (operation === 'transcribe' && !opt.includes('--transcribe')) opt.push('--transcribe');
+    // Legacy detect-back may need karaoke stems; words/transcribe and imported audio never re-separate.
     if (vocal.file && (operation !== 'align' || vocal.source === 'imported')) opt.push('--vocal-file', vocal.file);
     const p = spawn(env.py, [path.join(env.dir, 'align.py'), AL.audio, inp, '-o', out, '--json-progress', ...opt], { cwd: env.dir, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8', PATH: path.dirname(env.py) + path.delimiter + (process.env.PATH || '') } });
     let buf = '';
@@ -550,7 +553,7 @@ if (!process.argv.includes('--http')) {
     const { id, method, params } = msg;
     if (id === undefined) return; // notification
     try {
-      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.7.1' } } });
+      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.8.0' } } });
       if (method === 'ping') return send({ id, result: {} });
       if (method === 'tools/list') return send({ id, result: { tools: Object.entries(tools).map(([name, t]) => ({ name, description: t.description, inputSchema: t.schema })) } });
       if (method === 'tools/call') {

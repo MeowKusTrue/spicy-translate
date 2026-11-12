@@ -49,6 +49,39 @@ class OperationsTest(unittest.TestCase):
                 align.main(['original.wav', source, '-o', output, '--vocal-file', vocal, '--no-karaoke'])
                 decode.assert_called_once_with(vocal)
 
+    def test_cached_transcribe_recognizes_full_vocal_without_separation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, output, vocal = [os.path.join(tmp, x) for x in ('in.json', 'out.json', 'RX.wav')]
+            project = {'lines': [], 'meta': {'title': 'no lyrics', 'artist': 'preserve'}, 'warnings': ['keep'], 'backingCandidates': []}
+            with open(source, 'w', encoding='utf8') as f: json.dump(project, f)
+            with open(vocal, 'wb') as f: f.write(b'cached input')
+            audio = np.zeros(16000)
+            model = types.SimpleNamespace(device='cpu', align=lambda *args: [(0.1, 0.4), (0.5, 0.9)])
+            with patch.dict(sys.modules, {'torch': types.ModuleType('torch')}), \
+                 patch.object(align, 'pick_device', return_value='cpu'), patch.object(align, 'hook_tqdm'), \
+                 patch.object(align, 'separate', side_effect=AssertionError('separation/karaoke forbidden')), \
+                 patch.object(align, 'decode', return_value=audio[None, :]) as decode, \
+                 patch.object(align, 'transcribe', return_value=[('recognized', .1, .4), ('words', .5, .9)]) as asr, \
+                 patch.object(align, 'Aligner', return_value=model):
+                progress = io.StringIO()
+                with patch.object(sys, 'stdout', progress):
+                    align.main(['original.wav', source, '-o', output, '--vocal-file', vocal, '--transcribe', '--json-progress'])
+                decode.assert_called_once_with(vocal)
+                asr.assert_called_once()
+                self.assertTrue(np.shares_memory(asr.call_args.args[0], audio))
+                self.assertEqual(asr.call_args.args[1:], ('cpu', None, 'turbo'))
+                events = [json.loads(line) for line in progress.getvalue().splitlines()]
+                self.assertEqual(next(e['plan'] for e in events if 'plan' in e), ['transcribe', 'align'])
+                self.assertEqual(events[-1]['vocals'], os.path.abspath(vocal))
+            with open(output, encoding='utf8') as f: result = json.load(f)
+            self.assertEqual({**result, 'lines': []}, project)
+            self.assertEqual(result['lines'][0]['text'], 'recognized words')
+            self.assertTrue(all(w['g'] == 1 for w in result['lines'][0]['sync']['orig']))
+            self.assertNotIn('bg', result['lines'][0])
+            with open(source, encoding='utf8') as f: self.assertEqual(json.load(f), project)
+            with open(vocal, 'rb') as f: self.assertEqual(f.read(), b'cached input')
+            self.assertFalse(os.path.exists(os.path.splitext(output)[0] + '.stems'))
+
     def test_separator_requires_committed_identity_and_reuses_actual_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:
             direct, fallback = os.path.join(tmp, 'vocals-roformer.wav'), os.path.join(tmp, 'vocals.wav')

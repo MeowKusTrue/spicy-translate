@@ -362,6 +362,7 @@ export function AudioCard() {
     <h2>Аудио</h2>
     <div className="row" style={{ flexWrap: 'wrap' }}>
       <label className="btn pri">♪ Выбрать аудиофайл<input id="fileAudioCard" type="file" accept="audio/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) loadAudioFile(f); e.target.value = ''; }} /></label>
+      {!S.lines.length && <button className="btn sm" id="btnTranscribeText" disabled={!S.hasAudio || !!S.align || !!S.setup || !!S.transcriptionReview} title="Распознать текст по готовому вокалу и показать черновик перед применением" onClick={() => autoAlign('transcribe')}>Распознать текст</button>}
       <button className="btn sm" id="btnExtractVocals" disabled={!S.hasAudio || !!S.align || !!S.setup} onClick={() => autoAlign('separate')}>Выделить голос</button>
       <label className="btn sm" title="Вокал из RX/DAW: тот же старт и длительность, без обрезки и изменения темпа">Загрузить вокал из RX / файла<input id="fileVocalsCard" type="file" accept="audio/*" hidden disabled={!S.hasAudio || !!S.align || !!S.setup} onChange={e => { const file = e.target.files?.[0]; if (file) importVocals(file); e.target.value = ''; }} /></label>
       <span className={'hint' + (S.hasAudio ? ' okc' : '')} style={{ margin: 0 }}>{S.hasAudio ? (W.peaks ? '✓ аудио и волна готовы' : '✓ аудио подключено') : 'Или перетащи файл на страницу — по имени файла подберу текст.'}</span>
