@@ -177,6 +177,7 @@ export function EditorToolbar() {
     {studio ? (tools && <SelectionBar />) : simple ? <p className="hint" style={{ margin: '4px 14px 8px' }}>1. Выбери строку слева. 2. Двойной клик по тексту — правка. 3. Тяни слова на таймлайне — время. Готово? Открой «Экспорт».</p> : <SelectionBar />}
     <fieldset disabled={!!S.editDraft && S.editDraft.owner !== 'preview'} id="editorCommands" className="editor-commands" hidden={(!studio && simple) || !tools}>
     <div className="bar">
+      <label className="row"><input id="waveHints" type="checkbox" checked={S.waveHints} onChange={e => { S.waveHints = e.target.checked; ls.set('waveHints', S.waveHints ? '1' : '0'); const tip = document.getElementById('waveTip'); if (tip && !S.waveHints) tip.hidden = true; emit(); }} />Подсказки при наведении на таймлайн</label>
       <b className="ttl">Редактор слов</b>
       <button className="sm" id="btnSeparateVoice" disabled={!S.hasAudio || !!S.align || !!S.setup} title="Только выделить и сохранить вокал. Текст и тайминги не меняются." onClick={() => autoAlign('separate')}>Выделить голос</button>
       <button className={'sm' + (S.align || S.setup ? ' busy' : '')} id="btnAutoAlign" disabled={!!S.align || !!S.setup} title="Расставить существующие слова по сохранённому вокалу. Новое разделение и новые бэки не запускаются." onClick={() => autoAlign('words')}>{S.setup ? '⬇ ' + setupLabel() : S.align ? '⏳ ' + alignLabel() : S.picked.size ? `Расставить слова (${S.picked.size})` : 'Расставить слова'}</button>

@@ -27,6 +27,7 @@ export const S = {
   folder: null as null | { label: string; saved: number }, // the project folder of this track (src/folder.ts)
   srcDur: 0, // length of the track version the timings came from (LRCLIB), for «Растянуть»
   sylMem: true, // split a word once -> split everywhere (src/syllables.ts)
+  waveHints: ls.get('waveHints', '0') === '1', // optional timeline hover help, off by default
   waveView: 'wave' as 'wave' | 'spec', // the wave panel shows the waveform or a spectrogram
   chips: 'big' as 'big' | 'small' | 'off', // word chips under the wave
   dock: false, fx: true, snap: true, onsetSnap: true, waveVoice: false, autoFit: false, fitPad: { a: 0, b: 0 }, loop: false, voff: 0, lat: 100, // autoFit: line ends follow their words (+fitPad ms of slack)

@@ -62,6 +62,7 @@ function snapOne(t: number, cands: number[]) { const n = nearestCand(t, cands); 
 let tipHtml = '', tipSize = { w: 0, h: 0 };
 function tip(e: MouseEvent, h: Hit | null) {
   const el = document.getElementById('waveTip'); if (!el) return;
+  if (!S.waveHints) { el.hidden = true; return; }
   let html = '';
   if (h && W.drag == null && W.pend == null) {
     if (h.b) {
