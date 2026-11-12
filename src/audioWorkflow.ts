@@ -13,6 +13,11 @@ import type { AlignOptions } from './core/autoAlign.ts';
 import type { Line } from './core/index.ts';
 
 export type AudioOperation = 'separate' | 'words' | 'transcribe';
+let workflow: { cancelled: boolean } | null = null;
+export function cancelAudioWorkflow() {
+  if (workflow) workflow.cancelled = true;
+  if (S.align) { S.align.cancelled = true; emit(); }
+}
 async function api(path: string, init?: RequestInit) {
   const response = await fetch(path, init), body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(body.error || 'HTTP ' + response.status);
@@ -41,61 +46,95 @@ async function attachVoice(original: Blob, vocal: Blob, current: () => boolean) 
 export async function runAudioWorkflow(operation: AudioOperation, options: AlignOptions, hooks: { openSetup: () => Promise<void>; merge: (lines: Line[], only: number[] | null) => number }) {
   if (S.align || S.setup || S.busyAuto || S.transcriptionReview) return toast('Заверши текущую операцию или проверку распознанного текста.', 'err');
   if (!S.audioBlob) return toast('Сначала подключи исходный аудиофайл.', 'err');
-  if (operation === 'words' && !S.lines.length) return toast('Сначала добавь текст или нажми «Распознать текст». Выделить голос можно и без текста.', 'err');
-  if (operation === 'transcribe' && S.lines.length) return toast('В треке уже есть текст. Распознавание не перезаписывает существующие строки.', 'err');
+  if (operation === 'words' && !S.lines.length) return toast('Сначала добавь текст или нажми «Получить текст». Выделить голос можно и без текста.', 'err');
+  if (operation === 'transcribe' && S.lines.length) return toast('В треке уже есть текст. Получение текста не перезаписывает существующие строки.', 'err');
   const only = operation === 'words' && S.picked.size ? [...S.picked].sort((a, b) => a - b) : null;
   if (operation === 'words' && options.locateLines && only) return toast('Поиск опор требует всей песни. Сними выделение строк.', 'err');
-  const source = capture(), sourceLines = S.lines, sourceProject = projectJSON();
-  S.align = { stage: 'start', done: 0, total: 0, device: '' }; emit();
+  const source = capture(), sourceLines = S.lines, sourceProject = projectJSON(), begun = Date.now();
+  const token = { cancelled: false }; workflow = token;
+  const active = () => source.current() && !token.cancelled;
+  let plan = operation === 'transcribe' ? ['upload', 'demucs', 'transcribe', 'align', 'cache'] : operation === 'separate' ? ['upload', 'demucs', 'cache'] : ['upload', ...(options.locateLines ? ['locate'] : []), 'align', 'cache'];
+  const stage = (name: string) => { S.align = { stage: name, phase: name, done: 0, total: 0, device: '', plan, elapsed: Date.now() - begun }; emit(); };
+  stage('check');
   try {
-    if (!await checkServer() || !source.current()) return;
+    if (!await checkServer() || !active()) return;
     const state = await api('/api/align?sep=' + options.sep);
-    if (!source.current()) return;
+    if (!active()) return;
     if (!state.available) { S.align = null; emit(); await hooks.openSetup(); return; }
+    stage('upload');
     const uploaded = await uploadOriginal(source.original, options.sep);
-    if (!source.current()) return;
-    if (operation !== 'separate' && !uploaded.vocals) throw new Error('Сначала нажми «Выделить голос» или загрузи вокал из RX. Обработка текста сама не запускает разделение.');
+    if (!active()) return;
+    if (operation === 'words' && !uploaded.vocals) throw new Error('Сначала нажми «Выделить голос» или загрузи вокал из RX. Расстановка слов сама не запускает разделение.');
+    if (operation === 'transcribe' && uploaded.vocals) plan = ['upload', 'transcribe', 'align', 'cache'];
     if (operation === 'words') await snapshot('перед расстановкой слов');
-    if (!source.current() || operation === 'words' && S.lines !== sourceLines) return;
-    if (operation === 'transcribe' && (S.lines.length || projectJSON() !== sourceProject)) throw new Error('Проект изменился; распознавание не запущено.');
+    if (!active() || operation === 'words' && S.lines !== sourceLines) return;
     const project = JSON.parse(projectJSON());
     const body = JSON.stringify(only ? { ...project, lines: only.map(i => project.lines[i]) } : project);
-    const query = new URLSearchParams({ operation, audioKey: uploaded.key, sep: options.sep, asr: options.asr, aligner: options.aligner, locateLines: operation === 'words' && options.locateLines ? '1' : '0', detectBack: '0', lang: S.meta.lang });
-    const started = await api('/api/align?' + query, { method: 'POST', body });
-    for (;;) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      const result = await api('/api/align?sep=' + options.sep);
-      if (!source.current()) return;
-      if (started.runId && result.runId !== started.runId) throw new Error('Другой запуск заменил результат на сервере. Чужие тайминги не применены.');
-      if (result.audioKey && result.audioKey !== uploaded.key) throw new Error('Сервер переключился на другое аудио; результат не применён.');
-      if (result.running) { S.align = { stage: result.stage || 'start', done: result.done || 0, total: result.total || 0, device: result.device || '', plan: result.plan, sub: result.sub, subDone: result.subDone, subTotal: result.subTotal, bytes: result.bytes, elapsed: result.elapsed }; emit(); continue; }
-      if (result.error) throw new Error(result.error);
-      let draft: Line[] | null = null;
-      if (operation === 'transcribe') {
-        if (S.lines.length || projectJSON() !== sourceProject) throw new Error('Проект изменился во время распознавания. Текст не заменён.');
-        draft = transcriptionDraft(result.result?.lines);
+    async function execute(step: AudioOperation) {
+      if (!active()) return null;
+      if (operation === 'transcribe' && (S.lines.length || projectJSON() !== sourceProject)) throw new Error('Проект изменился; получение текста остановлено.');
+      stage(step === 'separate' ? 'demucs' : step === 'transcribe' ? 'transcribe' : options.locateLines ? 'locate' : 'align');
+      const query = new URLSearchParams({ operation: step, audioKey: uploaded.key, sep: options.sep, asr: options.asr, aligner: options.aligner, locateLines: step === 'words' && options.locateLines ? '1' : '0', detectBack: '0', lang: S.meta.lang });
+      const started = await api('/api/align?' + query, { method: 'POST', body });
+      try {
+        for (;;) {
+          if (!active()) return null;
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          if (!active()) return null;
+          const result = await api('/api/align?sep=' + options.sep);
+          if (!active()) return null;
+          if (started.runId && result.runId !== started.runId) throw new Error('Другой запуск заменил результат на сервере. Чужие данные не применены.');
+          if (result.audioKey && result.audioKey !== uploaded.key) throw new Error('Сервер переключился на другое аудио; результат не применён.');
+          if (result.running) {
+            S.align = { stage: result.stage || 'start', phase: step === 'separate' ? 'demucs' : step === 'transcribe' ? 'transcribe' : options.locateLines ? 'locate' : 'align', done: result.done || 0, total: result.total || 0, device: result.device || '', plan, sub: result.sub, subDone: result.subDone, subTotal: result.subTotal, bytes: result.bytes, elapsed: Date.now() - begun }; emit(); continue;
+          }
+          if (result.error) throw new Error(result.error);
+          return result;
+        }
+      } finally {
+        // Cancellation can arrive while POST is starting. Stop that owned job once its id is known.
+        if (token.cancelled && started.runId) {
+          try { const owner = await api('/api/align?sep=' + options.sep); if (owner.running && owner.runId === started.runId) await api('/api/align', { method: 'DELETE' }); } catch { /* The visible cancel action reports server errors. */ }
+        }
       }
-      if (operation === 'words') {
-        if (S.lines !== sourceLines || !result.result?.lines) throw new Error('Текст проекта изменился или сервер не вернул тайминги.');
-        const count = hooks.merge(result.result.lines as Line[], only);
-        toast(`Расставлены слова в строках: ${count}. Только исходный текст и уже введённые бэки. Это черновик; Ctrl+Z — отмена.`, 'ok');
-        for (const warning of result.result.warnings || []) toast(warning, 'err');
-      }
-      if (result.vocals) {
-        if (operation === 'separate' && result.vocalSource === 'htdemucs' && options.sep === 'roformer') toast('RoFormer не применён: доступен сохранённый вокал HTDemucs. Это другой разделитель.', 'err');
-        const response = await fetch('/api/align/vocals?' + new URLSearchParams({ audioKey: uploaded.key, sep: options.sep }));
-        if (!response.ok) throw new Error('Не удалось получить вокал: HTTP ' + response.status);
-        const vocal = await response.blob();
-        if (source.current()) await attachVoice(source.original, vocal, source.current);
-      } else if (operation === 'separate') throw new Error('Сервер завершил выделение, но не вернул вокал.');
-      if (draft) {
-        if (!source.current() || S.lines.length || projectJSON() !== sourceProject) throw new Error('Проект изменился. Черновик не применён.');
-        S.transcriptionReview = { lines: draft, audio: source.original, generation: source.generation, project: sourceProject }; emit();
-      }
-      break;
     }
-  } catch (error) { if (source.current()) toast((operation === 'separate' ? 'Выделение голоса: ' : operation === 'transcribe' ? 'Распознавание текста: ' : 'Расстановка слов: ') + (error as Error).message, 'err'); }
-  finally { S.align = null; emit(); drawWave(); }
+    if (operation === 'transcribe' && !uploaded.vocals) {
+      const separated = await execute('separate');
+      if (!separated || !active()) return;
+      if (!separated.vocals) throw new Error('Выделение закончилось без вокала. Распознавание не запущено.');
+      if (separated.vocalSource === 'htdemucs' && options.sep === 'roformer') toast('RoFormer не применён: используется вокал HTDemucs.', 'err');
+    }
+    const result = await execute(operation);
+    if (!result || !active()) return;
+    let draft: Line[] | null = null;
+    if (operation === 'transcribe') {
+      if (S.lines.length || projectJSON() !== sourceProject) throw new Error('Проект изменился во время обработки. Текст не заменён.');
+      draft = transcriptionDraft(result.result?.lines);
+    }
+    if (operation === 'words') {
+      if (S.lines !== sourceLines || !result.result?.lines) throw new Error('Текст проекта изменился или сервер не вернул тайминги.');
+      const count = hooks.merge(result.result.lines as Line[], only);
+      toast(`Расставлены слова в строках: ${count}. Только исходный текст и уже введённые бэки. Это черновик; Ctrl+Z — отмена.`, 'ok');
+      for (const warning of result.result.warnings || []) toast(warning, 'err');
+    }
+    if (result.vocals) {
+      if (operation === 'separate' && result.vocalSource === 'htdemucs' && options.sep === 'roformer') toast('RoFormer не применён: доступен сохранённый вокал HTDemucs. Это другой разделитель.', 'err');
+      stage('cache');
+      const response = await fetch('/api/align/vocals?' + new URLSearchParams({ audioKey: uploaded.key, sep: options.sep }));
+      if (!response.ok) throw new Error('Не удалось получить вокал: HTTP ' + response.status);
+      const vocal = await response.blob();
+      if (active()) await attachVoice(source.original, vocal, active);
+    } else if (operation === 'separate') throw new Error('Сервер завершил выделение, но не вернул вокал.');
+    if (draft && active()) {
+      if (S.lines.length || projectJSON() !== sourceProject) throw new Error('Проект изменился. Черновик не применён.');
+      S.transcriptionReview = { lines: draft, audio: source.original, generation: source.generation, project: sourceProject }; emit();
+    }
+  } catch (error) { if (active()) toast((operation === 'separate' ? 'Выделение голоса: ' : operation === 'transcribe' ? 'Получение текста: ' : 'Расстановка слов: ') + (error as Error).message, 'err'); }
+  finally {
+    if (workflow === token) workflow = null;
+    S.align = null; emit(); drawWave();
+    if (token.cancelled && source.current()) toast('Обработка отменена.');
+  }
 }
 
 export function canApplyTranscription() {

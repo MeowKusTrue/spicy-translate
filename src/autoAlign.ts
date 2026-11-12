@@ -1,6 +1,7 @@
 // «Авто-тайминг»: the local server runs the experiments/auto-align prototype (Demucs + wav2vec2) on the track's audio;
 // word timings come back flagged auto (dashed), hand-marked words are never touched. Also brings the separated voice.
 import { mergeAutoLayer } from './core/index.ts';
+import { audioProgressPercent, audioStageFraction } from './core/audioProgress.ts';
 import { S, emit, lineState, ls, toast } from './state.ts';
 import { alignOptions, type AlignOptions } from './core/autoAlign.ts';
 import { checkServer } from './live.ts';
@@ -8,33 +9,21 @@ import { scheduleSave } from './persist.ts';
 import { afterSyncChange, snap } from './sync.ts';
 
 import type { Layer, Line } from './core/index.ts';
-import { importVocalFile, runAudioWorkflow, type AudioOperation } from './audioWorkflow.ts';
+import { cancelAudioWorkflow, importVocalFile, runAudioWorkflow, type AudioOperation } from './audioWorkflow.ts';
 
 export let modelOptions: AlignOptions = (() => { try { return { ...alignOptions(JSON.parse(ls.get('alignModels', '{}')!) || {}), detectBack: false }; } catch { return alignOptions(); } })();
 export function setModelOptions(value: Partial<AlignOptions>) { modelOptions = { ...alignOptions({ ...modelOptions, ...value }), detectBack: false }; ls.set('alignModels', JSON.stringify(modelOptions)); emit(); }
-export const STAGES: Record<string, string> = { start: 'запуск', import: 'подключаю вокал', device: 'загружаю модели', demucs: 'вырезаю голос', karaoke: 'делю голос и бэк', transcribe: 'распознаю текст', locate: 'ищу строки по аудио', backing: 'распознаю бэки', align: 'подгоняю слова' };
-const WEIGHT: Record<string, number> = { demucs: 30, karaoke: 15, transcribe: 25, locate: 25, backing: 25, align: 30 };
-/** how far the current stage is, 0..1: its own counter, else the bar inside it (not a download: that only waits) */
-export function stageFrac(a = S.align) {
-  if (!a) return 0;
-  if (a.total) return Math.min(1, a.done / a.total);
-  return a.subTotal && !a.bytes ? Math.min(1, (a.subDone || 0) / a.subTotal) : 0;
-}
+export const STAGES: Record<string, string> = { check: 'проверяю сервер и кэш', upload: 'подключаю исходное аудио', cache: 'сохраняю аудио и готовлю результат', start: 'запуск', import: 'подключаю вокал', device: 'загружаю модели', demucs: 'выделяю голос', karaoke: 'делю голос и бэк', transcribe: 'распознаю текст', locate: 'ищу строки по аудио', backing: 'распознаю бэки', align: 'подгоняю слова' };
+export const stageFrac = (state = S.align) => audioStageFraction(state);
 export const alignLabel = () => { const a = S.align; if (!a) return ''; const f = stageFrac(); return `${STAGES[a.stage] || a.stage}${a.stage === 'align' && a.total ? ` ${a.done}/${a.total}` : f ? ` ${Math.round(f * 100)}%` : '…'}`; };
 /** overall progress of a run, 0..100, by the stages it will go through (plan from align.py) */
-export function alignPct() {
-  const a = S.align; if (!a) return 0;
-  const plan = a.plan?.length ? a.plan : ['demucs', 'karaoke', 'align'], all = plan.reduce((s, x) => s + (WEIGHT[x] || 10), 0);
-  const k = plan.indexOf(a.stage); if (k < 0) return 1;
-  const before = plan.slice(0, k).reduce((s, x) => s + (WEIGHT[x] || 10), 0);
-  return Math.max(1, Math.round((before + (WEIGHT[a.stage] || 10) * stageFrac()) / all * 100));
-}
+export const alignPct = () => audioProgressPercent(S.align);
 /** «ещё ~1:20» from the time so far (once there is something to go by) */
 export function alignEta() {
   const a = S.align, p = alignPct(); if (!a?.elapsed || p < 8 || p >= 99) return '';
   const s = Math.round(a.elapsed / 1000 * (100 - p) / p); return s < 60 ? `~${s} с` : `~${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
-export async function cancelAlign() { if (S.align?.stage === 'import') return toast('Проверка загруженного вокала уже идёт. Дождись завершения; исходный микс не меняется.'); try { await api('/api/align', { method: 'DELETE' }); toast('Авто-тайминг: отменяю…'); } catch (e) { toast('Не вышло отменить: ' + (e as Error).message, 'err'); } }
+export async function cancelAlign() { if (S.align?.stage === 'import') return toast('Проверка загруженного вокала уже идёт. Дождись завершения; исходный микс не меняется.'); cancelAudioWorkflow(); try { await api('/api/align', { method: 'DELETE' }); toast('Авто-тайминг: отменяю…'); } catch (e) { toast('Не вышло отменить: ' + (e as Error).message, 'err'); } }
 export const DEVICES: Record<string, string> = { cuda: 'видеокарта NVIDIA', xpu: 'видеокарта Intel', dml: 'видеокарта (DirectML)', cpu: 'процессор' };
 
 async function api(path: string, init?: RequestInit) { const r = await fetch(path, init); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status); return j; }

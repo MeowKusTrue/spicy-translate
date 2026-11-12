@@ -12,7 +12,8 @@ import { setDockH, setupGrip } from '../dockSize.ts';
 import { SYL, forgetAll, setSylMem } from '../syllables.ts';
 import { setAgent } from '../agents.ts';
 import { stretchAll, copyTiming, fitLines, pasteTimingHere, repeatChorus, setAutoFit, setFitPad, shiftLines } from '../lineEdit.ts';
-import { DEVICES, STAGES, alignEta, alignLabel, alignPct, autoAlign, cancelAlign, importVocals, openAlignPanel, setupLabel, stageFrac } from '../autoAlign.ts';
+import { alignLabel, autoAlign, importVocals, openAlignPanel, setupLabel } from '../autoAlign.ts';
+import { AudioProgress } from './AudioProgress.tsx';
 import { W, songLen, waveSpec } from '../waveform/wave.ts';
 const setWaveView = (v: typeof S.waveView) => { S.waveView = v; ls.set('waveView', v); emit(); drawWave(); };
 import {
@@ -78,19 +79,6 @@ function Stretch() {
     <span className="row"><input type="text" id="strFrom" placeholder={fmtTime(f0)} value={from} title="Длительность версии, под которую размечено" onChange={e => setFrom(e.target.value)} style={{ width: 82 }} />→
       <input type="text" id="strTo" placeholder={t0 ? fmtTime(t0) : 'м:сс'} value={to} title="Длительность новой версии (по умолчанию — загруженное аудио)" onChange={e => setTo(e.target.value)} style={{ width: 82 }} />
       <button className="sm" id="btnStretch" disabled={!(a > 0 && b > 0) || Math.abs(a - b) < 0.01} onClick={() => { stretchAll(a, b); setFrom(''); setTo(''); }}>{a > 0 && b > 0 && Math.abs(a - b) >= 0.01 ? `${b > a ? '+' : ''}${((b / a - 1) * 100).toFixed(1)}%` : 'Растянуть'}</button></span></div>;
-}
-
-const mb = (b = 0) => (b / 1048576).toFixed(b > 1e8 ? 0 : 1);
-/** a running auto-timing: its stages with ticks, the bar inside the current one (model download: MB), time left, cancel */
-function AlignCard() {
-  const a = S.align!, plan = a.plan?.length ? a.plan : ['demucs', 'karaoke', 'align'], cur = plan.indexOf(a.stage), f = stageFrac();
-  return <div className="alcard" id="alignCard">
-    <div className="row"><b>✨ {plan.includes('transcribe') ? 'Распознаю и расставляю' : 'Авто-тайминг'}</b><small>{a.device ? DEVICES[a.device] || a.device : ''}</small><span className="sp" />
-      <b className="pct">{alignPct()}%</b><small>{alignEta() && 'ещё ' + alignEta()}</small><button className="sm" id="btnAlignCancel" disabled={a.stage === 'import'} title={a.stage === 'import' ? 'Проверка загруженного файла: дождись завершения' : 'Отменить обработку'} onClick={cancelAlign}>Отменить</button></div>
-    <div className="track"><i style={{ width: alignPct() + '%' }} /></div>
-    <div className="stg">{plan.map((s, k) => <span key={s} className={k < cur ? 'ok' : k === cur ? 'on' : ''}>{k < cur ? '✓' : k === cur ? '⏳' : '○'} {STAGES[s] || s}{k === cur && (s === 'align' && a.total ? ` ${a.done}/${a.total}` : f ? ` ${Math.round(f * 100)}%` : '')}</span>)}</div>
-    {a.sub && <small className="sub">{a.bytes ? `скачиваю модель${a.sub && !/^download/i.test(a.sub) ? ' ' + a.sub : ''} — ${mb(a.subDone)}${a.subTotal ? ' / ' + mb(a.subTotal) : ''} МБ (только в первый раз)` : a.sub}</small>}
-  </div>;
 }
 
 export function SyncDock() {
@@ -251,7 +239,7 @@ export function EditorToolbar() {
     </div>
     </fieldset>
     </div>
-    {S.align && <AlignCard />}
+    {S.align && <AudioProgress />}
     {!S.align && S.setup && <div className="runbar"><i style={{ width: S.setup.pct + '%' }} /></div>}
     <SyllableReview />
   </div>;

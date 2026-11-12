@@ -31,7 +31,7 @@ export const S = {
   waveView: 'wave' as 'wave' | 'spec', // the wave panel shows the waveform or a spectrogram
   chips: 'big' as 'big' | 'small' | 'off', // word chips under the wave
   dock: false, fx: true, snap: true, onsetSnap: true, waveVoice: false, autoFit: false, fitPad: { a: 0, b: 0 }, loop: false, voff: 0, lat: 100, // autoFit: line ends follow their words (+fitPad ms of slack)
-  align: null as null | { stage: string; done: number; total: number; device: string; plan?: string[]; sub?: string; subDone?: number; subTotal?: number; bytes?: boolean; elapsed?: number }, // auto-timing in progress
+  align: null as null | { stage: string; done: number; total: number; device: string; plan?: string[]; sub?: string; subDone?: number; subTotal?: number; bytes?: boolean; elapsed?: number; cancelled?: boolean; phase?: string }, // auto-timing in progress
   alignPanel: null as null | { gpu: import('./autoAlign.ts').Gpu | null; st: import('./autoAlign.ts').SetupState | null; pick: string; err: string },
   backingReview: null as null | { candidates: Line[]; picked: Set<number>; audio: Blob | null; title: string; artist: string },
   transcriptionReview: null as null | { lines: Line[]; audio: Blob; generation: number; project: string },
