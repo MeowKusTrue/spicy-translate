@@ -3184,7 +3184,7 @@ dependencies = [
 
 [[package]]
 name = "spicy-translate"
-version = "1.8.3"
+version = "1.8.4"
 dependencies = [
  "serde_json",
  "tauri",

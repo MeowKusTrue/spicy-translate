@@ -59,9 +59,14 @@ export function mergeWordAlignment(line: Line, result: Line, before: Line, repla
   }
   return changed ? next : null;
 }
-export function prepareWordAlignment(lines: Line[], replace: boolean) {
+export function prepareWordAlignment(lines: Line[], replace: boolean, only: number[] | null = null) {
   const request = structuredClone(lines);
-  if (replace) for (const line of request) for (const layer of ['orig','bgo'] as const) allowAutomation(line,layer);
+  const selected = only && new Set(only);
+  for (const [i, line] of request.entries()) {
+    // Keep the whole song as context for repeated choruses, but process only the selection.
+    if (selected && !selected.has(i)) line.approved = { ...line.approved, orig: true, bgo: true };
+    else if (replace) for (const layer of ['orig','bgo'] as const) allowAutomation(line,layer);
+  }
   return request;
 }
 

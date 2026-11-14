@@ -55,6 +55,22 @@ def needs_alignment(line, layer, force=False):
     return bool(n and (force or not ((line.get('approved') or {}).get(layer) or hand_done((line.get('sync') or {}).get(layer), n))))
 
 
+def manual_line_windows(lines):
+    """Use actual hand-marked words as context, never guessed line t/end or auto spans."""
+    anchors = {}
+    for i, line in enumerate(lines):
+        sy = (line.get('sync') or {}).get('orig')
+        if not hand_done(sy, len(units(layer_text(line, 'orig')))):
+            continue
+        if not all(type(w['a']) in (int, float) and type(w['b']) in (int, float)
+                   and np.isfinite(w['a']) and np.isfinite(w['b']) and 0 <= w['a'] < w['b'] for w in sy):
+            continue
+        if any(sy[k]['a'] < sy[k-1]['b'] - .002 for k in range(1, len(sy))):
+            continue
+        anchors[i] = (sy[0]['a'], sy[-1]['b'])
+    return anchors
+
+
 def lang_of(text):
     cyr = len(re.findall(r'[а-яё]', text, re.I)); lat = len(re.findall(r'[a-z]', text, re.I))
     return 'ru' if cyr >= lat else 'en'
@@ -640,10 +656,11 @@ def run(a, emit):
     if locate:
         stage('locate', 0, 1)
         recognized = transcribe(voc, dev, a.song_lang, a.asr, 'locate')
-        located = locate_line_windows(proj['lines'], [{'word': w, 'a': start, 'b': end} for w, start, end in recognized])
+        located = locate_line_windows(proj['lines'], [{'word': w, 'a': start, 'b': end} for w, start, end in recognized],
+                                      manual_line_windows(proj['lines']) if not a.force else {})
         missing = [str(i + 1) for i, ln in enumerate(proj['lines']) if needs_alignment(ln, 'orig', a.force) and i not in located]
         if missing:
-            proj.setdefault('warnings', []).append('Не найдено надёжных опор для строк: ' + ', '.join(missing) + '. Их тайминги не изменены. Проверь текст и повторы припева.')
+            proj.setdefault('warnings', []).append('Не найдено однозначных опор для строк: ' + ', '.join(missing) + '. Распознавание пропустило слова или не удалось различить повторы. Отметь вручную фразу рядом с нужным повтором и запусти снова. Их тайминги оставлены прежними.')
         stage('locate', 1, 1, lines=len(located))
     if a.detect_back:
         stage('backing', 0, 1)

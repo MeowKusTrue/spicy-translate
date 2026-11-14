@@ -77,10 +77,10 @@ test('zero applied timings are reported after vocal caching, not hidden by a suc
 test('word-box selection plus unlock aligns only those rows even when global locate mode is saved',async({page,request})=>{
  const lines=[{t:0,end:.5,text:'first half',tr:'',approved:{orig:true},sync:{orig:[{a:0,b:.2},{a:.2,b:.5}]}},{t:.5,end:1,text:'second half',tr:'',approved:{orig:true},sync:{orig:[{a:.5,b:.7},{a:.7,b:1}]}}];
  await request.put('/api/project?by=page',{data:{...project,lines}});let started=false,query='',submitted:any;
- await page.addInitScript(()=>{localStorage.setItem('helpSeen','1');localStorage.setItem('layout','classic');localStorage.setItem('alignModels',JSON.stringify({locateLines:true}));(window as any).confirm=async(msg:string)=>{(window as any).scopePrompt=msg;return (window as any).scopeAllowed===true;};});
+ await page.addInitScript(()=>{localStorage.setItem('helpSeen','1');localStorage.setItem('layout','classic');localStorage.setItem('alignModels',JSON.stringify({locateLines:true}));(window as any).confirm=async()=>{throw new Error('Selection must not disable audio lookup or prompt to use rough windows');};});
  await page.route(/\/api\/align(?:\?.*)?$/,route=>{
   if(route.request().method()==='POST'){query=route.request().url();submitted=route.request().postDataJSON();started=true;return route.fulfill({json:{ok:true}});}
-  return route.fulfill({json:{available:true,running:false,audioKey:key,vocals:true,result:started?{...project,lines:[{...lines[1],approved:undefined,sync:{orig:[{a:.55,b:.75,g:1},{a:.8,b:.95,g:1}]}}]}:null}});
+  return route.fulfill({json:{available:true,running:false,audioKey:key,vocals:true,result:started?{...project,lines:[{...lines[0],sync:{orig:[{a:.1,b:.3,g:1},{a:.3,b:.4,g:1}]}},{...lines[1],approved:undefined,sync:{orig:[{a:.55,b:.75,g:1},{a:.8,b:.95,g:1}]}}]}:null}});
  });
  await page.route('**/api/align/audio?*',route=>route.fulfill({json:{ok:true,audioKey:key,vocals:true}}));
  await page.route('**/api/align/vocals*',route=>route.fulfill({contentType:'audio/wav',body:original}));
@@ -88,12 +88,16 @@ test('word-box selection plus unlock aligns only those rows even when global loc
  await page.locator('#nav-sync').click();await page.locator('#ln1 .t').click();
  const chips=page.locator('#syncLines .sl.cur .chip');await chips.nth(0).click();await chips.nth(1).click({modifiers:['Control']});
  await expect(page.locator('#selectionBar')).toContainText('Выбрано слов: 2');await page.locator('#btnUnlockTiming').click();
- await page.locator('#btnEditorCommands').click();await expect(page.locator('#btnAutoAlign')).toHaveText('Расставить слова (1)');
- await page.locator('#btnAutoAlign').click();expect(started).toBe(false);
- await page.evaluate(()=>{(window as any).scopeAllowed=true;});await page.locator('#btnAutoAlign').click();
- await expect.poll(()=>query).toContain('locateLines=0');expect(submitted.lines).toHaveLength(1);expect(submitted.lines[0].text).toBe('second half');
+ await page.locator('#btnEditorCommands').click();await expect(page.locator('#btnAutoAlign')).toHaveText('Расставить слова · строк: 1');
+ await page.locator('#btnAutoAlign').click();
+ await expect.poll(()=>query).toContain('locateLines=1');expect(submitted.lines).toHaveLength(2);
+ expect(submitted.lines[0].approved).toEqual({orig:true,bgo:true});expect(submitted.lines[0].sync).toEqual(lines[0].sync);
+ expect(submitted.lines[1].text).toBe('second half');expect(submitted.lines[1].approved?.orig).toBeFalsy();
  const current=async()=> (await(await request.get('/api/project')).json()).project;
  await expect.poll(async()=> (await current()).lines[1].sync.orig[0].a).toBe(.55);
  expect((await current()).lines[0]).toEqual(lines[0]);
  await expect(page.locator('#btnAutoAlign')).toBeEnabled();await expect(page.locator('#dockMsg')).toContainText('только выделенные строки (2)');
+ expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('alignModels')!).locateLines)).toBe(true);
+ await page.keyboard.press('Control+z');await expect.poll(async()=> (await current()).lines[1].sync.orig[0].a).toBe(.5);
+ expect((await current()).lines[0]).toEqual(lines[0]);
 });

@@ -12,6 +12,42 @@ import align
 
 
 class OperationsTest(unittest.TestCase):
+    def test_locate_selected_repeat_uses_manual_context_and_preserves_other_rows(self):
+        from unittest.mock import Mock
+        for ambiguous in (False, True):
+            with self.subTest(ambiguous=ambiguous), tempfile.TemporaryDirectory() as tmp:
+                source, output, vocal = [os.path.join(tmp, x) for x in ('in.json', 'out.json', 'RX.wav')]
+                # This is the full-song request produced when only the last row is selected.
+                first = {'t': 10, 'end': 12, 'text': 'это припев', 'approved': {'orig': True, 'bgo': True},
+                         'sync': {'orig': [{'a': 10, 'b': 11}, {'a': 11, 'b': 12}]}}
+                target = {'t': 0, 'end': 2, 'text': 'это припев', 'sync': {'orig': [{'a': 0, 'b': 1, 'g': 1}, {'a': 1, 'b': 2, 'g': 1}]}}
+                if ambiguous:  # A nonselected draft is protected but is not a trusted time anchor.
+                    for word in first['sync']['orig']: word['g'] = 1
+                project = {'lines': [first, target]}
+                with open(source, 'w', encoding='utf8') as f: json.dump(project, f)
+                with open(vocal, 'wb') as f: f.write(b'cached input')
+                refine = Mock(return_value=[(60.1, 60.9), (61, 61.7)])
+                model = types.SimpleNamespace(device='cpu', align=refine)
+                with patch.dict(sys.modules, {'torch': types.ModuleType('torch')}), \
+                     patch.object(align, 'pick_device', return_value='cpu'), patch.object(align, 'hook_tqdm'), \
+                     patch.object(align, 'separate', side_effect=AssertionError('separator forbidden')), \
+                     patch.object(align, 'decode', return_value=np.zeros((1, 16000))), \
+                     patch.object(align, 'transcribe', return_value=[('это', 60, 60.8), ('припев', 61, 61.8)]), \
+                     patch.object(align, 'Aligner', return_value=model):
+                    align.main(['original.wav', source, '-o', output, '--vocal-file', vocal, '--locate-lines', '--snap', '0'])
+                with open(output, encoding='utf8') as f: result = json.load(f)
+                self.assertEqual(result['lines'][0], first)
+                if ambiguous:
+                    refine.assert_not_called()
+                    self.assertEqual(result['lines'][1], target)
+                    self.assertIn('для строк: 2.', result['warnings'][0])
+                else:
+                    refine.assert_called_once()
+                    self.assertEqual(refine.call_args.args[-1], (60, 61.8))
+                    self.assertEqual(result['lines'][1]['sync']['orig'][0]['a'], 60.1)
+                    self.assertFalse(result.get('warnings'))
+                with open(source, encoding='utf8') as f: self.assertEqual(json.load(f), project)
+
     def test_separate_only_never_recognizes_or_aligns(self):
         for project in ({'lines': [], 'meta': {'title': 'empty'}},
                         {'lines': [{'t': 1, 'end': 3, 'text': 'hello', 'tr': 'hi', 'sync': {'orig': [{'a': 1, 'b': 2}]}}], 'warnings': ['keep']}):

@@ -69,6 +69,17 @@ describe('word timing retry on already synced projects', () => {
     expect(mergeWordAlignment(before,bad,before,true)).toBeNull();
     expect(before.approved?.orig).toBe(true);
   });
+  it('sends the full song for repeat context while protecting everything outside the selection',()=>{
+    const lines: Line[]=[line(),line(),{...result(),approved:{bgo:true}}];
+    const before=structuredClone(lines), request=prepareWordAlignment(lines,true,[1]);
+    expect(request).toHaveLength(3);
+    expect(request[0].approved).toEqual({orig:true,bgo:true});
+    expect(request[0].sync).toEqual(lines[0].sync);
+    expect(request[1].approved).toBeUndefined();expect(request[1].sync!.orig!.every(w=>w.g)).toBe(true);
+    expect(request[2].approved).toEqual({orig:true,bgo:true});
+    expect(request[2].sync).toEqual(lines[2].sync);
+    expect(lines).toEqual(before);
+  });
 });
 
 it('uses selected phrase rows or canvas words consistently and never treats a lone cursor as selection',()=>{

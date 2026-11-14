@@ -211,3 +211,12 @@ assert not needs_alignment(hand, 'orig')
 assert needs_alignment(unlocked, 'orig')
 assert needs_alignment(protected, 'orig', True)
 print('missing anchors only warn about eligible layers')
+
+# Artificial approval of nonselected drafts must never make them manual search anchors.
+from align import manual_line_windows
+draft = copy.deepcopy(unlocked)
+draft['approved'] = {'orig': True}
+invalid = copy.deepcopy(hand)
+invalid['sync']['orig'][1]['a'] = float('nan')
+assert manual_line_windows([hand, unlocked, draft, protected, invalid]) == {0: (0, 2)}
+print('only valid complete manual timings anchor repeat search')

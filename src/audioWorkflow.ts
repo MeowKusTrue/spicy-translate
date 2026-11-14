@@ -50,11 +50,6 @@ export async function runAudioWorkflow(operation: AudioOperation, options: Align
   if (operation === 'transcribe' && S.lines.length) return toast('В треке уже есть текст. Получение текста не перезаписывает существующие строки.', 'err');
   const only = operation === 'words' ? alignmentSelection(S.picked, W.multi, S.lines.length) : null;
   const source = capture(), sourceLines = S.lines, sourceProject = projectJSON(), begun = Date.now();
-  if (operation === 'words' && only && options.locateLines) {
-    const useWindows = await confirm(`Выделено строк: ${only.length}. Поиск опор через распознавание рассчитан на всю песню и может пропускать повторы.\nРасставить только выделенные строки внутри их текущих временных границ, без поиска опор?\nЕсли времена самих строк неверны, нажми «Отмена» и сначала поправь их либо запусти поиск по всей песне.`);
-    if (!useWindows || !source.current() || projectJSON() !== sourceProject || S.align || S.setup || S.busyAuto) return;
-    options = { ...options, locateLines: false };
-  }
   const before = structuredClone(S.lines);
   let replace = false;
   if (operation === 'words') {
@@ -82,8 +77,8 @@ export async function runAudioWorkflow(operation: AudioOperation, options: Align
     if (operation === 'words') await snapshot('перед расстановкой слов');
     if (!active() || operation === 'words' && S.lines !== sourceLines) return;
     const project = JSON.parse(projectJSON());
-    if (operation === 'words') project.lines = prepareWordAlignment(before, replace);
-    const body = JSON.stringify(only ? { ...project, lines: only.map(i => project.lines[i]) } : project);
+    if (operation === 'words') project.lines = prepareWordAlignment(before, replace, only);
+    const body = JSON.stringify(project);
     async function execute(step: AudioOperation) {
       if (!active()) return null;
       if (operation === 'transcribe' && (S.lines.length || projectJSON() !== sourceProject)) throw new Error('Проект изменился; получение текста остановлено.');
@@ -127,7 +122,8 @@ export async function runAudioWorkflow(operation: AudioOperation, options: Align
     }
     if (operation === 'words') {
       if (S.lines !== sourceLines || !result.result?.lines) throw new Error('Текст проекта изменился или сервер не вернул тайминги.');
-      const count = hooks.merge(result.result.lines as Line[], only, before, replace);
+      const returned = result.result.lines as Line[];
+      const count = hooks.merge(only ? only.map(i => returned[i]) : returned, only, before, replace);
       const scope = wordAlignmentScope(only ? only.map(i => before[i]) : before);
       wordSummary = count ? `Расставлены слова в строках: ${count}. Это черновик; Ctrl+Z — отмена.${!replace && scope.protectedLayers ? ` Защищённых дорожек пропущено: ${scope.protectedLayers}.` : ''}` : 'Ни одна строка не обновлена: результат совпадает с прежним, текст изменился или модель не нашла новые времена. Проверь защиту строк и режим «Сначала найти строки по аудио».';
       wordCount = count;
@@ -142,7 +138,7 @@ export async function runAudioWorkflow(operation: AudioOperation, options: Align
     } else if (operation === 'separate') throw new Error('Сервер завершил выделение, но не вернул вокал.');
     if (wordSummary && active()) {
       const warnings: string[] = result.result.warnings || [];
-      if (only) wordSummary += ` Область: только выделенные строки (${only.map(i => i + 1).join(', ')}), текущие времена строк.`;
+      if (only) wordSummary += ` Область: только выделенные строки (${only.map(i => i + 1).join(', ')}). ${options.locateLines ? 'Поиск по аудио учитывает всю песню и ручные опоры.' : 'Использованы текущие времена строк.'}`;
       toast(wordSummary + (warnings.length ? ' ' + warnings.join(' ') : ''), wordCount && !warnings.length ? 'ok' : 'err');
     }
     if (draft && active()) {
