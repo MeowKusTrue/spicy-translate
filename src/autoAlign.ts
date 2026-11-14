@@ -1,14 +1,14 @@
 // «Авто-тайминг»: the local server runs the experiments/auto-align prototype (Demucs + wav2vec2) on the track's audio;
 // word timings come back flagged auto (dashed), hand-marked words are never touched. Also brings the separated voice.
-import { mergeAutoLayer } from './core/index.ts';
+import { mergeWordAlignment } from './core/index.ts';
 import { audioProgressPercent, audioStageFraction } from './core/audioProgress.ts';
-import { S, emit, lineState, ls, toast } from './state.ts';
+import { S, emit, ls, toast } from './state.ts';
 import { alignOptions, type AlignOptions } from './core/autoAlign.ts';
 import { checkServer } from './live.ts';
 import { scheduleSave } from './persist.ts';
 import { afterSyncChange, snap } from './sync.ts';
 
-import type { Layer, Line } from './core/index.ts';
+import type { Line } from './core/index.ts';
 import { cancelAudioWorkflow, importVocalFile, runAudioWorkflow, type AudioOperation } from './audioWorkflow.ts';
 
 export let modelOptions: AlignOptions = (() => { try { return { ...alignOptions(JSON.parse(ls.get('alignModels', '{}')!) || {}), detectBack: false }; } catch { return alignOptions(); } })();
@@ -34,18 +34,16 @@ export function importVocals(file: File) { return importVocalFile(file, modelOpt
 /** Legacy review state cannot insert newly recognized backing phrases. */
 export function acceptBacking() { S.backingReview = null; emit(); toast('Используются только бэки, уже введённые внутри строк.'); }
 /** take auto timings for lines whose texts still match; anything marked by hand here stays as it is */
-function merge(res: Line[], only: number[] | null = null) {
-  snap(); let n = 0;
-  S.lines.forEach((l, i) => {
-    const r = res[only ? only.indexOf(i) : i]; if (!r || r.text !== l.text) return;
-    let did = false;
-    for (const k of ['orig', 'bgo'] as Layer[]) {
-      if (lineState(i, k) !== 'done' && mergeAutoLayer(l, r, k)) did = true;
-    }
-    if (did) n++;
+function merge(res: Line[], only: number[] | null, before: Line[], replace = false) {
+  const changes = S.lines.flatMap((line, i) => {
+    const result = res[only ? only.indexOf(i) : i];
+    if (!result || !before[i]) return [];
+    const next = mergeWordAlignment(line, result, before[i], replace);
+    return next ? [{ i, next }] : [];
   });
-  if (!n) S.undo.pop(); else { afterSyncChange(true); scheduleSave(); }
-  return n;
+  if (!changes.length) return 0;
+  snap(); for (const { i, next } of changes) S.lines[i] = next;
+  afterSyncChange(true); scheduleSave(); return changes.length;
 }
 
 /* ---------- the «Авто-тайминг» panel: GPU found, which PyTorch build, install with progress, cancel, remove ---------- */

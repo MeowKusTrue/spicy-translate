@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { addBacking, alignArgs, recommendedModels } from '../src/core/autoAlign.ts';
+import { addBacking, alignArgs, recommendedModels, wordAlignmentScope, prepareWordAlignment, mergeWordAlignment } from '../src/core/autoAlign.ts';
 import type { Line } from '../src/core/types.ts';
 
 describe('auto alignment models and backing import', () => {
@@ -42,5 +42,31 @@ describe('auto alignment models and backing import', () => {
     const c = JSON.parse(fs.readFileSync(new URL('../desktop/src-tauri/capabilities/editor.json', import.meta.url), 'utf8'));
     expect(c.permissions).toContain('dialog:allow-message');
     expect(c.windows).toContain('main');
+  });
+});
+
+
+describe('word timing retry on already synced projects', () => {
+  const line = (): Line => ({ t: 0, end: 3, text: 'Старые слова', tr: 'Translation', approved: {orig:true}, sync: {orig:[{a:0,b:1},{a:1,b:3}],tr:[{a:0,b:3}]} });
+  const result = (): Line => ({t:0,end:3,text:'Старые слова',tr:'',sync:{orig:[{a:.3,b:1.2,g:1},{a:1.5,b:2.8,g:1}]}});
+  it('identifies complete and protected layers rather than starting a silent no-op',()=>{
+    expect(wordAlignmentScope([line()])).toEqual({pending:0,protectedLayers:1});
+    expect(wordAlignmentScope([{t:0,end:3,text:'Новый текст',tr:''}])).toEqual({pending:1,protectedLayers:0});
+  });
+  it('unlocks only request copies and applies an explicitly confirmed replacement with translation intact',()=>{
+    const before=line(), request=prepareWordAlignment([before],true);
+    expect(before.approved?.orig).toBe(true); expect(request[0].approved).toBeUndefined();
+    expect(request[0].sync!.orig!.every(w=>w.g)).toBe(true);
+    expect(mergeWordAlignment(before,result(),before)).toBeNull();
+    const next=mergeWordAlignment(before,result(),before,true)!;
+    expect(next.sync!.orig).toEqual(result().sync!.orig);expect(next.sync!.tr).toEqual(before.sync!.tr);
+    expect(next.tr).toBe(before.tr);expect(next.approved).toBeUndefined();expect(before.approved?.orig).toBe(true);
+  });
+  it('never applies a stale retry or unlocks a protected layer without valid timings',()=>{
+    const before=line(), changed=structuredClone(before);changed.sync!.orig![0].b=.9;
+    expect(mergeWordAlignment(changed,result(),before,true)).toBeNull();
+    const bad=result();bad.sync!.orig![0].b=NaN;
+    expect(mergeWordAlignment(before,bad,before,true)).toBeNull();
+    expect(before.approved?.orig).toBe(true);
   });
 });

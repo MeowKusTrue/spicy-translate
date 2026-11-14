@@ -1,4 +1,7 @@
-import type { Line } from './types.ts';
+import { allowAutomation, mergeAutoLayer } from './approval.ts';
+import { editorText } from './editor.ts';
+import { syncComplete, wordList } from './words.ts';
+import type { Layer, Line } from './types.ts';
 
 export interface AlignOptions { sep: 'htdemucs' | 'roformer'; asr: 'turbo' | 'large-v3'; aligner: 'w2v' | 'mms'; detectBack: boolean; locateLines: boolean }
 /** A starting point, not a measured quality ranking for the user's song. */
@@ -30,4 +33,34 @@ export function addBacking(lines: Line[], candidates: Line[]): Line[] {
     out.push({ t: c.t, end: c.end, text: '', tr: '', bg: { text: c.bg.text, tr: '' }, sync: { bgo: structuredClone(c.sync?.bgo || []) } });
   }
   return out.sort((a, b) => a.t - b.t);
+}
+
+/** The worker and editor must agree on which original/backing layers may be updated. */
+export function wordAlignmentScope(lines: Line[]) {
+  let pending = 0, protectedLayers = 0;
+  for (const line of lines) for (const layer of ['orig', 'bgo'] as const) {
+    const n = wordList(editorText(line, layer)).length; if (!n) continue;
+    const sy = line.sync?.[layer];
+    if (line.approved?.[layer] || syncComplete(sy, n) && !sy.some(w => w.g)) protectedLayers++;
+    else pending++;
+  }
+  return { pending, protectedLayers };
+}
+/** Re-run permission applies to this snapshot only, never to edits made while the model runs. */
+export function mergeWordAlignment(line: Line, result: Line, before: Line, replace = false): Line | null {
+  if (JSON.stringify(line) !== JSON.stringify(before) || line.text !== result.text) return null;
+  const next = structuredClone(line); let changed = false;
+  for (const layer of ['orig', 'bgo'] as Layer[]) {
+    const n = wordList(editorText(line, layer)).length;
+    if (!n || editorText(line, layer) !== editorText(result, layer) || !syncComplete(result.sync?.[layer], n)
+      || result.sync![layer]!.some(w => !Number.isFinite(w.a) || !Number.isFinite(w.b) || w.a! < 0 || w.b! <= w.a!)) continue;
+    if (replace) allowAutomation(next, layer);
+    if (mergeAutoLayer(next, result, layer)) changed = true;
+  }
+  return changed ? next : null;
+}
+export function prepareWordAlignment(lines: Line[], replace: boolean) {
+  const request = structuredClone(lines);
+  if (replace) for (const line of request) for (const layer of ['orig','bgo'] as const) allowAutomation(line,layer);
+  return request;
 }

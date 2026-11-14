@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 
 const fixture = { v: 1, meta: { title: 'Backing fixture', artist: 'Test', lang: 'ru', mode: 'translation', md: [] }, lines: [
-  { t: 0, end: 1, text: 'основная строка', tr: 'lead line', sync: { orig: [{ a: 0, b: .5 }, { a: .5, b: 1 }] } },
+  { t: 0, end: 1, text: 'основная строка', tr: 'lead line', sync: { orig: [{ a: 0, b: .5, g: 1 }, { a: .5, b: 1, g: 1 }] } },
 ] };
 function wav() {
   const b = Buffer.alloc(44 + 16000 * 2);
