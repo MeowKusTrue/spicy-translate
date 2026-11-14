@@ -64,3 +64,10 @@ export function prepareWordAlignment(lines: Line[], replace: boolean) {
   if (replace) for (const line of request) for (const layer of ['orig','bgo'] as const) allowAutomation(line,layer);
   return request;
 }
+
+/** Match the scope used by «Разрешить автоматику», including canvas/word-box selection. */
+export function alignmentSelection(picked: Iterable<number>, multi: { i: number }[], count: number): number[] | null {
+  const rows = [...picked];
+  const ids = [...new Set(rows.length ? rows : multi.map(w => w.i))].filter(i => Number.isInteger(i) && i >= 0 && i < count).sort((a,b) => a-b);
+  return ids.length ? ids : null;
+}

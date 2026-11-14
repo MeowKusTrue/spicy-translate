@@ -12,7 +12,7 @@ import { setDockH, setupGrip } from '../dockSize.ts';
 import { SYL, forgetAll, setSylMem } from '../syllables.ts';
 import { setAgent } from '../agents.ts';
 import { stretchAll, copyTiming, fitLines, pasteTimingHere, repeatChorus, setAutoFit, setFitPad, shiftLines } from '../lineEdit.ts';
-import { alignLabel, autoAlign, importVocals, openAlignPanel, setupLabel } from '../autoAlign.ts';
+import { alignLabel, autoAlign, selectedAlignLines, importVocals, openAlignPanel, setupLabel } from '../autoAlign.ts';
 import { AudioProgress } from './AudioProgress.tsx';
 import { W, songLen, waveSpec } from '../waveform/wave.ts';
 const setWaveView = (v: typeof S.waveView) => { S.waveView = v; ls.set('waveView', v); emit(); drawWave(); };
@@ -168,7 +168,7 @@ export function EditorToolbar() {
       <label className="row"><input id="waveHints" type="checkbox" checked={S.waveHints} onChange={e => { S.waveHints = e.target.checked; ls.set('waveHints', S.waveHints ? '1' : '0'); const tip = document.getElementById('waveTip'); if (tip && !S.waveHints) tip.hidden = true; emit(); }} />Подсказки при наведении на таймлайн</label>
       <b className="ttl">Редактор слов</b>
       <button className="sm" id="btnSeparateVoice" disabled={!S.hasAudio || !!S.align || !!S.setup} title="Только выделить и сохранить вокал. Текст и тайминги не меняются." onClick={() => autoAlign('separate')}>Выделить голос</button>
-      <button className={'sm' + (S.align || S.setup ? ' busy' : '')} id="btnAutoAlign" disabled={!!S.align || !!S.setup} title="Расставить существующие слова по сохранённому вокалу. Новое разделение и новые бэки не запускаются." onClick={() => autoAlign('words')}>{S.setup ? '⬇ ' + setupLabel() : S.align ? '⏳ ' + alignLabel() : S.picked.size ? `Расставить слова (${S.picked.size})` : 'Расставить слова'}</button>
+      <button className={'sm' + (S.align || S.setup ? ' busy' : '')} id="btnAutoAlign" disabled={!!S.align || !!S.setup} title="Расставить существующие слова по сохранённому вокалу. Новое разделение и новые бэки не запускаются." onClick={() => autoAlign('words')}>{S.setup ? '⬇ ' + setupLabel() : S.align ? '⏳ ' + alignLabel() : selectedAlignLines() ? `Расставить слова (${selectedAlignLines()!.length})` : 'Расставить слова'}</button>
       <label className="btn sm" title="Загрузить вокал из RX или другого редактора: от начала трека, без обрезки и изменения скорости.">Загрузить вокал<input id="fileVocalsSync" type="file" accept="audio/*" hidden disabled={!S.hasAudio || !!S.align || !!S.setup} onChange={e => { const file = e.target.files?.[0]; if (file) importVocals(file); e.target.value = ''; }} /></label>
       <button className="sm ic" id="btnAlignPanel" title="Авто-тайминг: видеокарта, установка, удаление" onClick={openAlignPanel}>⋯</button>
       {W.peaks && <span className="tseg" title="Волна или спектрограмма: согласные и ноты видно лучше, магнит липнет к их атакам"><button className={S.waveView === 'wave' ? 'on' : ''} id="viewWave" onClick={() => setWaveView('wave')}>волна</button><button className={S.waveView === 'spec' ? 'on' : ''} id="viewSpec" disabled={!waveSpec()} title={waveSpec() ? '' : 'считаю спектрограмму…'} onClick={() => setWaveView('spec')}>{waveSpec() ? 'спектр' : 'спектр…'}</button></span>}

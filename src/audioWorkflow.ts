@@ -7,9 +7,9 @@ import { snap } from './sync.ts';
 import { setPage } from './hotkeys.ts';
 import { originalAudioKey, persistVoiceAudio } from './audioCache.ts';
 import { cacheVoiceAudio } from './audio.ts';
-import { buildVoicePeaks, drawWave } from './waveform/wave.ts';
+import { buildVoicePeaks, drawWave, W } from './waveform/wave.ts';
 import { session } from './projectSession.ts';
-import { prepareWordAlignment, wordAlignmentScope, type AlignOptions } from './core/autoAlign.ts';
+import { alignmentSelection, prepareWordAlignment, wordAlignmentScope, type AlignOptions } from './core/autoAlign.ts';
 import type { Line } from './core/index.ts';
 
 export type AudioOperation = 'separate' | 'words' | 'transcribe';
@@ -48,9 +48,13 @@ export async function runAudioWorkflow(operation: AudioOperation, options: Align
   if (!S.audioBlob) return toast('Сначала подключи исходный аудиофайл.', 'err');
   if (operation === 'words' && !S.lines.length) return toast('Сначала добавь текст или нажми «Получить текст». Выделить голос можно и без текста.', 'err');
   if (operation === 'transcribe' && S.lines.length) return toast('В треке уже есть текст. Получение текста не перезаписывает существующие строки.', 'err');
-  const only = operation === 'words' && S.picked.size ? [...S.picked].sort((a, b) => a - b) : null;
-  if (operation === 'words' && options.locateLines && only) return toast('Поиск опор требует всей песни. Сними выделение строк.', 'err');
+  const only = operation === 'words' ? alignmentSelection(S.picked, W.multi, S.lines.length) : null;
   const source = capture(), sourceLines = S.lines, sourceProject = projectJSON(), begun = Date.now();
+  if (operation === 'words' && only && options.locateLines) {
+    const useWindows = await confirm(`Выделено строк: ${only.length}. Поиск опор через распознавание рассчитан на всю песню и может пропускать повторы.\nРасставить только выделенные строки внутри их текущих временных границ, без поиска опор?\nЕсли времена самих строк неверны, нажми «Отмена» и сначала поправь их либо запусти поиск по всей песне.`);
+    if (!useWindows || !source.current() || projectJSON() !== sourceProject || S.align || S.setup || S.busyAuto) return;
+    options = { ...options, locateLines: false };
+  }
   const before = structuredClone(S.lines);
   let replace = false;
   if (operation === 'words') {
@@ -138,6 +142,7 @@ export async function runAudioWorkflow(operation: AudioOperation, options: Align
     } else if (operation === 'separate') throw new Error('Сервер завершил выделение, но не вернул вокал.');
     if (wordSummary && active()) {
       const warnings: string[] = result.result.warnings || [];
+      if (only) wordSummary += ` Область: только выделенные строки (${only.map(i => i + 1).join(', ')}), текущие времена строк.`;
       toast(wordSummary + (warnings.length ? ' ' + warnings.join(' ') : ''), wordCount && !warnings.length ? 'ok' : 'err');
     }
     if (draft && active()) {

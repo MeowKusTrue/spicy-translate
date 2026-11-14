@@ -199,3 +199,15 @@ import json
 numpy_project = {'lines': [{'t': 0, 'end': 1, 'sync': {'orig': [{'a': np.float64(.1), 'b': np.float64(.12), 'g': 1}, {'a': np.float64(.11), 'b': np.float64(.3), 'g': 1}]}}]}
 json.dumps(report(numpy_project))
 print('NumPy alignment report serializes')
+
+
+# Missing ASR anchors must not warn about the protected/manual half of a project.
+from align import needs_alignment
+protected = {'text': 'known text', 'approved': {'orig': True}}
+hand = {'text': 'known text', 'sync': {'orig': [{'a': 0, 'b': 1}, {'a': 1, 'b': 2}]}}
+unlocked = {'text': 'known text', 'sync': {'orig': [{'a': 0, 'b': 1, 'g': 1}, {'a': 1, 'b': 2, 'g': 1}]}}
+assert not needs_alignment(protected, 'orig')
+assert not needs_alignment(hand, 'orig')
+assert needs_alignment(unlocked, 'orig')
+assert needs_alignment(protected, 'orig', True)
+print('missing anchors only warn about eligible layers')

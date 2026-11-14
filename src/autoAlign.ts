@@ -1,6 +1,6 @@
 // «Авто-тайминг»: the local server runs the experiments/auto-align prototype (Demucs + wav2vec2) on the track's audio;
 // word timings come back flagged auto (dashed), hand-marked words are never touched. Also brings the separated voice.
-import { mergeWordAlignment } from './core/index.ts';
+import { alignmentSelection, mergeWordAlignment } from './core/index.ts';
 import { audioProgressPercent, audioStageFraction } from './core/audioProgress.ts';
 import { S, emit, ls, toast } from './state.ts';
 import { alignOptions, type AlignOptions } from './core/autoAlign.ts';
@@ -9,6 +9,7 @@ import { scheduleSave } from './persist.ts';
 import { afterSyncChange, snap } from './sync.ts';
 
 import type { Line } from './core/index.ts';
+import { W } from './waveform/wave.ts';
 import { cancelAudioWorkflow, importVocalFile, runAudioWorkflow, type AudioOperation } from './audioWorkflow.ts';
 
 export let modelOptions: AlignOptions = (() => { try { return { ...alignOptions(JSON.parse(ls.get('alignModels', '{}')!) || {}), detectBack: false }; } catch { return alignOptions(); } })();
@@ -27,6 +28,7 @@ export async function cancelAlign() { if (S.align?.stage === 'import') return to
 export const DEVICES: Record<string, string> = { cuda: 'видеокарта NVIDIA', xpu: 'видеокарта Intel', dml: 'видеокарта (DirectML)', cpu: 'процессор' };
 
 async function api(path: string, init?: RequestInit) { const r = await fetch(path, init); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status); return j; }
+export const selectedAlignLines = () => alignmentSelection(S.picked, W.multi, S.lines.length);
 export function autoAlign(operation: AudioOperation = 'words') {
   return runAudioWorkflow(operation, { ...modelOptions, detectBack: false }, { openSetup: openAlignPanel, merge });
 }

@@ -50,6 +50,11 @@ def hand_done(sync, n):
     return isinstance(sync, list) and len(sync) == n > 0 and all(x and x.get('a') is not None and x.get('b') is not None and not x.get('g') for x in sync)
 
 
+def needs_alignment(line, layer, force=False):
+    n = len(units(layer_text(line, layer)))
+    return bool(n and (force or not ((line.get('approved') or {}).get(layer) or hand_done((line.get('sync') or {}).get(layer), n))))
+
+
 def lang_of(text):
     cyr = len(re.findall(r'[а-яё]', text, re.I)); lat = len(re.findall(r'[a-z]', text, re.I))
     return 'ru' if cyr >= lat else 'en'
@@ -513,7 +518,7 @@ def fill(project, aligned_for, force=False):
         for layer in ('orig', 'bgo'):
             text = layer_text(ln, layer); n = len(units(text))
             cur = (ln.get('sync') or {}).get(layer)
-            if not n or ((ln.get('approved') or {}).get(layer) and not force) or (hand_done(cur, n) and not force): continue
+            if not needs_alignment(ln, layer, force): continue
             got = aligned_for(i, ln, layer, text)
             if not got: continue
             if hand_done(cur, n): errs[layer] += [abs(g[0] - c['a']) for g, c in zip(got, cur)]  # g: (a, b[, confidence])
@@ -636,7 +641,7 @@ def run(a, emit):
         stage('locate', 0, 1)
         recognized = transcribe(voc, dev, a.song_lang, a.asr, 'locate')
         located = locate_line_windows(proj['lines'], [{'word': w, 'a': start, 'b': end} for w, start, end in recognized])
-        missing = [str(i + 1) for i, ln in enumerate(proj['lines']) if units(ln.get('text') or '') and i not in located]
+        missing = [str(i + 1) for i, ln in enumerate(proj['lines']) if needs_alignment(ln, 'orig', a.force) and i not in located]
         if missing:
             proj.setdefault('warnings', []).append('Не найдено надёжных опор для строк: ' + ', '.join(missing) + '. Их тайминги не изменены. Проверь текст и повторы припева.')
         stage('locate', 1, 1, lines=len(located))

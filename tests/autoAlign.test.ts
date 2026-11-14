@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { addBacking, alignArgs, recommendedModels, wordAlignmentScope, prepareWordAlignment, mergeWordAlignment } from '../src/core/autoAlign.ts';
+import { addBacking, alignArgs, recommendedModels, wordAlignmentScope, prepareWordAlignment, mergeWordAlignment, alignmentSelection } from '../src/core/autoAlign.ts';
 import type { Line } from '../src/core/types.ts';
 
 describe('auto alignment models and backing import', () => {
@@ -69,4 +69,10 @@ describe('word timing retry on already synced projects', () => {
     expect(mergeWordAlignment(before,bad,before,true)).toBeNull();
     expect(before.approved?.orig).toBe(true);
   });
+});
+
+it('uses selected phrase rows or canvas words consistently and never treats a lone cursor as selection',()=>{
+  expect(alignmentSelection(new Set(),[{i:18},{i:17},{i:18}],35)).toEqual([17,18]);
+  expect(alignmentSelection(new Set([25,22]),[{i:17}],35)).toEqual([22,25]);
+  expect(alignmentSelection(new Set(),[],35)).toBeNull();
 });
