@@ -1,6 +1,7 @@
 // Autosave: localStorage (per-track project + last session), audio blobs in IndexedDB; project file import/export.
 import type { Mode, Project } from './core/index.ts';
 import { plainW } from './core/index.ts';
+import { punctuationLine } from './core/punctuation.ts';
 import { S, emit, ls, status } from './state.ts';
 import { buildPreview } from './preview.ts';
 import { LIVE, pushLive } from './live.ts';
@@ -74,6 +75,7 @@ export function restoreProject() {
   if (p && p.lines && p.lines.length && p.lines.every((x: { t?: number }) => typeof x.t === 'number')) {
     // saved with timings: take it whole (keeps added / removed / moved lines, background-only lines, singers)
     S.lines = p.lines.map((x: any) => ({ t: x.t, end: x.end, text: x.text, tr: x.tr || '', ...(x.sync ? { sync: x.sync } : {}), ...(x.agent ? { agent: x.agent } : {}), ...(x.bg ? { bg: x.bg } : {}), ...(x.sec ? { sec: x.sec } : {}), ...(x.approved ? { approved: x.approved } : {}) }));
+    S.lines = S.lines.map(punctuationLine);
     if (p.lang) S.meta.lang = p.lang;
     if (p.md) S.meta.md = p.md;
     S.sel = S.lines.length ? { i: 0, k: 0 } : null; buildPreview(); emit(); return true;
@@ -82,6 +84,7 @@ export function restoreProject() {
   p.lines.forEach((x: { text: string; tr?: string; sync?: any }, i: number) => { S.lines[i].text = x.text; S.lines[i].tr = x.tr || ''; if (x.sync) S.lines[i].sync = x.sync; });
   if (p.lang) S.meta.lang = p.lang;
   if (p.md) S.meta.md = p.md;
+  S.lines = S.lines.map(punctuationLine);
   buildPreview(); emit(); return p.lines.some((x: { tr?: string; sync?: unknown }) => x.tr || x.sync);
 }
 

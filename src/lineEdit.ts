@@ -1,6 +1,7 @@
 // Editing texts and lines: the list inputs, the inline editor on the wave (double click / E), adding and removing
 // lines (own words, background vocals with no lead line), "(…)" -> background vocals. bg = bg translation, bgo = bg original.
 import { repeatAllPlan, planFitAll, stretchLines, alignRows, findAll, fmtTime, insertLine, lineFromWords, lineRow, fitLineToWords, fitsWords, pasteTiming, repeatTranslations, timingOf, transferTiming, parensToBg, parseRow, plainW, remapSync, repeatTiming, replaceUnit, sameLines, slashSyl, shiftLine, type Layer, type Line } from './core/index.ts';
+import { attachPunctuation } from './core/punctuation.ts';
 import { S, clamp, emit, ls, fillLine, isBg, isTr, layerText, lineState, r3, setText, toast, viewWords, wordsOf } from './state.ts';
 import { now } from './audio.ts';
 import { learnAndSpread, spreadSplits } from './syllables.ts';
@@ -16,6 +17,7 @@ const after = () => { buildPreview(true); emit(); drawWave(); scheduleSave(); };
  */
 export function editText(i: number, layer: Layer, v: string) { if (S.lines[i]) { keepText(i, layer, v); learnAndSpread(v); after(); } }
 function keepText(i: number, layer: Layer, v: string) {
+  v = attachPunctuation(v);
   const l = S.lines[i], old = layerText(l, layer); if (old === v) return;
   setText(i, layer, v);
   const ns = remapSync(old, v, l.sync && l.sync[layer]);

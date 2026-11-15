@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { directorySize } from './directorySize.ts';
 import { dataDirectory } from './paths.ts';
+import { alignmentFailure } from './alignFailure.ts';
 import * as C from '../src/core/index.ts';
 import type { Layer, Mode, Project } from '../src/core/index.ts';
 
@@ -310,7 +311,9 @@ async function alignRoute(req: http.IncomingMessage, res: http.ServerResponse, u
     if (operation === 'transcribe' && !opt.includes('--transcribe')) opt.push('--transcribe');
     // Legacy detect-back may need karaoke stems; words/transcribe and imported audio never re-separate.
     if (vocal.file && (operation !== 'align' || vocal.source === 'imported')) opt.push('--vocal-file', vocal.file);
-    const p = spawn(env.py, [path.join(env.dir, 'align.py'), AL.audio, inp, '-o', out, '--json-progress', ...opt], { cwd: env.dir, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: 'utf-8', PATH: path.dirname(env.py) + path.delimiter + (process.env.PATH || '') } });
+    const diagnostic = path.join(alDir(), 'last-run.log');
+    fs.writeFileSync(diagnostic, `run=${AL.runId} operation=${operation}\n`); let logBytes = 0;
+    const p = spawn(env.py, [path.join(env.dir, 'align.py'), AL.audio, inp, '-o', out, '--json-progress', ...opt], { cwd: env.dir, windowsHide: true, env: { ...process.env, PYTHONFAULTHANDLER: '1', PYTHONIOENCODING: 'utf-8', PATH: path.dirname(env.py) + path.delimiter + (process.env.PATH || '') } });
     let buf = '';
     p.stdout.on('data', d => {
       buf += d; let k;
@@ -324,10 +327,19 @@ async function alignRoute(req: http.IncomingMessage, res: http.ServerResponse, u
         } catch {}
       }
     });
-    p.stderr.on('data', d => { AL.log.push(String(d)); if (AL.log.length > 40) AL.log.shift(); });
+    p.stderr.on('data', d => {
+      AL.log.push(String(d)); if (AL.log.length > 40) AL.log.shift();
+      try { if (logBytes < 2 * 1024 * 1024) { fs.appendFileSync(diagnostic, d); logBytes += d.length; } } catch { /* diagnostics must not stop the worker */ }
+    });
     AL.child = p;
     p.on('error', e => { AL.running = false; AL.error = e.message; });
-    p.on('close', code => { AL.running = false; AL.child = null; if (AL.cancel) AL.error = 'отменено'; if (code && !AL.error) AL.error = `align.py завершился с кодом ${code}: ${AL.log.join('').slice(-400)}`; if (!AL.out && fs.existsSync(out)) AL.out = out; });
+    p.on('close', (code, signal) => {
+      AL.running = false; AL.child = null;
+      if (AL.cancel) AL.error = 'отменено';
+      if (!AL.error && (code !== 0 || !fs.existsSync(out))) AL.error = alignmentFailure(code, signal, AL.stage, AL.log.join(''));
+      if (AL.error) { AL.out = ''; if (!AL.cancel) AL.error += ` Журнал: ${diagnostic}`; }
+      else if (!AL.out) AL.out = out;
+    });
     return json(res, { ok: true, runId: AL.runId });
   }
   if (u.pathname === '/api/align/gpu') return json(res, process.platform === 'win32' ? await detectGpu() : { names: [], backend: 'cpu', why: 'не Windows' });
@@ -553,7 +565,7 @@ if (!process.argv.includes('--http')) {
     const { id, method, params } = msg;
     if (id === undefined) return; // notification
     try {
-      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.8.5' } } });
+      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.8.6' } } });
       if (method === 'ping') return send({ id, result: {} });
       if (method === 'tools/list') return send({ id, result: { tools: Object.entries(tools).map(([name, t]) => ({ name, description: t.description, inputSchema: t.schema })) } });
       if (method === 'tools/call') {

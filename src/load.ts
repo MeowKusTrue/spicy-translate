@@ -1,5 +1,6 @@
 // Getting lyrics and audio in: LRCLIB search, manual LRC, audio file (+ lyrics auto-pick by file name).
 import { entriesToLines, mmss, parseLRC, parsePlain, type Line, type Mode, importLyrics, ttmlMeta } from './core/index.ts';
+import { punctuationLine } from './core/punctuation.ts';
 import { S, emit, ls, status, type LrclibHit } from './state.ts';
 import { audio, pause, seekTo, clearVoiceAudio } from './audio.ts';
 import { buildPreview } from './preview.ts';
@@ -59,6 +60,7 @@ export function loadManual(text: string, fileName = '') {
 }
 /** keep = the same song edited elsewhere (the agent): undo, layer, selection and playhead stay */
 export function setLines(lines: Line[], dur: number, keep = false, backedUp = false) {
+  lines = lines.map(punctuationLine);
   const hadLines = S.lines.length > 0;
   if (S.lines.length && !keep && !backedUp) snapshot('перед загрузкой нового текста'); // the replaced project stays in the snapshots
   S.lines = lines; spreadSplits(); S.picked.clear(); S.pickAnchor = -1; // remembered syllable splits come in by themselves

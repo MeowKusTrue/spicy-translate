@@ -121,6 +121,9 @@ from argparse import Namespace
 # ASR morphology joins only adjacent pieces in the same inference window.
 def chunk(text, a, b): return {'text': text, 'timestamp': (a, b)}
 fake_torch = types.SimpleNamespace(float32='float32')
+# Only unused encoder maps are disabled; decoder cross-attention remains available for word timestamps.
+args, kwargs = runner.encoder_without_attention(None, ('features',), {'output_attentions': True, 'output_hidden_states': True, 'attention_mask': 'mask'})
+assert args == ('features',) and kwargs == {'output_attentions': False, 'output_hidden_states': False, 'attention_mask': 'mask'}
 outputs = [
     {'chunks': [chunk('А', 0., .1), chunk('-а', .1, .2), chunk('-а', .2, .3),
                 chunk('-late', 2., 2.2), chunk('–near', 2.2, 2.3), chunk('--dash', 2.3, 2.4)]},
@@ -135,11 +138,16 @@ with patch.dict(sys.modules, {'torch': fake_torch, 'transformers': types.SimpleN
     got = runner.transcribe(np.ones(runner.SR * 33), 'cpu')
 assert [w[0] for w in got] == ['А-а-а', '-late–near', '--dash', '-new', 'open', '-far'], got
 assert got[0][1:] == [0., .3] and got[3][1:] == [20., 20.2], got
+# Punctuation returned as a separate BPE chunk joins left even without timestamps, without extending the word.
+with patch.object(runner, 'whisper_pipeline', return_value=Mock(return_value={'chunks': [chunk('нам', 0., .5), chunk(',', None, None), chunk('пора', 1., 1.5), chunk('!', 1.5, 2.)]})), \
+     patch.dict(sys.modules, {'torch': fake_torch}), patch.object(runner, 'stage'):
+    assert runner.transcribe(np.ones(runner.SR * 3), 'cpu') == [['нам,', 0., .5], ['пора!', 1., 1.5]]
 # Full Whisper must bound attention windows and disable inherited beam expansion.
 stub_asr = Mock(return_value={})
 with patch.dict(sys.modules, {'torch': fake_torch, 'transformers': types.SimpleNamespace(pipeline=lambda *a, **k: stub_asr)}), \
      patch.object(runner, 'windows', return_value=[(0, runner.SR)]) as window_mock, patch.object(runner, 'stage'):
     runner.transcribe(np.ones(runner.SR), 'cpu', model='large-v3')
+    stub_asr.model.get_encoder.return_value.register_forward_pre_hook.assert_called_once_with(runner.encoder_without_attention, with_kwargs=True)
     assert window_mock.call_args.kwargs == {'most': 12.0, 'least': 8.0}
     assert stub_asr.call_args.kwargs['generate_kwargs']['num_beams'] == 1
 with tempfile.TemporaryDirectory() as tmp:

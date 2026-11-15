@@ -1,5 +1,6 @@
 // Text edits that keep word timings: retyping a line, replacing one word, inserting lines, "(bg)" -> background vocals.
 import type { Layer, Line, Unit, WordSync } from './types.ts';
+import { attachPunctuation, punctuationTrack } from './punctuation.ts';
 import { plainW, splitWords, syncComplete, units, unitsText, wordList } from './words.ts';
 
 const r3 = (x: number) => Math.round(x * 1000) / 1000;
@@ -24,6 +25,7 @@ function lcsWalk(A: string[], B: string[], match: (i: number, j: number) => void
  * (fillLine places them). undefined = nothing to keep.
  */
 export function remapSync(oldText: string, newText: string, sync: WordSync[] | null | undefined): WordSync[] | undefined {
+  if (newText === attachPunctuation(newText)) { const normalized = punctuationTrack(oldText, sync); oldText = normalized.text; sync = normalized.sync; }
   const A = wordList(oldText), B = units(newText);
   if (!sync || sync.length !== A.length || !B.length) return undefined;
   const out: WordSync[] = B.map(() => ({ a: null, b: null }));
@@ -60,16 +62,18 @@ export function alignRows(oldRows: string[], newRows: string[]): number[] {
 
 /** Replace unit k with `value` (several words or '|' syllables are fine, empty = delete). Its span is split among the new units. */
 export function replaceUnit(text: string, sync: WordSync[] | null | undefined, k: number, value: string): { text: string; sync: WordSync[] | null } | null {
+  value = attachPunctuation(value);
   const us = units(text), old = us[k]; if (!old) return null;
   const nu = units(value);
   if (nu.length) nu[nu.length - 1].sp = old.sp;
   else if (k > 0 && !us[k - 1].sp) us[k - 1].sp = old.sp; // deleted the last syllable of a word
   const ok = !!sync && sync.length === us.length;
   us.splice(k, 1, ...nu);
-  if (!ok) return { text: unitsText(us), sync: null };
+  if (!ok) return { text: attachPunctuation(unitsText(us)), sync: null };
   const x = sync![k], ns = sync!.slice();
   ns.splice(k, 1, ...(timed(x) ? spread(nu, x.a!, x.b!, x.g) : nu.map(() => ({ a: null, b: null }))));
-  return { text: unitsText(us), sync: ns };
+  const normalized = punctuationTrack(unitsText(us), ns);
+  return { text: normalized.text, sync: normalized.sync || null };
 }
 
 /** New empty line at time t (kept sorted by start). Returns its index. */
@@ -123,7 +127,7 @@ export function lineRow(l: Line, tr: boolean) {
 /** "main (background)" -> parts; several (…) groups are joined */
 export function parseRow(row: string) {
   const bg = [...row.matchAll(/\(([^)]*)\)/g)].map(m => m[1].replace(NB, ' ').trim()).filter(Boolean).join(' ');
-  return { main: row.replace(/\([^)]*\)?/g, ' ').replace(NB, ' ').trim(), bg };
+  return { main: attachPunctuation(row.replace(/\([^)]*\)?/g, ' ').replace(NB, ' ').trim()), bg: attachPunctuation(bg) };
 }
 
 export interface FindOpts { find: string; repl: string; layers: Layer[]; cs?: boolean; word?: boolean }

@@ -3,6 +3,7 @@
 import type { Agent, Line, MetaEntry, Unit, WordSync } from './types.ts';
 import { entriesToLines, parseLRC } from './lrc.ts';
 import { NBSP, units, unitsText } from './words.ts';
+import { punctuationLine, attachPunctuation } from './punctuation.ts';
 
 const r3 = (x: number) => Math.round(x * 1000) / 1000;
 
@@ -106,7 +107,7 @@ export function parseTTML(xml: string): Line[] {
       }
     }
   }
-  return out.sort((x, y) => x.t - y.t);
+  return out.map(punctuationLine).sort((x, y) => x.t - y.t);
 }
 
 /** song metadata from a TTML <head>: Apple <songwriter> names + <amll:meta key value> (not our own amll:sections etc.) */
@@ -130,7 +131,7 @@ export function parseSRT(text: string): Line[] {
     const body = m[9].replace(/<[^>]+>/g, '').split('\n').map(s => s.trim()).filter(Boolean).join(' ');
     if (!body) continue;
     const a = t(m[1], m[2], m[3], m[4]), b = t(m[5], m[6], m[7], m[8]);
-    out.push({ t: r3(a), end: r3(Math.max(b, a + 0.3)), text: body, tr: '' });
+    out.push({ t: r3(a), end: r3(Math.max(b, a + 0.3)), text: attachPunctuation(body), tr: '' });
   }
   return out;
 }
@@ -145,8 +146,8 @@ export function importLyrics(text: string, fileName = '', duration = 0): { lines
   if (/\.ttml$|\.xml$/i.test(fileName) || /<tt[\s>]/.test(s)) return { lines: parseTTML(s), kind: 'ttml' };
   if (/\.srt$/i.test(fileName) || /\d+:\d+:\d+[,.]\d+\s*-->/.test(s)) return { lines: parseSRT(s), kind: 'srt' };
   const e = parseLRC(s);
-  if (e.length) return { lines: entriesToLines(e, duration), kind: 'lrc' };
-  const rows = s.split(/\r?\n/).map(x => x.trim()).filter(x => x && !/^\[.*\]$/.test(x)); // drop "[Chorus]"-style headers
+  if (e.length) return { lines: entriesToLines(e, duration).map(punctuationLine), kind: 'lrc' };
+  const rows = s.split(/\r?\n/).map(x => attachPunctuation(x.trim())).filter(x => x && !/^\[.*\]$/.test(x)); // drop "[Chorus]"-style headers
   const n = rows.length, start = duration > 0 ? Math.min(10, duration * 0.05) : 0;
   const per = duration > 0 && n ? Math.max(1.5, (duration - start - 5) / n) : 3.5;
   return { lines: rows.map((text, i) => ({ t: r3(start + i * per), end: r3(start + (i + 1) * per - 0.05), text, tr: '' })), kind: 'text' };

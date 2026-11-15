@@ -1,5 +1,6 @@
 import type { Line, WordSync } from './types.ts';
 import { units } from './words.ts';
+import { punctuationLine } from './punctuation.ts';
 
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const time = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
@@ -15,6 +16,6 @@ export function transcriptionDraft(value: unknown): Line[] {
       line.sync = { orig: spans.map((w: Record<string, unknown>): WordSync => ({ a: w.a as number, b: w.b as number, g: 1,
         ...(typeof w.c === 'number' && Number.isFinite(w.c) ? { c: Math.max(0, Math.min(1, w.c)) } : {}) })) };
     }
-    return line;
+    return punctuationLine(line);
   });
 }

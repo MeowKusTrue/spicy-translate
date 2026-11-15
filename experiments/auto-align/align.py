@@ -429,13 +429,29 @@ def windows(voc, most=28.0, least=18.0):
     return list(zip(cuts, cuts[1:] + [n]))
 
 
-def transcribe(voc, device, lang=None, model='turbo', progress_stage='transcribe'):
-    """[(word, a, b)] from the vocal stem: piece by piece (long-form chunking in transformers crashes with word times)"""
+def encoder_without_attention(module, args, kwargs):
+    # Word timestamps use decoder cross-attention, not the encoder's 32 full 1500x1500
+    # attention maps. Retaining/copying those adds ~2.9 GB in fp16 and crashes inside
+    # Whisper _postprocess_outputs on Windows CUDA (transformers 5.22 / torch 2.11).
+    # A public PyTorch hook avoids patching installed libraries or changing decoding.
+    return args, {**kwargs, 'output_attentions': False, 'output_hidden_states': False}
+
+
+def whisper_pipeline(device, model):
     import torch
     from transformers import pipeline
     d = dev_name(device); cuda = d == 'cuda'
     asr = pipeline('automatic-speech-recognition', model=WHISPER_MODELS[model], dtype=torch.float16 if cuda else torch.float32,
                    device=device if d in ('cuda', 'xpu', 'cpu') else 'cpu')
+    asr.model.get_encoder().register_forward_pre_hook(encoder_without_attention, with_kwargs=True)
+    return asr
+
+
+def transcribe(voc, device, lang=None, model='turbo', progress_stage='transcribe'):
+    """[(word, a, b)] from the vocal stem: piece by piece (long-form chunking in transformers crashes with word times)"""
+    import torch
+    cuda = dev_name(device) == 'cuda'
+    asr = whisper_pipeline(device, model)
     gen = {'task': 'transcribe', 'num_beams': 1, **({'language': lang} if lang else {})}
     loud = np.sqrt(np.mean(voc ** 2)) + 1e-9
     # Full large-v3 word timestamps retain cross-attention; 28 s can exhaust a 10 GB GPU.
@@ -449,6 +465,9 @@ def transcribe(voc, device, lang=None, model='turbo', progress_stage='transcribe
         chunk_start = len(words)
         for c in out.get('chunks') or []:
             w = (c.get('text') or '').strip(); a, b = (c.get('timestamp') or (None, None))
+            if w and words and re.fullmatch(r'[,.;:!?…%‰)\]}»”’]+', w):
+                words[-1][0] += w  # punctuation shares the word's time, including timestamp-less tokens
+                continue
             if not w or a is None: continue
             if (len(words) > chunk_start and w[0] in '-–' and not w.startswith('--')
                     and words[-1][2] is not None and words[-1][1] <= s / SR + float(a)
@@ -713,4 +732,6 @@ def run(a, emit):
 
 
 if __name__ == '__main__':
+    import faulthandler
+    faulthandler.enable()
     main()

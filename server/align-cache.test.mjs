@@ -193,3 +193,32 @@ test('durable hash cache, isolated operations, RX import and conflict safety', {
     assert.ok(path.basename(tmp).startsWith('spicy-align-cache-')); fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test('failed worker output is never offered as a result, and diagnostics survive the crash', { timeout: 15000 }, async () => {
+  await freePort();
+  const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'spicy-align-failure-'));
+  const fake=path.join(tmp,'fake'); fs.mkdirSync(fake);
+  fs.writeFileSync(path.join(fake,'align.py'), `
+    const fs=require('node:fs'),args=process.argv.slice(2),out=args[args.indexOf('-o')+1];
+    fs.writeFileSync(out, JSON.stringify({lines:[]}));
+    console.log(JSON.stringify({done:true,out}));
+    console.error('diagnostic enabled=' + process.env.PYTHONFAULTHANDLER);
+    console.error('simulated native failure'); process.exit(7);
+  `);
+  const child=spawn(process.execPath,['server/index.ts','--http'],{cwd:process.cwd(),stdio:'ignore',env:{...process.env,SPICY_PORT:String(port),SPICY_DIR:path.join(tmp,'data'),SPICY_ALIGN_DIR:fake,SPICY_ALIGN_PY:process.execPath}});
+  try {
+    await ready(child);
+    const saved={v:1,lines:[{t:0,end:1,text:'keep',tr:''}]};
+    await request('/api/project','PUT',JSON.stringify(saved));
+    await request('/api/align/audio','POST',wav());
+    assert.equal((await request('/api/align?operation=separate','POST',JSON.stringify(saved))).status,200);
+    let state;
+    for(let i=0;i<100;i++){state=(await request('/api/align')).data;if(!state.running)break;await delay(30);}
+    assert.equal(state.running,false);assert.match(state.error,/кодом 7/);assert.equal(state.result,null);
+    assert.deepEqual((await request('/api/project')).data.project,saved);
+    const log=fs.readFileSync(path.join(tmp,'data','align','last-run.log'),'utf8');
+    assert.match(log,/diagnostic enabled=1/);assert.match(log,/simulated native failure/);
+  } finally {
+    if(child.exitCode===null){const closed=new Promise(resolve=>child.once('exit',resolve));child.kill();await closed;}
+  }
+});

@@ -2,9 +2,11 @@ import type { Layer, Line, WordSync } from './types.ts';
 import { editorText } from './editor.ts';
 import { remapSync } from './edit.ts';
 import { splitWords } from './words.ts';
+import { attachPunctuation } from './punctuation.ts';
 
 /** A display-only candidate: original project data and autosave stay untouched until Enter. */
 export function textDraftLine(line: Line, layer: Layer, text: string): Line {
+  text = attachPunctuation(text);
   const before = line.sync?.[layer];
   const mapped = remapSync(editorText(line, layer), text, before);
   const sync: WordSync[] = mapped || splitWords(text, line.t, line.end).map(w => ({ a: w.a, b: w.b, g: 1 as const }));
