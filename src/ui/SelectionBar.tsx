@@ -1,3 +1,4 @@
+import { SelectionAgentPicker } from './AgentPicker.tsx';
 import { useState } from 'react';
 import { S } from '../state.ts';
 import { W } from '../waveform/wave.ts';
@@ -9,6 +10,7 @@ export function SelectionBar() {
   if (!S.sel && !S.picked.size && !W.multi.length) return null;
   return <div className="selection-bar" id="selectionBar">
     <span className="selection-count" aria-live="polite">{[W.multi.length && `Выбрано слов: ${W.multi.length}`, S.picked.size && `Выбрано строк: ${S.picked.size}`].filter(Boolean).join(' · ') || 'Текущее слово'}</span>
+    <SelectionAgentPicker />
     <button className="sm" id="btnWordsReady" disabled={!!S.editDraft || (!W.multi.length && !S.sel)} onClick={() => markSelectionReady('words')}>✓ Слова готовы</button>
     <button className="sm" id="btnLinesReady" disabled={!!S.editDraft || (!S.picked.size && !W.multi.length && !S.sel)} onClick={() => markSelectionReady('lines')}>✓ Строки готовы</button>
     <button className="sm" id="btnRepeatAllTiming" disabled={!!S.editDraft || !S.sel} onClick={() => setRepeat(!repeat)}>Тайминг → все повторы</button>

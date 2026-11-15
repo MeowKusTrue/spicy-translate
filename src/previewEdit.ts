@@ -1,5 +1,9 @@
+import { AGENTS } from './agents.ts';
+import { assignAgent } from './core/agents.ts';
+import { scheduleSave } from './persist.ts';
+import type { Agent } from './core/types.ts';
 // The preview owns its DOM; keep the editing form in the very same lyric block.
-import { S, layerText, mainLayerFor, setEditDraft, toast } from './state.ts';
+import { S, emit, layerText, mainLayerFor, setEditDraft, toast } from './state.ts';
 import { pause, seekTo } from './audio.ts';
 import { editText } from './lineEdit.ts';
 import { buildPreview } from './preview.ts';
@@ -8,7 +12,15 @@ import { snap } from './sync.ts';
 import { fmtTime, mergeMarkup, selectedWordRange, slashSyl, textDraftLine, units, type Layer } from './core/index.ts';
 import { workspaceLayout } from './ui/layout.ts';
 
-export const PREVIEW_EDIT = { active: false, dirty: false };
+export const PREVIEW_EDIT = { active: false, dirty: false, agent: 'v1' as Agent };
+let agentChange: (() => void) | null = null;
+export function setPreviewAgent(agent: Agent) { if (PREVIEW_EDIT.active) { PREVIEW_EDIT.agent = agent; agentChange?.(); emit(); } }
+function commitPreview(i: number, layer: Layer, text: string, old: string, agent: Agent) {
+  if (text === old && (S.lines[i].agent || 'v1') === agent) return buildPreview(true);
+  snap(); S.lines[i] = assignAgent([S.lines[i]], [0], agent)[0];
+  if (text !== old) editText(i, layer, text);
+  else { buildPreview(true); emit(); drawWave(); scheduleSave(); }
+}
 let finishEdit: (() => boolean) | null = null;
 let cancelEdit: (() => void) | null = null;
 export function cancelPreviewEdit() { cancelEdit?.(); }
@@ -29,7 +41,7 @@ export function editPreview(i: number, host: HTMLElement, layer: Layer = mainLay
   const old = layerText(line, layer), visible = old.replace(/\|/g, '');
   let marked = old, showSyllables = false;
   S.syllableReview = null; S.layer = layer; S.sel = { i, k: 0 };
-  PREVIEW_EDIT.active = true; PREVIEW_EDIT.dirty = false; document.body.classList.add('preview-drafting');
+  PREVIEW_EDIT.active = true; PREVIEW_EDIT.dirty = false; PREVIEW_EDIT.agent = line.agent || 'v1'; document.body.classList.add('preview-drafting');
   host.classList.add('preview-edit-host');
   const form = document.createElement('form'); form.className = 'preview-edit'; form.id = 'previewEdit';
   const header = document.createElement('div'); header.className = 'preview-edit-header';
@@ -53,7 +65,7 @@ export function editPreview(i: number, host: HTMLElement, layer: Layer = mainLay
   const save = document.createElement('button'); save.type = 'submit'; save.className = 'pri'; save.textContent = 'Сохранить'; save.id = 'btnPreviewSave';
   const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = 'Отмена'; cancel.id = 'btnPreviewCancel';
 
-  const close = () => { finishEdit = null; cancelEdit = null; document.body.classList.remove('preview-drafting'); PREVIEW_EDIT.active = false; PREVIEW_EDIT.dirty = false; setEditDraft(null); form.remove(); host.classList.remove('preview-edit-host'); buildPreview(true); document.getElementById('pl' + i)?.focus({ preventScroll: true }); };
+  const close = () => { finishEdit = null; cancelEdit = null; agentChange = null; document.body.classList.remove('preview-drafting'); PREVIEW_EDIT.active = false; PREVIEW_EDIT.dirty = false; setEditDraft(null); form.remove(); host.classList.remove('preview-edit-host'); buildPreview(true); document.getElementById('pl' + i)?.focus({ preventScroll: true }); };
   cancelEdit = close;
   finishEdit = () => {
     const raw = (input.textContent || '').replace(/\r?\n/g, ' ').trim();
@@ -61,8 +73,7 @@ export function editPreview(i: number, host: HTMLElement, layer: Layer = mainLay
     if (!value) { error.textContent = 'Строка пуста. Введи текст или нажми «Отмена».'; input.focus(); return false; }
     if (/(^|\s|\|)\||\|($|\s)/.test(value)) { error.textContent = 'Граница | должна стоять внутри слова, между слогами.'; input.focus(); return false; }
     if (S.lines[i] !== line || layerText(line, layer) !== old) { error.textContent = 'Строка обновилась в другом окне. Скопируй правку и открой строку заново.'; return false; }
-    if (value !== old) { finishEdit = null; document.body.classList.remove('preview-drafting'); snap(); PREVIEW_EDIT.active = false; PREVIEW_EDIT.dirty = false; setEditDraft(null); editText(i, layer, value); toast('Текст изменён. Ctrl+Z — отмена.', 'ok'); }
-    else close();
+    const agent = PREVIEW_EDIT.agent; close(); commitPreview(i, layer, value, old, agent);
     return true;
   };
   form.onsubmit = e => { e.preventDefault(); savePreviewEdit(); };
@@ -72,10 +83,15 @@ export function editPreview(i: number, host: HTMLElement, layer: Layer = mainLay
   const update = () => {
     const raw = (input.textContent || '').replace(/\r?\n/g, ' ');
     marked = slashSyl(showSyllables ? raw : mergeMarkup(marked, raw), old);
-    PREVIEW_EDIT.dirty = marked.trim() !== old; error.textContent = '';
+    PREVIEW_EDIT.dirty = marked.trim() !== old || PREVIEW_EDIT.agent !== (line.agent || 'v1'); error.textContent = '';
     const ws = units(marked); stats.textContent = `${ws.filter(w => w.sp).length} слов · ${ws.length} блоков${PREVIEW_EDIT.dirty ? ' · Не сохранено' : ' · Без изменений'}`;
-    setEditDraft({ i, layer, owner: 'preview', line: textDraftLine(line, layer, marked) }); drawWave();
+    setEditDraft({ i, layer, owner: 'preview', line: assignAgent([textDraftLine(line, layer, marked)], [0], PREVIEW_EDIT.agent)[0] }); drawWave();
   };
+  agentChange = update;
+  const singer = document.createElement('label'); singer.className = 'agent-picker'; singer.textContent = 'Исполнитель строки ';
+  const singerSelect = document.createElement('select'); singerSelect.id = 'previewAgent'; singerSelect.setAttribute('aria-label','Исполнитель строки');
+  for (const a of AGENTS) singerSelect.add(new Option(a.label, a.id));
+  singerSelect.value = PREVIEW_EDIT.agent; singerSelect.onchange = () => setPreviewAgent(singerSelect.value as Agent); singer.append(singerSelect); tools.append(singer);
   input.oninput = update;
   const caret = () => {
     const sel = window.getSelection(); if (!sel?.rangeCount || !input.contains(sel.anchorNode)) return (input.textContent || '').length;
@@ -106,7 +122,7 @@ export function editPreview(i: number, host: HTMLElement, layer: Layer = mainLay
     }
     input.textContent = value.slice(0,offset) + '|' + value.slice(offset); focusAt(offset + 1); update();
   };
-  reset.onclick = () => { marked = old; input.textContent = showSyllables ? old : visible; update(); focusAt((input.textContent || '').length); };
+  reset.onclick = () => { marked = old; PREVIEW_EDIT.agent = line.agent || 'v1'; singerSelect.value = PREVIEW_EDIT.agent; input.textContent = showSyllables ? old : visible; update(); focusAt((input.textContent || '').length); };
   const openAdjacent = (delta: number) => {
     const index = i + delta;
     if (!S.lines[index] || !savePreviewEdit()) return;
@@ -145,9 +161,9 @@ function editInline(i: number, host: HTMLElement, layer: Layer, wordIndex?: numb
   const original = domRange.extractContents(); domRange.insertNode(input);
   const error = document.createElement('span'); error.id = 'previewEditError'; error.className = 'preview-inline-error'; error.setAttribute('role','alert'); root.append(error);
   root.classList.add('preview-inline-host'); document.body.classList.add('preview-inline-drafting');
-  PREVIEW_EDIT.active = true; PREVIEW_EDIT.dirty = false; S.layer = layer; S.sel = {i,k:range?.k ?? 0};
+  PREVIEW_EDIT.active = true; PREVIEW_EDIT.dirty = false; PREVIEW_EDIT.agent = line.agent || 'v1'; S.layer = layer; S.sel = {i,k:range?.k ?? 0};
   const value = () => old.slice(0,start) + slashSyl((input.textContent || '').replace(/\r?\n/g,' '),old.slice(start,end)) + old.slice(end);
-  const clean = () => { finishEdit = null; cancelEdit = null; PREVIEW_EDIT.active = PREVIEW_EDIT.dirty = false; document.body.classList.remove('preview-inline-drafting'); root.classList.remove('preview-inline-host'); error.remove(); setEditDraft(null); };
+  const clean = () => { finishEdit = null; cancelEdit = null; agentChange = null; PREVIEW_EDIT.active = PREVIEW_EDIT.dirty = false; document.body.classList.remove('preview-inline-drafting'); root.classList.remove('preview-inline-host'); error.remove(); setEditDraft(null); };
   const cancel = () => { input.replaceWith(original); clean(); buildPreview(true); };
   cancelEdit = cancel;
   finishEdit = () => {
@@ -155,11 +171,12 @@ function editInline(i: number, host: HTMLElement, layer: Layer, wordIndex?: numb
     if (!text || !input.textContent?.trim()) { error.textContent = 'Введи текст или нажми Esc для отмены.'; input.setAttribute('aria-invalid','true'); input.focus(); return false; }
     if (/(^|\s|\|)\||\|($|\s)/.test(text)) { error.textContent = 'Граница | должна стоять внутри слова.'; input.setAttribute('aria-invalid','true'); input.focus(); return false; }
     if (S.lines[i] !== line || layerText(line,layer) !== old) { error.textContent = 'Строка изменилась извне. Скопируй правку перед отменой.'; return false; }
-    input.replaceWith(original); clean();
-    if (text !== old) { snap(); editText(i,layer,text); } else buildPreview(true);
+    const agent = PREVIEW_EDIT.agent; input.replaceWith(original); clean();
+    commitPreview(i,layer,text,old,agent);
     return true;
   };
-  const update = () => { error.textContent=''; input.removeAttribute('aria-invalid'); const text=value(); PREVIEW_EDIT.dirty=text!==old; setEditDraft({i,layer,owner:'preview',line:textDraftLine(line,layer,text)}); drawWave(); };
+  const update = () => { error.textContent=''; input.removeAttribute('aria-invalid'); const text=value(); PREVIEW_EDIT.dirty=text!==old || PREVIEW_EDIT.agent !== (line.agent || 'v1'); setEditDraft({i,layer,owner:'preview',line:assignAgent([textDraftLine(line,layer,text)],[0],PREVIEW_EDIT.agent)[0]}); drawWave(); };
+  agentChange = update;
   input.oninput=update;
   input.onclick=e=>e.stopPropagation(); input.ondblclick=e=>e.stopPropagation();
   input.onkeydown=e=>{ e.stopPropagation(); if(e.isComposing || e.keyCode===229) return;

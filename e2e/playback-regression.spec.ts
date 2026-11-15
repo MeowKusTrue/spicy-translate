@@ -13,7 +13,7 @@ test('menus close on outside click, Escape and action; backing deletion is undoa
  await summary.click(); await expect(menu).toHaveAttribute('open','');
  await page.locator('.preview-edit-hint').click(); await expect(menu).not.toHaveAttribute('open');
  await summary.click(); await page.keyboard.press('Escape'); await expect(menu).not.toHaveAttribute('open');
- await summary.click(); await menu.getByRole('button',{name:'Голос:',exact:false}).click(); await expect(menu).not.toHaveAttribute('open');
+ await summary.click(); await menu.getByRole('button',{name:'Исполнитель 2',exact:true}).click(); await expect(menu).not.toHaveAttribute('open');
  await page.getByRole('button',{name:'Удалить бэк строки 1',exact:true}).click();
  const project = async () => (await (await request.get('/api/project')).json()).project;
  await expect.poll(async () => (await project()).lines[0].bg).toBeUndefined();

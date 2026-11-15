@@ -282,6 +282,12 @@ label.btn.pri{background:var(--acc);color:var(--acc-txt);border:0}
 .snaps .item{cursor:default}
 .card h2 small{text-transform:none;letter-spacing:0;font-weight:500;color:var(--mut)}
 .pop.ctx{position:fixed;z-index:46;min-width:240px;right:auto;top:auto;width:max-content}
+.pop.ctx{max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);overflow:auto}
+.pop.ctx button[aria-checked=true]{color:var(--acc);font-weight:700}.pop.ctx button[aria-checked=true]::before{content:'✓ ';}
+.agent-picker{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;font:400 12px/1.4 system-ui;color:var(--mut);-webkit-text-fill-color:currentColor}
+.agent-picker .tseg{display:inline-flex}.agent-picker button{min-width:34px;min-height:30px}.agent-picker button[aria-pressed=true]{background:var(--acc);color:var(--acc-txt);border-color:var(--acc)}
+.agent-picker select{width:auto;max-width:230px;min-height:30px;padding:4px 8px;font:inherit}.preview-edit-tools .agent-picker{white-space:nowrap;flex-wrap:nowrap;align-self:center}
+.stage-context-actions .agent-picker{flex-shrink:0}.selection-bar .agent-picker small{margin:0}.compact-pop .agent-picker{padding:6px}
 .pop.ctx small{color:var(--mut);font-size:11px;padding:0 4px 4px;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* command palette */
 .modal.pal{place-items:start center;padding-top:12vh}

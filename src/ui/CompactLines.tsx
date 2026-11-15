@@ -1,9 +1,11 @@
+import { AgentPicker } from './AgentPicker.tsx';
+import { openAgentMenu } from '../agentMenu.ts';
 import { toggleLinePick } from '../selection.ts';
 import { useEffect, useState } from 'react';
 import { S, isTr, layerText, mainLayerFor, mkLayer, setEditDraft, toast } from '../state.ts';
 import { plainW, mmss, textDraftLine, type Layer } from '../core/index.ts';
 import { focusLine, addLineHere, addBgHere, bracketsToBg, delLine, delBg, addLineAfter, editText } from '../lineEdit.ts';
-import { pickLine, cycleAgent, agentOf } from '../agents.ts';
+import { pickLine } from '../agents.ts';
 import { pause, seekTo } from '../audio.ts';
 import { editPreview, PREVIEW_EDIT } from '../previewEdit.ts';
 import { buildPreview } from '../preview.ts';
@@ -53,7 +55,7 @@ export function CompactLines() {
     <div id="lines" className="lines">{S.lines.map((l, i) => {
       if (query && ![l.text, l.tr, l.bg?.text, l.bg?.tr].join(' ').toLowerCase().includes(query.toLowerCase())) return null;
       const main: Layer = shown === 'tr' ? (language === 'follow' ? mainLayerFor(i) : 'tr') : 'orig', back = mkLayer(true, isTr(main));
-      return <div id={'ln' + i} key={i} className={'ln compact-line' + (S.picked.has(i) ? ' picked' : '') + (S.sel?.i === i ? ' selected' : '') + (!l.text.trim() ? ' bgonly' : '')}>
+      return <div onContextMenu={e => { if (!(e.target as Element).closest('input,textarea,[contenteditable]')) openAgentMenu(e, i); }} id={'ln' + i} key={i} className={'ln compact-line' + (S.picked.has(i) ? ' picked' : '') + (S.sel?.i === i ? ' selected' : '') + (!l.text.trim() ? ' bgonly' : '')}>
         <div className="compact-time"><input type="checkbox" className="line-check" aria-label={`Выбрать строку ${i + 1}`} checked={S.picked.has(i)} disabled={!!S.editDraft} onChange={() => toggleLinePick(i)} /><button className="t" aria-label={`Строка ${i + 1}, ${mmss(l.t)}`} onClick={() => choose(i, l.text.trim() || !l.bg ? main : back)}>{mmss(l.t)}</button></div>
         <div className="txt">{l.approved?.[main] && <small className="approved-line" title="Ручная правка или одобрение: автоматизация не заменит тайминги этой дорожки">✓ Защищена</small>}{l.sec && <small className="compact-section">{l.sec}</small>}
           <button className="compact-text" onClick={e => { if (!S.editDraft && !PREVIEW_EDIT.active) pickLine(i, e); choose(i, main); }} onDoubleClick={() => editPreviewRow(i, main)}>{plainW(layerText(l, main)) || (main === 'tr' ? '+ Вписать перевод' : '+ Вписать строку')}</button>
@@ -61,7 +63,7 @@ export function CompactLines() {
           {l.bg && <div className="bgrow"><button className="compact-text compact-back" onClick={() => choose(i, back)} onDoubleClick={() => startBack(i, back)}>{plainW(layerText(l, back)) || '+ вписать бэк'}</button><small>{l.text.trim() ? `↳ к строке ${i + 1}` : 'самостоятельный бэк'}</small><button className="compact-edit-back" aria-label={`Править бэк строки ${i + 1}`} onClick={() => startBack(i, back)}>Править</button><button className="compact-edit-back compact-delete-back" disabled={!!S.editDraft} aria-label={`Удалить бэк строки ${i + 1}`} onClick={() => removeBack(i)}>Удалить</button></div>}
           {editing?.i === i ? <BackEditor key={`${i}:${editing.layer}`} i={i} layer={editing.layer} close={() => setEditing(null)} /> : !l.bg && <button className="addbg" disabled={!!S.editDraft} aria-label={`Добавить бэк к строке ${i + 1}`} onClick={() => startBack(i, back)}>+ бэк</button>}
         </div>
-        <details className="compact-menu" onClickCapture={e => { if ((e.target as Element).closest("button")) e.currentTarget.open = false; }}><summary aria-label={`Действия со строкой ${i + 1}`}>⋯</summary><div className="compact-pop"><button disabled={!!S.editDraft} onClick={() => editPreviewRow(i, l.text.trim() || !l.bg ? main : back)}>Изменить текст</button><button disabled={!!S.editDraft} onClick={() => startBack(i, back)}>{l.bg ? 'Править бэк' : 'Добавить бэк к строке'}</button>{l.bg && <button disabled={!!S.editDraft} onClick={() => removeBack(i)}>Удалить бэк</button>}<button disabled={!!S.editDraft} onClick={() => addLineAfter(i)}>Добавить после</button><button disabled={!!S.editDraft} onClick={() => cycleAgent(i)}>Голос: {agentOf(i).label}</button><button disabled={!!S.editDraft} onClick={() => delLine(i)}>Удалить строку</button></div></details>
+        <details className="compact-menu" onClickCapture={e => { if ((e.target as Element).closest("button")) e.currentTarget.open = false; }}><summary aria-label={`Действия со строкой ${i + 1}`}>⋯</summary><div className="compact-pop"><button disabled={!!S.editDraft} onClick={() => editPreviewRow(i, l.text.trim() || !l.bg ? main : back)}>Изменить текст</button><button disabled={!!S.editDraft} onClick={() => startBack(i, back)}>{l.bg ? 'Править бэк' : 'Добавить бэк к строке'}</button>{l.bg && <button disabled={!!S.editDraft} onClick={() => removeBack(i)}>Удалить бэк</button>}<button disabled={!!S.editDraft} onClick={() => addLineAfter(i)}>Добавить после</button><AgentPicker ids={[i]} label="Исполнитель строки" /><button disabled={!!S.editDraft} onClick={() => delLine(i)}>Удалить строку</button></div></details>
       </div>;
     })}</div><p className="hint">Двойной клик — правка в просмотре. Enter — сохранить, Esc — отменить. Ctrl / Shift — выбор строк.</p>
   </section>;

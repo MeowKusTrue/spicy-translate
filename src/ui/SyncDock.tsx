@@ -1,3 +1,4 @@
+import { openAgentMenu } from '../agentMenu.ts';
 import { TimelineTools, TimelineHeaders, TimelinePosition } from './TimelineTools.tsx';
 import { SelectionBar } from './SelectionBar.tsx';
 import { pickWord } from '../selection.ts';
@@ -6,7 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { fmtTime, layerProgress, mmss, parseDur, plainW, units, wordList } from '../core/index.ts';
 import { ReviewBar, WordInspector, inspectorOpen, toggleInspector } from './WordInspector.tsx';
 import { S, displayLine, doubtful, isBg, isTr, layerText, lineState, ls, mkLayer, viewWords, wordsOf, emit } from '../state.ts';
-import { audio, playWord } from '../audio.ts';
+import { audio } from '../audio.ts';
 import { dockMouseDown, setLoop, setSnap, toggleDock, toggleEditorFocus } from '../hotkeys.ts';
 import { setDockH, setupGrip } from '../dockSize.ts';
 import { SYL, forgetAll, setSylMem } from '../syllables.ts';
@@ -63,7 +64,7 @@ function Chips() {
         const v = vw[k], has = v && v.a != null;
         return <span key={k} role="button" tabIndex={0} aria-pressed={!!picked} className={cls} data-a={has ? v.a! : undefined} data-b={has ? v.b! : undefined}
           onClick={e => pickWord(i, k, e)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); pickWord(i,k,e); } }}
-          onContextMenu={e => { e.preventDefault(); const x = viewWords(i, S.layer)[k]; if (x && x.a != null) playWord(x as { a: number; b: number }); }}>{plainW(w)}</span>;
+          onContextMenu={e => openAgentMenu(e, i, {k,layer:S.layer})}>{plainW(w)}</span>;
       })}
     </div>);
   }

@@ -25,6 +25,7 @@ export function reviewExport(options: () => ExportOpts): Promise<boolean> {
     const save = document.createElement('button'); save.id = 'btnExportAnyway'; save.className = 'pri'; save.onclick = () => finish(true);
     actions.append(cancel, save); dialog.append(title, hint, summary, list, actions);
     const render = () => {
+      const before = JSON.stringify(S.lines);
       const issues = issuesFor(options()), errors = issues.filter(x => x.sev === 'err').length;
       summary.textContent = issues.length ? `Ошибок: ${errors}. Предупреждений: ${issues.length - errors}.` : 'Замечаний нет.';
       save.textContent = issues.length ? 'Экспортировать с замечаниями' : 'Экспортировать';
@@ -41,6 +42,10 @@ export function reviewExport(options: () => ExportOpts): Promise<boolean> {
         const text = document.createElement('p'); text.textContent = issue.msg === 'слова не размечены — будет равномерный спред' ? 'У слов ещё нет индивидуального времени. Можно распределить их внутри строки как черновик.' : issue.msg;
         const related = issue.msg.match(/конца строки (\d+)/), previous = related ? S.lines[+related[1] - 1] : null;
         item.append(heading, track, lyric, text);
+        for(const example of issue.examples || []) {
+          const context=document.createElement('p');context.className='export-issue-context';
+          context.textContent=`«${example.text}» — ${example.locations.map(x=>`строка ${x.i+1} (${trackNames[x.layer]})`).join(', ')}`;item.append(context);
+        }
         if (previous) {
           const context = document.createElement('p'); context.className = 'export-issue-context';
           const otherLayer = mainLayerFor(+related![1] - 1);
@@ -50,6 +55,14 @@ export function reviewExport(options: () => ExportOpts): Promise<boolean> {
         const advice = document.createElement('p'); advice.className = 'export-issue-advice';
         advice.textContent = issue.advice || (issue.fix ? 'Предложенное исправление применяется только по кнопке ниже.' : 'Открой строку, проверь её на слух и поправь текст или границы слов на таймлайне.'); item.append(advice);
         const buttons = document.createElement('div'); buttons.className = 'export-issue-actions';
+        for(const plan of issue.batchFixes || []) {
+          const fix=document.createElement('button');fix.type='button';fix.className='sm';fix.textContent=plan.label;
+          fix.onclick=()=>{
+            if(JSON.stringify(S.lines)!==before){render();return;}
+            snap();for(const change of plan.changes)S.lines[change.i]=change.line;S.out=null;
+            buildPreview(true);afterSyncChange(true,0,false);emit();render();
+          };buttons.append(fix);
+        }
         for (const plan of issue.fixes || (issue.fix ? [issue.fix] : [])) {
           const fix = document.createElement('button'); fix.type = 'button'; fix.className = 'sm'; fix.textContent = plan.label;
           fix.onclick = () => {

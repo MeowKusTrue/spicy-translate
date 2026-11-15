@@ -1,3 +1,5 @@
+import { popMenu, closeContextMenu } from '../contextMenu.ts';
+import { agentContextRows, agentMenuItems, openAgentMenu } from '../agentMenu.ts';
 // DaVinci-style mouse editing on the wave: magnet snapping, roll (joined edges move together),
 // Alt = detach, words in different vocal lines can overlap, Alt+drag in the lane paints, a drag on empty space draws a
 // pick box (words and lines, like in Explorer), pan/seek on the wave, Ctrl+wheel zoom.
@@ -67,7 +69,7 @@ function tip(e: MouseEvent, h: Hit | null) {
   if (h && W.drag == null && W.pend == null) {
     if (h.b) {
       const w = wordsOf(h.b.i, h.b.layer)[h.b.k] || '', d = Math.round((h.b.b - h.b.a) * 1000);
-      html = `<b>${esc(plainW(w))}</b> ${fmtTime(h.b.a)}–${fmtTime(h.b.b)} · ${d} мс${h.b.g ? ' · авто' : ''}<br><small>тащи — сдвинуть · края — длина · Alt — копия · Shift — в выбор · 2× — править · ПКМ — слушать</small>`;
+      html = `<b>${esc(plainW(w))}</b> ${fmtTime(h.b.a)}–${fmtTime(h.b.b)} · ${d} мс${h.b.g ? ' · авто' : ''}<br><small>тащи — сдвинуть · края — длина · Alt — копия · Shift — в выбор · 2× — править · ПКМ — исполнитель / слушать</small>`;
     } else if (h.type === 'band' && h.i >= 0) {
       const l = S.lines[h.i];
       html = `<b>${esc(plainW(l.text) || '♪ ' + plainW(l.bg?.text || l.bg?.tr || 'бэк'))}</b> ${fmtTime(l.t)}–${fmtTime(l.end)}<br><small>тащи — сдвинуть · Alt+тащи — копия, а на другую строку — её тайминг · ПКМ — меню · 2× — в список</small>`;
@@ -82,17 +84,6 @@ function tip(e: MouseEvent, h: Hit | null) {
 }
 const esc = (s: string) => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!));
 
-/** a small context menu at the mouse: a title and buttons */
-function popMenu(e: MouseEvent, title: string, build: (item: (label: string, f: () => void, off?: boolean) => void) => void) {
-  document.getElementById('lineMenu')?.remove();
-  const m = document.createElement('div'); m.id = 'lineMenu'; m.className = 'pop ctx';
-  const h = document.createElement('small'); h.textContent = title; m.appendChild(h);
-  build((label, f, off = false) => { const b = document.createElement('button'); b.className = 'sm'; b.textContent = label; b.disabled = off; b.onclick = () => { m.remove(); f(); }; m.appendChild(b); });
-  document.body.appendChild(m);
-  m.style.left = Math.min(innerWidth - m.offsetWidth - 8, e.clientX) + 'px'; m.style.top = Math.max(8, e.clientY - m.offsetHeight - 6) + 'px';
-  const off = (ev: MouseEvent) => { if (!m.contains(ev.target as Node)) { m.remove(); removeEventListener('mousedown', off, true); } };
-  setTimeout(() => addEventListener('mousedown', off, true));
-}
 /** sections: name one from a line / rename / remove (undoable); ask = type the name (prompt) */
 function setSec(i: number, label: string | null, ask = true) {
   const l = S.lines[i]; if (!l) return;
@@ -120,9 +111,13 @@ function secMenu(e: MouseEvent, s: Section) {
 }
 /** right click on a line in the band: what you can do with that line */
 function lineMenu(e: MouseEvent, i: number) {
-  document.getElementById('lineMenu')?.remove(); if (i < 0) return;
+  closeContextMenu(); if (i < 0) return;
+  if (S.editDraft) return;
+  const ids = agentContextRows(i);
   const sel = () => { S.sel = { i, k: 0 }; S.picked.clear(); };
   popMenu(e, `строка ${i + 1}: ${plainW(S.lines[i].text || S.lines[i].bg?.text || 'бэк')}`, item => {
+  item(`Исполнитель · строк: ${ids.length}`, () => {}, true);
+  agentMenuItems(item, ids);
   item('⧉ Копировать тайминг строки', () => { sel(); copyTiming(); });
   item('⧉ Вставить тайминг сюда', () => { sel(); pasteTimingHere(); });
   item('⇔ Подогнать строку под слова', () => fitToWords(i), !S.lines[i].sync);
@@ -148,7 +143,7 @@ export function setupWave(cv: HTMLCanvasElement) {
   cv.onmousedown = e => {
     const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top, h = waveHit(mx, my);
     W.ctrl = e.ctrlKey || e.metaKey;
-    if (e.button === 2) { if (h.b) playWord({ a: h.b.a, b: h.b.b }); else if ((h.type === 'band' || h.type === 'ledge') && h.i >= 0) lineMenu(e, h.i); else if (h.type === 'sec') secMenu(e, h.s); return; }
+    if (e.button === 2) { if (h.b) openAgentMenu(e, h.b.i, {k:h.b.k,layer:h.b.layer}); else if ((h.type === 'band' || h.type === 'ledge') && h.i >= 0) lineMenu(e, h.i); else if (h.type === 'sec') secMenu(e, h.s); return; }
     lineMenu(e, -1);
     if (editing()) closeEdit(true);
     if (h.type === 'split') { W.drag = { type: 'split', which: h.which, y0: my, v0: { m: W.G.mH, b: W.G.bH, l: W.G.lH }[h.which] }; return; }

@@ -3,12 +3,15 @@ import { editorText } from './editor.ts';
 import { qaCheck } from './qa.ts';
 import { shiftLine } from './edit.ts';
 import { getWords, splitWords, syncComplete, wordList } from './words.ts';
+import { exportedLayers, syllableConsistency } from './syllableConsistency.ts';
 
 export type ExportIssue = {
   i: number; sev: 'err' | 'warn'; msg: string;
   layer?: Layer; advice?: string; ignoredKey?: string;
   fix?: { label: string; line: Line };
   fixes?: { label: string; line: Line }[];
+  batchFixes?: { label:string; changes:{i:number;line:Line}[] }[];
+  examples?: { text:string; locations:{i:number;layer:Layer}[] }[];
 };
 
 /** Suggestions are plans: examining an export never modifies the project. */
@@ -19,7 +22,6 @@ export function lintExport(o: ExportOpts): ExportIssue[] {
   o.lines.forEach((line, i) => {
     if (!Number.isFinite(line.t) || !Number.isFinite(line.end) || line.t < 0 || line.end <= line.t) issues.push({ i, sev: 'err', msg: 'Некорректное начало или конец строки. Исправь время в редакторе.' });
     const main: Layer = mode === 'translation' && line.tr.trim() ? 'tr' : 'orig';
-    const back: Layer = mode !== 'original' && line.bg?.tr.trim() ? 'bg' : 'bgo';
     const mainText = editorText(line, main);
     if (mainText.trim()) {
       const ws = getWords(mainText, line.sync?.[main], line.t, line.end);
@@ -47,9 +49,7 @@ export function lintExport(o: ExportOpts): ExportIssue[] {
       issues.push({ i, sev: 'warn', msg: (i === first ? 'Песня начинается с бэка без основного вокала.' : 'Отдельная строка бэка без основного вокала.') + ' Если фраза поётся самостоятельно — сделай её основной. Если поверх вокала — прикрепи к соответствующей строке в редакторе.',
         ...(!line.text.trim() && !line.tr.trim() ? { fix: { label: 'Сделать основной строкой (сохранить времена)', line: promoted } } : {}) });
     }
-    const layers = new Set<Layer>([main]);
-    if (mode === 'bilingual' && line.tr.trim()) layers.add('tr');
-    if (line.bg && (mode !== 'bilingual' || !editorText(line, main).trim() || !line.tr.trim())) layers.add(back);
+    const layers = exportedLayers(line,mode);
     for (const layer of layers) {
       const before = editorText(line, layer);
       if (!before.trim()) continue;
@@ -127,6 +127,7 @@ export function lintExport(o: ExportOpts): ExportIssue[] {
       if (/[?!]{2,}/.test(before)) issues.push({ i, sev: 'warn', msg: `${layer}: сочетание ?! или повтор знаков. Проверь пунктуацию; она может быть авторской.` });
     }
   });
+  issues.push(...syllableConsistency(o));
   return issues.map(issue => {
     const line = o.lines[issue.i];
     issue.layer ??= mode === 'translation' && line.tr.trim() ? 'tr' : 'orig';

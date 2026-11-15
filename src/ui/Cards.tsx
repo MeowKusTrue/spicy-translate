@@ -1,3 +1,5 @@
+import { AgentPicker } from './AgentPicker.tsx';
+import { openAgentMenu } from '../agentMenu.ts';
 import { isApp } from '../desktop.ts';
 // Left column: 1 search/load, 2 translation + line editor, 3 export + QA.
 import { mmss, plainW, stopLine, wordList } from '../core/index.ts';
@@ -138,7 +140,7 @@ function GeniusDiff() {
 
 function LineRow({ i }: { i: number }) {
   const l = S.lines[i];
-  return <div className={'ln' + (S.picked.has(i) ? ' picked' : '') + (l.text.trim() ? '' : ' bgonly')} id={'ln' + i} onClick={e => { if (!(e.target as HTMLElement).closest('input,textarea,button,.t')) pickLine(i, e); }}>
+  return <div onContextMenu={e => { if (!(e.target as Element).closest('input,textarea,[contenteditable]')) openAgentMenu(e, i); }} className={'ln' + (S.picked.has(i) ? ' picked' : '') + (l.text.trim() ? '' : ' bgonly')} id={'ln' + i} onClick={e => { if (!(e.target as HTMLElement).closest('input,textarea,button,.t')) pickLine(i, e); }}>
     <div className="t" onClick={() => { seekTo(l.t); selectWord(i, 0); }}>
       {mmss(l.t) + '.' + String(Math.floor((l.t % 1) * 10))}
       {lineState(i, mainLayerFor(i)) === 'done' && <i className="sd" title="слова синхронизированы" />}
@@ -146,6 +148,7 @@ function LineRow({ i }: { i: number }) {
       <button className="ag" data-agent={agentOf(i).id} title={agentOf(i).title + ' (клик или V — сменить)'} onClick={e => { e.stopPropagation(); cycleAgent(i); }}>{agentOf(i).label}</button>
     </div>
     <div className="txt">
+      <AgentPicker ids={[i]} label="Исполнитель строки" />
       <textarea rows={2} className="o" title="Оригинал — можно править" placeholder="(без основной строки — только бэк)" value={l.text} onFocus={() => { snap(); focusLine(i, 'orig'); }} onChange={e => editText(i, 'orig', e.target.value)} onBlur={() => slashCommit(i, 'orig')} />
       <textarea hidden={S.meta.mode === 'original'} rows={2} className="tr" lang={S.meta.lang} spellCheck placeholder="перевод…" value={l.tr || ''} onFocus={() => { snap(); focusLine(i, 'tr'); }} onChange={e => editText(i, 'tr', e.target.value)} onBlur={() => { slashCommit(i, 'tr'); fillRepeats(i); }} />
       {l.bg
