@@ -22,6 +22,7 @@ function detachProject() {
   if (S.audioUrl) URL.revokeObjectURL(S.audioUrl);
   S.audioUrl = ''; S.audioBlob = null; S.hasAudio = false; S.duration = S.srcDur = S.vt = 0;
   S.sel = null; S.picked.clear(); S.pickAnchor = -1; S.undo = []; S.redo = [];
+  S.alignmentReview = null;
   S.editDraft = null; S.syllableReview = null; S.full = null; S.find = null; S.qa = null; S.out = null;
   S.q = ''; S.manual = ''; S.results = []; S.genius = null; S.spell = null; S.backingReview = null; S.transcriptionReview = null;
   S.cover = ''; S.loop = false; S.waveVoice = false; S.typing = false;

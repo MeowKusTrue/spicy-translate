@@ -10,11 +10,13 @@ import { afterSyncChange, snap } from './sync.ts';
 
 import type { Line } from './core/index.ts';
 import { W } from './waveform/wave.ts';
+import { session } from './projectSession.ts';
+import { pause } from './audio.ts';
 import { cancelAudioWorkflow, importVocalFile, runAudioWorkflow, type AudioOperation } from './audioWorkflow.ts';
 
 export let modelOptions: AlignOptions = (() => { try { return { ...alignOptions(JSON.parse(ls.get('alignModels', '{}')!) || {}), detectBack: false }; } catch { return alignOptions(); } })();
 export function setModelOptions(value: Partial<AlignOptions>) { modelOptions = { ...alignOptions({ ...modelOptions, ...value }), detectBack: false }; ls.set('alignModels', JSON.stringify(modelOptions)); emit(); }
-export const STAGES: Record<string, string> = { check: 'проверяю сервер и кэш', upload: 'подключаю исходное аудио', cache: 'сохраняю аудио и готовлю результат', start: 'запуск', import: 'подключаю вокал', device: 'загружаю модели', demucs: 'выделяю голос', karaoke: 'делю голос и бэк', transcribe: 'распознаю текст', locate: 'ищу строки по аудио', backing: 'распознаю бэки', align: 'подгоняю слова' };
+export const STAGES: Record<string, string> = { check: 'проверяю сервер и кэш', upload: 'подключаю исходное аудио', cache: 'сохраняю аудио и готовлю результат', start: 'запуск', import: 'подключаю вокал', device: 'загружаю модели', demucs: 'выделяю голос', karaoke: 'делю голос и бэк', transcribe: 'распознаю текст', locate: 'ищу строки по аудио', recover: 'восстанавливаю пропущенные строки', backing: 'распознаю бэки', align: 'подгоняю слова' };
 export const stageFrac = (state = S.align) => audioStageFraction(state);
 export const alignLabel = () => { const a = S.align; if (!a) return ''; const f = stageFrac(); return `${STAGES[a.stage] || a.stage}${a.stage === 'align' && a.total ? ` ${a.done}/${a.total}` : f ? ` ${Math.round(f * 100)}%` : '…'}`; };
 /** overall progress of a run, 0..100, by the stages it will go through (plan from align.py) */
@@ -33,6 +35,21 @@ export function autoAlign(operation: AudioOperation = 'words') {
   return runAudioWorkflow(operation, { ...modelOptions, detectBack: false }, { openSetup: openAlignPanel, merge });
 }
 export function importVocals(file: File) { return importVocalFile(file, modelOptions.sep); }
+export function canApplyAlignmentCandidate(row: number) {
+  const draft = S.alignmentReview, candidate = draft?.candidates.find(c => c.row === row);
+  return !!(draft && candidate && !S.align && S.audioBlob === draft.audio && session.generation === draft.generation
+    && S.lines[row] && mergeWordAlignment(S.lines[row], candidate.line, draft.before[row], draft.replace));
+}
+export function closeAlignmentReview() { pause(); S.alignmentReview = null; emit(); }
+export function applyAlignmentCandidates(rows: number[]) {
+  const draft = S.alignmentReview; if (!draft) return;
+  const selected = draft.candidates.filter(c => rows.includes(c.row) && canApplyAlignmentCandidate(c.row));
+  if (!selected.length) return toast('Нет подходящих строк: проект или разметка изменились.', 'err');
+  const count = merge(selected.map(c => c.line), selected.map(c => c.row), draft.before, draft.replace);
+  draft.candidates = draft.candidates.filter(c => !selected.includes(c));
+  if (!draft.candidates.length) closeAlignmentReview(); else emit();
+  toast(`Восстановлены строки: ${count}. Ctrl+Z — отмена.`, 'ok');
+}
 /** Legacy review state cannot insert newly recognized backing phrases. */
 export function acceptBacking() { S.backingReview = null; emit(); toast('Используются только бэки, уже введённые внутри строк.'); }
 /** take auto timings for lines whose texts still match; anything marked by hand here stays as it is */

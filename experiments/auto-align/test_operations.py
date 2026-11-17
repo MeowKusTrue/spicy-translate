@@ -12,6 +12,27 @@ import align
 
 
 class OperationsTest(unittest.TestCase):
+    def test_recovery_returns_separate_proposals_without_applying_or_losing_manual_layers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, output, vocal = [os.path.join(tmp, x) for x in ('in.json', 'out.json', 'vocal.wav')]
+            project = {'lines': [
+                {'text':'left', 't':1, 'end':2, 'sync':{'orig':[{'a':1,'b':2}]}},
+                {'text':'target', 't':0, 'end':1, 'tr':'translation', 'sync':{'tr':[{'a':0,'b':1}]}},
+                {'text':'right', 't':6, 'end':7, 'sync':{'orig':[{'a':6,'b':7}]}}]}
+            with open(source,'w',encoding='utf8') as f: json.dump(project,f)
+            with open(vocal,'wb') as f: f.write(b'cached')
+            model = types.SimpleNamespace(device='cpu', align=lambda *args: [(1,2,.9),(3,4,.8),(6,7,.9)])
+            with patch.dict(sys.modules, {'torch': types.ModuleType('torch')}), \
+                 patch.object(align,'pick_device',return_value='cpu'), patch.object(align,'hook_tqdm'), \
+                 patch.object(align,'decode',return_value=np.zeros((1,160000))), \
+                 patch.object(align,'transcribe',return_value=[]), patch.object(align,'Aligner',return_value=model):
+                align.main(['original.wav',source,'-o',output,'--vocal-file',vocal,'--locate-lines','--snap','0'])
+            with open(output,encoding='utf8') as f: result=json.load(f)
+            self.assertEqual(result['lines'],project['lines'])
+            self.assertEqual(result['alignmentCandidates'][0]['row'],1)
+            self.assertEqual(result['alignmentCandidates'][0]['line']['sync']['orig'],[{'a':3,'b':4,'g':1,'c':.8}])
+            self.assertFalse(result.get('warnings'))
+
     def test_locate_selected_repeat_uses_manual_context_and_preserves_other_rows(self):
         from unittest.mock import Mock
         for ambiguous in (False, True):

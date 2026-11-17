@@ -10,7 +10,7 @@ Fills lines[].sync.orig / .bgo with {a, b, g:1}; hand-marked spans (no g) are ke
 """
 import argparse, json, os, re, subprocess, sys, wave
 import numpy as np
-from line_windows import locate_line_windows
+from line_windows import locate_line_windows, recover_line_candidates
 
 SR = 16000
 FREE_PEN = 0.5   # per-frame cost of "not this line" at window edges; higher = line spreads wider
@@ -659,7 +659,7 @@ def run(a, emit):
     if a.detect_back and (a.no_separation or a.no_karaoke or vocal_file): raise ValueError('для поиска бэков нужно отдельное разделение вокала и бэка; готовая дорожка вокала его не содержит')
     karaoke = not a.no_karaoke and (not tr or a.detect_back)
     source_lines = list(proj['lines'])
-    emit(plan=[s for s, on in (('demucs', not a.no_separation and not vocal_file), ('karaoke', not a.no_separation and karaoke and not vocal_file), ('transcribe', tr), ('locate', locate), ('backing', a.detect_back), ('align', True)) if on])
+    emit(plan=[s for s, on in (('demucs', not a.no_separation and not vocal_file), ('karaoke', not a.no_separation and karaoke and not vocal_file), ('transcribe', tr), ('locate', locate), ('recover', locate), ('backing', a.detect_back), ('align', True)) if on])
     work = os.path.abspath(os.path.splitext(a.out)[0] + '.stems')
     if vocal_file: voc, back, vpath = decode(vocal_file)[0], None, os.path.abspath(vocal_file)
     elif a.no_separation: voc, back, vpath = decode(a.audio)[0], None, None
@@ -677,9 +677,6 @@ def run(a, emit):
         recognized = transcribe(voc, dev, a.song_lang, a.asr, 'locate')
         located = locate_line_windows(proj['lines'], [{'word': w, 'a': start, 'b': end} for w, start, end in recognized],
                                       manual_line_windows(proj['lines']) if not a.force else {})
-        missing = [str(i + 1) for i, ln in enumerate(proj['lines']) if needs_alignment(ln, 'orig', a.force) and i not in located]
-        if missing:
-            proj.setdefault('warnings', []).append('Не найдено однозначных опор для строк: ' + ', '.join(missing) + '. Распознавание пропустило слова или не удалось различить повторы. Отметь вручную фразу рядом с нужным повтором и запусти снова. Их тайминги оставлены прежними.')
         stage('locate', 1, 1, lines=len(located))
     if a.detect_back:
         stage('backing', 0, 1)
@@ -696,6 +693,24 @@ def run(a, emit):
     al, total = Aligner(dev, a.model, a.aligner), len(proj['lines'])
     bal = al if a.bg_aligner == a.aligner else Aligner(dev, None, a.bg_aligner)  # backing vocals: its own model
     nonlocal_bal = [bal]
+
+    proj.pop('alignmentCandidates', None)
+    if located is not None:
+        stage('recover', 0, 1)
+        recovered = recover_line_candidates(proj['lines'], located, len(voc) / SR,
+            lambda lo, hi, text: al.align(voc, lo, hi, text, a.lang or lang_of(text)), units,
+            lambda i: needs_alignment(proj['lines'][i], 'orig', a.force))
+        proj['alignmentCandidates'] = [
+            {'row': c['row'], 'line': {**proj['lines'][c['row']], 'sync': {
+                'orig': [{'a': w[0], 'b': w[1], 'g': 1, **({'c': w[2]} if w[2] is not None else {})} for w in c['spans']]}}}
+            for c in recovered]
+        recovered_rows = {c['row'] for c in recovered}
+        missing = [str(i + 1) for i, ln in enumerate(proj['lines'])
+                   if needs_alignment(ln, 'orig', a.force) and i not in located and i not in recovered_rows]
+        if missing:
+            proj.setdefault('warnings', []).append('Не найдено однозначных опор для строк: ' + ', '.join(missing)
+                + '. Для длинного участка без опор отметь вручную фразу внутри него и запусти снова. Их тайминги оставлены прежними.')
+        stage('recover', 1, 1, lines=len(recovered))
 
     def aligned_for(i, ln, layer, text):
         if located is not None and i not in located:

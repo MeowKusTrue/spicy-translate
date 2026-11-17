@@ -35,6 +35,7 @@ export const S = {
   alignPanel: null as null | { gpu: import('./autoAlign.ts').Gpu | null; st: import('./autoAlign.ts').SetupState | null; pick: string; err: string },
   backingReview: null as null | { candidates: Line[]; picked: Set<number>; audio: Blob | null; title: string; artist: string },
   transcriptionReview: null as null | { lines: Line[]; audio: Blob; generation: number; project: string },
+  alignmentReview: null as null | { candidates: { row: number; line: Line }[]; before: Line[]; audio: Blob; generation: number; replace: boolean },
   setup: null as null | { step: string; pct: number }, // auto-timing install in progress
   ver: 0, // bumps whenever preview timings change
   // form fields

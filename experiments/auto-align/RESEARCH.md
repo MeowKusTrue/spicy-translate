@@ -1,5 +1,10 @@
 # Alignment quality review — 2026-11-12
 
+Historical review. See [the 2026-11-17 follow-up](RESEARCH-2026-11-17.md) for
+the current failing-track investigation and measured wav2vec2 / MMS / Qwen
+comparison. Statements below about unavailable user audio and no downloaded
+models describe the November 12 review, not the follow-up.
+
 ## Confirmed local defects, not model claims
 
 - `untangle` flattened all phrases in one layer into one sequence. Legitimate simultaneous phrases/backings were truncated or pushed forward. Postprocessing is now isolated per phrase/layer; approved/manual timings stay untouched. Changed timing loses its old high confidence.
@@ -19,7 +24,7 @@ The optional **Сначала найти строки по аудио** / `--loc
 3. Accept a line window only with both edge tokens matched and >=80% token coverage. Repeated one-word lines cannot locate themselves. Reject invalid, reversed and implausibly long spans.
 4. Fine-align supported phrases with the existing aligner. Skip unsupported phrases and return a warning instead of aligning in a guessed window.
 
-This is opt-in, not a measured new default. It needs the full song context; selected subsets are refused in the UI. Repeated choruses, ASR omissions, stretched vowels and overlapping singers can still produce wrong anchors. Manual and approved words remain protected. Standalone backing-only lines have no lead-text anchor and are skipped in this mode; process them separately using their known windows. Existing automatic values on skipped lines are preserved, not erased.
+This is opt-in, not a measured new default. It needs the full song context. Later releases offer selected-line alignment inside existing windows instead of whole-song locating for a subset. Repeated choruses, ASR omissions, stretched vowels and overlapping singers can still produce wrong anchors. Manual and approved words remain protected. Standalone backing-only lines have no lead-text anchor and are skipped in this mode; process them separately using their known windows. Existing automatic values on skipped lines are preserved, not erased.
 
 ## External candidates checked
 

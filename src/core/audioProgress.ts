@@ -2,7 +2,7 @@ export interface AudioProgressState {
   stage: string; done: number; total: number; plan?: string[]; phase?: string;
   subDone?: number; subTotal?: number; bytes?: boolean;
 }
-const weights: Record<string, number> = { upload: 5, cache: 5, demucs: 30, karaoke: 15, transcribe: 25, locate: 25, backing: 25, align: 30 };
+const weights: Record<string, number> = { upload: 5, cache: 5, demucs: 30, karaoke: 15, transcribe: 25, locate: 25, recover: 10, backing: 25, align: 30 };
 const fraction = (value: number) => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
 
 export function audioStageFraction(state: AudioProgressState | null): number {

@@ -1,9 +1,27 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { addBacking, alignArgs, recommendedModels, wordAlignmentScope, prepareWordAlignment, mergeWordAlignment, alignmentSelection } from '../src/core/autoAlign.ts';
+import { addBacking, alignArgs, recommendedModels, wordAlignmentScope, prepareWordAlignment, mergeWordAlignment, alignmentSelection, alignmentCandidates } from '../src/core/autoAlign.ts';
 import type { Line } from '../src/core/types.ts';
 
 describe('auto alignment models and backing import', () => {
+  it('restricts recovery proposals to requested matching rows and original timing only', () => {
+    const before: Line[] = [{t:0,end:3,text:'one word',tr:'translation',sync:{tr:[{a:0,b:3}]}}, {t:3,end:6,text:'other word',tr:''}];
+    const candidate = {row:0,line:{...before[0],tr:'corrupted',sync:{orig:[{a:.2,b:1,g:1},{a:1,b:2,g:1}],tr:[{a:99,b:100}]}}};
+    const got = alignmentCandidates([candidate, candidate, {...candidate,row:-1}, {...candidate,row:1}], before, [0]);
+    expect(got).toHaveLength(1);
+    expect(got[0].line.tr).toBe('translation');
+    const applied = mergeWordAlignment(before[0], got[0].line, before[0])!;
+    expect(applied.sync?.tr).toEqual(before[0].sync?.tr);
+    expect(alignmentCandidates([candidate], before, [1])).toEqual([]);
+    expect(alignmentCandidates([{...candidate,line:{...candidate.line,text:'changed'}}], before, null)).toEqual([]);
+    expect(alignmentCandidates([{row:0,line:{...before[0],sync:{orig:[{a:2,b:1}]}}}], before, null)).toEqual([]);
+    expect(alignmentCandidates(null,before,null)).toEqual([]);
+    const hand: Line = {...before[0],sync:{orig:[{a:0,b:1.5},{a:null,b:null}]}};
+    expect(alignmentCandidates([candidate],[hand],null)).toEqual([]); // Preserving the hand word would overlap the proposed second word.
+    const protectedLine: Line = {...before[0],approved:{orig:true}};
+    expect(alignmentCandidates([candidate],[protectedLine],null)).toEqual([]);
+    expect(alignmentCandidates([candidate],[protectedLine],null,true)).toHaveLength(1);
+  });
   it('suggests a starting point for the selected hardware and song language', () => {
     expect(recommendedModels('cuda', 'ru')).toEqual({ sep: 'roformer', asr: 'turbo', aligner: 'w2v' });
     expect(recommendedModels('cpu', 'en')).toEqual({ sep: 'htdemucs', asr: 'turbo', aligner: 'w2v' });

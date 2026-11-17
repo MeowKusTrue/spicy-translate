@@ -4,6 +4,34 @@ function wav(){ const b=Buffer.alloc(44+32000);b.write('RIFF');b.writeUInt32LE(b
 const original=wav(), key=createHash('sha256').update(original).digest('hex');
 const project={v:1,meta:{title:'Separate operations',artist:'Test',lang:'ru',mode:'original',md:[]},lines:[{t:0,end:1,text:'known text',tr:'',sync:null,bg:{text:'known echo',tr:''}}]};
 
+test('recovered lyrics require review, retain translation, support playback and undo',async({page,request})=>{
+ const lines=[{t:0,end:1,text:'known text',tr:'перевод',sync:{tr:[{a:0,b:1}]}}];
+ await request.put('/api/project?by=page',{data:{...project,lines}});let started=false;
+ await page.addInitScript(()=>{localStorage.setItem('helpSeen','1');localStorage.setItem('sylMem','0');});
+ await page.route(/\/api\/align(?:\?.*)?$/,route=>{
+  if(route.request().method()==='POST'){started=true;return route.fulfill({json:{ok:true,runId:'recovery'}});}
+  return route.fulfill({json:{available:true,running:false,runId:started?'recovery':'',audioKey:key,vocals:true,result:started?{...project,lines,alignmentCandidates:[{row:0,line:{...lines[0],sync:{orig:[{a:.1,b:.4,g:1},{a:.5,b:.9,g:1}]}}}]}:null}});
+ });
+ await page.route('**/api/align/audio?*',route=>route.fulfill({json:{ok:true,audioKey:key,vocals:true}}));
+ await page.route('**/api/align/vocals*',route=>route.fulfill({contentType:'audio/wav',body:original}));
+ const current=async()=> (await(await request.get('/api/project')).json()).project;
+ await page.goto('/');await page.locator('#fileAudio').setInputFiles({name:'source.wav',mimeType:'audio/wav',buffer:original});
+ await page.locator('#nav-sync').click();await page.locator('#btnEditorCommands').click();await page.locator('#btnAutoAlign').click();
+ const dialog=page.getByRole('dialog',{name:'Восстановление пропущенных строк'});
+ await expect(dialog).toBeVisible();await expect(dialog).toContainText('Строка 1');await expect(dialog).toContainText('known text');
+ await expect(dialog.getByRole('button',{name:'Применить',exact:true})).toBeEnabled();
+ await page.screenshot({path:test.info().outputPath('alignment-review.png')});
+ expect((await current()).lines[0].sync.orig).toBeUndefined();
+ await dialog.getByRole('button',{name:'Прослушать строку 1'}).click();
+ await dialog.getByRole('button',{name:'Применить',exact:true}).click();await expect(dialog).toBeHidden();
+ await expect.poll(async()=> (await current()).lines[0].sync.orig?.[0].a).toBe(.1);
+ expect((await current()).lines[0].sync.tr).toEqual(lines[0].sync.tr);
+ await page.keyboard.press('Control+z');await expect.poll(async()=> (await current()).lines[0].sync.orig).toBeUndefined();
+ await page.locator('#btnAutoAlign').click();await expect(dialog).toBeVisible();
+ await dialog.getByRole('button',{name:'Оставить прежние'}).click();await expect(dialog).toBeHidden();
+ expect((await current()).lines[0].sync.orig).toBeUndefined();
+});
+
 test('words without saved vocals never secretly start separation or add lyrics',async({page,request})=>{
  await request.put('/api/project?by=page',{data:project});let jobs=0;
  await page.addInitScript(()=>localStorage.setItem('helpSeen','1'));

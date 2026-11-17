@@ -1,6 +1,6 @@
 import copy
 import unittest
-from line_windows import locate_line_windows
+from line_windows import locate_line_windows, recovery_groups, recover_line_candidates
 
 
 def heard(text, start=30):
@@ -8,6 +8,53 @@ def heard(text, start=30):
 
 
 class LineWindowsTest(unittest.TestCase):
+    def test_recovery_uses_acoustic_context_not_guessed_line_times(self):
+        lines = [{'text': 'left'}, {'text': 'missing words', 't': 999}, {'text': 'right'}]
+        located = {0: (1, 2), 2: (6, 7)}
+        original = copy.deepcopy(lines)
+        groups = list(recovery_groups(lines, located, 10))
+        self.assertEqual(groups, [([1], [0, 1, 2], .6, 7.4)])
+        calls = []
+        def refine(lo, hi, text):
+            calls.append((lo, hi, text))
+            return [(1, 2, .9), (3, 4, .8), (4, 5, .8), (6, 7, .9)]
+        got = recover_line_candidates(lines, located, 10, refine, str.split, lambda i: True)
+        self.assertEqual(got, [{'row': 1, 'spans': [(3, 4, .8), (4, 5, .8)]}])
+        self.assertEqual(calls[0][2], 'left missing words right')
+        self.assertEqual(lines, original)
+        self.assertEqual(located, {0: (1, 2), 2: (6, 7)})
+        import numpy as np
+        numpy_result = recover_line_candidates(lines, located, 10,
+            lambda *args: [(np.float64(a), np.float64(b), c) for a,b,c in refine(*args)], str.split, lambda i: True)
+        self.assertEqual(numpy_result, got)
+
+    def test_recovery_rejects_long_unanchored_repeats_and_inverted_anchors(self):
+        lines = [{'text': 'repeat'}] * 3
+        self.assertEqual(list(recovery_groups(lines, {0: (1, 2), 2: (60, 62)}, 70)), [])
+        self.assertEqual(list(recovery_groups(lines, {0: (6, 7), 2: (1, 2)}, 10)), [])
+        self.assertEqual(list(recovery_groups(lines, {}, 90)), [])
+
+    def test_recovery_rejects_invalid_output_drifting_context_and_nonselected_rows(self):
+        lines = [{'text':'left'}, {'text':'target'}, {'text':'right'}]
+        anchors = {0:(1,2), 2:(6,7)}
+        valid = [(1,2,.9),(3,4,.8),(6,7,.9)]
+        for got in (valid[:2], [(1,2,.9),(3,3,.8),(6,7,.9)],
+                    [(1,2,.9),(3,4,float('nan')),(6,7,.9)],
+                    [(1,2,.9),(3,8,.8),(6,7,.9)],
+                    [(2,3,.9),(3,4,.8),(6,7,.9)]):
+            self.assertEqual(recover_line_candidates(lines, anchors, 10, lambda *args: got, str.split, lambda i: True), [])
+        self.assertEqual(recover_line_candidates(lines, anchors, 10,
+                         lambda *args: self.fail('protected row must not invoke model'), str.split, lambda i: False), [])
+
+    def test_recovery_keeps_each_repeated_occurrence_between_its_own_neighbors(self):
+        lines = [{'text':x} for x in ['left','repeat','middle','repeat','right']]
+        anchors = {0:(1,2), 2:(10,11), 4:(20,21)}
+        def refine(lo, hi, text):
+            return [(1,2,.9),(5,6,.8),(10,11,.9)] if lo < 1 else [(10,11,.9),(15,16,.8),(20,21,.9)]
+        got = recover_line_candidates(lines, anchors, 25, refine, str.split, lambda i: True)
+        self.assertEqual([c['row'] for c in got], [1,3])
+        self.assertEqual([c['spans'][0][0] for c in got], [5,15])
+
     def test_finds_known_text_far_from_guessed_times_without_mutating_it(self):
         lines=[{'text':'ти|хое мо|ре','t':0,'end':3}, {'text':'снова встречает нас','t':3,'end':6}]
         original=copy.deepcopy(lines)

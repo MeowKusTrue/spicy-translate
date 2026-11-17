@@ -816,3 +816,11 @@ main.page-sync .stage .lyrics-inner{--ls:clamp(27px,4.8cqw,46px)}main.page-sync 
   .preview-drafting .preview-edit #previewEditText{flex:1 1 76px;min-height:40px;padding:6px 10px;font-size:22px;line-height:1.3}
   .preview-drafting .preview-edit-actions{position:static;padding:0}
 }
+/* Review-only timings recovered independently of the ASR transcript. */
+.alignment-review { width:min(780px,94vw); max-height:85dvh; overflow-y:auto; }
+.alignment-candidates { list-style:none; padding:0; }
+.alignment-candidates li { padding:16px 0; border-bottom:1px solid var(--line); }
+.alignment-candidates label { display:flex; align-items:flex-start; gap:12px; cursor:pointer; margin-bottom:12px; }
+.alignment-candidates input { flex:0 0 auto; width:20px; height:20px; margin-top:3px; }
+.alignment-candidates .row, .alignment-review-actions { flex-wrap:wrap; gap:8px; }
+.alignment-review-actions { position:sticky; bottom:0; background:var(--bg); padding:12px 0; }

@@ -76,3 +76,23 @@ export function alignmentSelection(picked: Iterable<number>, multi: { i: number 
   const ids = [...new Set(rows.length ? rows : multi.map(w => w.i))].filter(i => Number.isInteger(i) && i >= 0 && i < count).sort((a,b) => a-b);
   return ids.length ? ids : null;
 }
+
+/** Worker proposals can only replace matching, requested original layers. */
+export function alignmentCandidates(value: unknown, before: Line[], only: number[] | null, replace = false) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<number>();
+  return value.flatMap(candidate => {
+    const row = candidate?.row, line = candidate?.line;
+    if (!Number.isInteger(row) || row < 0 || row >= before.length || seen.has(row)
+      || only && !only.includes(row) || !line || line.text !== before[row].text
+      || !Array.isArray(line.sync?.orig) || line.sync.orig.some((w: unknown) => !w || typeof w !== 'object')) return [];
+    const result: Line = { ...before[row], sync: { orig: line.sync?.orig } };
+    const merged = mergeWordAlignment(before[row], result, before[row], replace);
+    if (!merged) return [];
+    const spans = merged.sync!.orig!;
+    if (spans.some((w, k) => k > 0 && w.a! < spans[k-1].b! - .002)) return [];
+    result.sync = { orig: spans };
+    seen.add(row);
+    return [{ row: row as number, line: result }];
+  });
+}

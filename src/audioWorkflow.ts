@@ -9,7 +9,7 @@ import { originalAudioKey, persistVoiceAudio } from './audioCache.ts';
 import { cacheVoiceAudio } from './audio.ts';
 import { buildVoicePeaks, drawWave, W } from './waveform/wave.ts';
 import { session } from './projectSession.ts';
-import { alignmentSelection, prepareWordAlignment, wordAlignmentScope, type AlignOptions } from './core/autoAlign.ts';
+import { alignmentCandidates, alignmentSelection, prepareWordAlignment, wordAlignmentScope, type AlignOptions } from './core/autoAlign.ts';
 import type { Line } from './core/index.ts';
 
 export type AudioOperation = 'separate' | 'words' | 'transcribe';
@@ -44,7 +44,7 @@ async function attachVoice(original: Blob, vocal: Blob, current: () => boolean) 
 }
 
 export async function runAudioWorkflow(operation: AudioOperation, options: AlignOptions, hooks: { openSetup: () => Promise<void>; merge: (lines: Line[], only: number[] | null, before: Line[], replace: boolean) => number }) {
-  if (S.align || S.setup || S.busyAuto || S.transcriptionReview) return toast('Заверши текущую операцию или проверку распознанного текста.', 'err');
+  if (S.align || S.setup || S.busyAuto || S.transcriptionReview || S.alignmentReview) return toast('Заверши текущую операцию или проверку результатов.', 'err');
   if (!S.audioBlob) return toast('Сначала подключи исходный аудиофайл.', 'err');
   if (operation === 'words' && !S.lines.length) return toast('Сначала добавь текст или нажми «Получить текст». Выделить голос можно и без текста.', 'err');
   if (operation === 'transcribe' && S.lines.length) return toast('В треке уже есть текст. Получение текста не перезаписывает существующие строки.', 'err');
@@ -61,7 +61,7 @@ export async function runAudioWorkflow(operation: AudioOperation, options: Align
   }
   const token = { cancelled: false }; workflow = token;
   const active = () => source.current() && !token.cancelled;
-  let plan = operation === 'transcribe' ? ['upload', 'demucs', 'transcribe', 'align', 'cache'] : operation === 'separate' ? ['upload', 'demucs', 'cache'] : ['upload', ...(options.locateLines ? ['locate'] : []), 'align', 'cache'];
+  let plan = operation === 'transcribe' ? ['upload', 'demucs', 'transcribe', 'align', 'cache'] : operation === 'separate' ? ['upload', 'demucs', 'cache'] : ['upload', ...(options.locateLines ? ['locate', 'recover'] : []), 'align', 'cache'];
   const stage = (name: string) => { S.align = { stage: name, phase: name, done: 0, total: 0, device: '', plan, elapsed: Date.now() - begun }; emit(); };
   stage('check');
   try {
@@ -127,6 +127,12 @@ export async function runAudioWorkflow(operation: AudioOperation, options: Align
       const scope = wordAlignmentScope(only ? only.map(i => before[i]) : before);
       wordSummary = count ? `Расставлены слова в строках: ${count}. Это черновик; Ctrl+Z — отмена.${!replace && scope.protectedLayers ? ` Защищённых дорожек пропущено: ${scope.protectedLayers}.` : ''}` : 'Ни одна строка не обновлена: результат совпадает с прежним, текст изменился или модель не нашла новые времена. Проверь защиту строк и режим «Сначала найти строки по аудио».';
       wordCount = count;
+      const candidates = alignmentCandidates(result.result.alignmentCandidates, before, only, replace);
+      if (candidates.length) {
+        S.alignmentReview = { candidates, before, audio: source.original, generation: source.generation, replace };
+        if (!count) wordSummary = 'Автоматически применённых изменений нет.';
+        wordSummary += ` Предложено восстановление строк: ${candidates.length}; прослушай и выбери варианты в окне проверки.`;
+      }
     }
     if (result.vocals) {
       if (operation === 'separate' && result.vocalSource === 'htdemucs' && options.sep === 'roformer') toast('RoFormer не применён: доступен сохранённый вокал HTDemucs. Это другой разделитель.', 'err');

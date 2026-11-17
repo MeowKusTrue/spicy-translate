@@ -3,6 +3,7 @@ from collections import Counter
 from difflib import SequenceMatcher
 import math
 import re
+from numbers import Real
 
 
 def _tokens(text):
@@ -10,7 +11,7 @@ def _tokens(text):
 
 
 def _valid(a, b):
-    return (type(a) in (int, float) and type(b) in (int, float)
+    return (isinstance(a, Real) and not isinstance(a, bool) and isinstance(b, Real) and not isinstance(b, bool)
             and math.isfinite(a) and math.isfinite(b) and 0 <= a < b)
 
 
@@ -95,3 +96,56 @@ def locate_line_windows(lines, words, anchors=None):
         for i, window in _ordered_windows(lines[left+1:right], segment).items():
             result[left+1+i] = window
     return dict(sorted(result.items()))
+
+
+def recovery_groups(lines, located, duration, max_window=30):
+    """Bound missing lyrics by neighboring occurrences, never guessed LRC coordinates.
+
+    Long unanchored regions need another anchor; forcing them into short guessed
+    windows could assign a repeated chorus to the wrong occurrence.
+    """
+    if any(not 0 <= i < len(lines) or not _valid(*pair) or pair[1] > duration for i, pair in located.items()):
+        return
+    anchors = sorted(located.items())
+    if not anchors:
+        return
+    bounds = [(-1, (0, 0)), *anchors, (len(lines), (duration, duration))]
+    for (left, start), (right, end) in zip(bounds, bounds[1:]):
+        missing = [i for i in range(left + 1, right) if _tokens(lines[i].get('text') or '')]
+        if not missing or start[1] > end[0]:
+            continue
+        context = ([left] if left >= 0 else []) + missing + ([right] if right < len(lines) else [])
+        lo, hi = max(0, start[0] - .4), min(duration, end[1] + .4)
+        if .25 <= hi - lo <= max_window:
+            yield missing, context, lo, hi
+
+
+def recover_line_candidates(lines, located, duration, refine, unitize, eligible):
+    """Return review-only acoustic candidates. Never promotes them to trusted anchors."""
+    candidates = []
+    for missing, context, lo, hi in recovery_groups(lines, located, duration):
+        targets = [i for i in missing if eligible(i)]
+        if not targets:
+            continue
+        counts = [len(unitize(lines[i]['text'])) for i in context]
+        got = refine(lo, hi, ' '.join(lines[i]['text'] for i in context))
+        if not got or len(got) != sum(counts):
+            continue
+        if any(len(w) < 3 or not _valid(w[0], w[1]) or w[0] < lo or w[1] > hi
+               or w[2] is not None and (not math.isfinite(w[2]) or not 0 <= w[2] <= 1) for w in got):
+            continue
+        if any(got[k][0] < got[k-1][1] - .002 for k in range(1, len(got))):
+            continue
+        offset, spans = 0, {}
+        for i, count in zip(context, counts):
+            spans[i] = got[offset:offset+count]
+            offset += count
+        # A badly misplaced context phrase makes every proposal in this window suspect.
+        if any(i in located and (abs(spans[i][0][0] - located[i][0]) > .75
+                                 or abs(spans[i][-1][1] - located[i][1]) > .75) for i in context):
+            continue
+        for i in targets:
+            if not spans[i]:
+                continue
+            candidates.append({'row': i, 'spans': spans[i]})
+    return candidates
