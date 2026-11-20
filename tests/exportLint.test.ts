@@ -1,6 +1,30 @@
 import { expect, it } from 'vitest';
 import { buildTTML, lintExport, type Line } from '../src/core/index.ts';
 
+it('finds invisible characters on exported tracks and removes them without changing timing or source', () => {
+  const line: Line = {t:0,end:2,text:'\u200BRa\u2060zov',tr:'\u200BПеревод',agent:'v2',bg:{text:'Э\u00ADй',tr:'\u200BHey'},sync:{orig:[{a:0,b:2}],bgo:[{a:1,b:2}]}};
+  const original = structuredClone(line);
+  const issues = lintExport({lines:[line],mode:'original'}).filter(x=>x.msg.startsWith('Невидимые символы'));
+  expect(issues.map(x=>x.layer)).toEqual(['orig','bgo']);
+  expect(issues[0].msg).toContain('U+200B (пробел нулевой ширины)');
+  const fixed = issues[0].fix!.line;
+  expect(fixed.text).toBe('Razov'); expect(fixed.sync).toEqual(line.sync); expect(fixed.agent).toBe('v2');
+  expect(fixed.tr).toBe(line.tr); expect(fixed.bg).toEqual(line.bg); expect(line).toEqual(original);
+  expect(issues[1].fix!.line.bg!.text).toBe('Эй');
+  expect(lintExport({lines:[line],mode:'translation'}).filter(x=>x.msg.startsWith('Невидимые символы')).map(x=>x.layer)).toEqual(['tr','bg']);
+});
+
+it('keeps legitimate Unicode joins and refuses a cleanup that would discard a timed unit', () => {
+  const line: Line = {t:0,end:2,text:'hello \u200B world',tr:'',sync:{orig:[{a:0,b:.5},{a:.5,b:1},{a:1,b:2}]}};
+  const issue=lintExport({lines:[line],mode:'original'}).find(x=>x.msg.startsWith('Невидимые символы'))!;
+  expect(issue.fix).toBeUndefined(); expect(issue.advice).toContain('количество слов');
+  for(const text of ['a\u00A0b','می\u200Cروم','👨\u200D👩','ع\u200Dر']) {
+    expect(lintExport({lines:[{...line,text}],mode:'original'}).some(x=>x.msg.startsWith('Невидимые символы'))).toBe(false);
+  }
+  const bom = lintExport({lines:[{...line,text:'\uFEFFRazov'}],mode:'original'}).find(x=>x.msg.startsWith('Невидимые символы'))!;
+  expect(bom.msg).toContain('U+FEFF'); expect(bom.fix!.line.text).toBe('Razov');
+});
+
 it('proposes punctuation fixes without mutating input or altering word times', () => {
   const line: Line = { t: 1, end: 4, text: 'а|-а|-а – да?!', tr: '', sync: { orig: [{a:1,b:1.5},{a:1.5,b:2},{a:2,b:2.5},{a:2.5,b:3},{a:3,b:4}] } };
   const before = structuredClone(line), issues = lintExport({ lines: [line], mode: 'original' });

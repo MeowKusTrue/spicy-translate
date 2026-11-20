@@ -130,6 +130,58 @@ export function parseRow(row: string) {
   return { main: attachPunctuation(row.replace(/\([^)]*\)?/g, ' ').replace(NB, ' ').trim()), bg: attachPunctuation(bg) };
 }
 
+/** Only line/word/syllable boundaries changed: carry timings across row boundaries. */
+export function reflowTextRows(lines: Line[], rows: { o: string; t: string }[], hasTranslation: boolean): { lines: Line[] } | { error: string } | null {
+  const layers: Layer[] = ['orig', 'tr', 'bgo', 'bg'];
+  const parsed = rows.map(r => ({ o: parseRow(r.o), t: parseRow(r.t) }));
+  const texts = parsed.map(r => ({ orig: r.o.main, bgo: r.o.bg, tr: r.t.main, bg: r.t.bg }));
+  if (!hasTranslation && lines.some(l => l.tr || l.bg?.tr)) return null;
+  const old = Object.fromEntries(layers.map(layer => {
+    let offset = 0;
+    return [layer, lines.flatMap((l, owner) => units(txt(l, layer)).map((u, k) => {
+      const start = offset; offset += u.w.length;
+      return { start, end: offset, word: u.w, owner, span: l.sync?.[layer]?.length === units(txt(l, layer)).length ? l.sync[layer]![k] : undefined };
+    }))];
+  })) as Record<Layer, {start:number;end:number;word:string;owner:number;span:WordSync|undefined}[]>;
+  for (const layer of layers) if (old[layer].map(u => u.word).join('') !== texts.flatMap(t => units(t[layer]).map(u => u.w)).join('')) return null;
+  const cursors = { orig: 0, tr: 0, bgo: 0, bg: 0 };
+  const next: Line[] = [];
+  for (const text of texts) {
+    const owners = new Set<number>(), sync: NonNullable<Line['sync']> = {};
+    let invalidSplit = false;
+    for (const layer of layers) {
+      const source = old[layer];
+      const mapped = units(text[layer]).map(u => {
+        const start = cursors[layer], end = start + u.w.length; cursors[layer] = end;
+        const parts = source.filter(s => s.start < end && s.end > start);
+        parts.forEach(s => owners.add(s.owner));
+        const first = parts[0], last = parts.at(-1)!;
+        if (parts.length === 1 && first.start === start && first.end === end) return { ...(first.span || {a:null,b:null}) };
+        if (!parts.every(p => timed(p.span))) return {a:null,b:null};
+        const a = first.span!.a! + (first.span!.b! - first.span!.a!) * (start - first.start) / (first.end - first.start);
+        const b = last.span!.a! + (last.span!.b! - last.span!.a!) * (end - last.start) / (last.end - last.start);
+        if (!Number.isFinite(a) || !Number.isFinite(b) || a < 0 || r3(b) <= r3(a)) invalidSplit = true;
+        return {a:r3(a),b:r3(b),g:1 as const};
+      });
+      if (mapped.length) sync[layer] = mapped;
+    }
+    if (invalidSplit) return {error:'Не удалось разделить этот интервал на положительные части. Проверь время разделяемого слова; прежняя синхра сохранена.'};
+    const ids = [...owners], base = lines[ids[0]];
+    if (!base) return null;
+    if (new Set(ids.map(i => lines[i].agent || 'v1')).size > 1) return {error:'Перенос объединяет разных исполнителей в одну строку. Оставь их отдельными строками, чтобы сохранить исполнителей и синхру.'};
+    const line: Line = {...structuredClone(base), text:text.orig, tr:text.tr, sync};
+    if (text.bgo || text.bg) line.bg = {text:text.bgo,tr:text.bg}; else delete line.bg;
+    const times = [...(sync.orig || []),...(sync.bgo || []),...(sync.tr || []),...(sync.bg || [])].filter(timed);
+    const sameRow = ids.length === 1 && layers.every(layer => units(txt(base,layer)).map(u=>u.w).join('') === units(text[layer]).map(u=>u.w).join(''));
+    if (!sameRow && times.length) { line.t = Math.min(...times.map(s => s.a)); line.end = Math.max(...times.map(s => s.b)); }
+    if (line.approved) for (const layer of layers) {
+      if (!sync[layer]?.length || sync[layer]!.some(s => !timed(s) || s.g) || !ids.every(i => lines[i].approved?.[layer])) delete line.approved[layer];
+    }
+    next.push(line);
+  }
+  return {lines:next};
+}
+
 export interface FindOpts { find: string; repl: string; layers: Layer[]; cs?: boolean; word?: boolean }
 export function findRegex(o: Pick<FindOpts, 'find' | 'cs' | 'word'>) {
   const e = o.find.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

@@ -1,5 +1,5 @@
 // Word sync actions (hotkeys AND toolbar buttons use these) + undo/redo on text+sync snapshots.
-import { protectTiming, approveWords, approvePhrases, allowAutomation, confirmPhraseTiming, editorReview, fitAndSort, plainW, retimeWord, sameLines, splitWords, splitRussian, units, unitsText, type Layer } from './core/index.ts';
+import { protectTiming, approveWords, approvePhrases, allowAutomation, confirmPhraseTiming, editorReview, fitAndSort, lineRow, plainW, retimeWord, sameLines, splitWords, splitRussian, units, unitsText, type Layer } from './core/index.ts';
 import { S, conf, doubtful, emit, ensureSync, fillLine, layerText, lineState, ls, r3, setText, spreadLine, toast, viewWords, wordsOf, type ViewWord } from './state.ts';
 import { now, playWord } from './audio.ts';
 import { forgetWord, learnAndSpread } from './syllables.ts';
@@ -15,6 +15,7 @@ export function snap() { S.undo.push(stateJSON()); if (S.undo.length > 200) S.un
 export function restore(json: string) {
   const txt = (ls: typeof S.lines) => JSON.stringify(ls.map(l => [l.t, l.end, l.text, l.tr, l.bg, l.agent]));
   const before = txt(S.lines); S.lines = JSON.parse(json); W.multi = [];
+  if (S.full && !S.full.dirty) S.full = { o:S.lines.map(l=>lineRow(l,false)).join('\n'), t:S.lines.map(l=>lineRow(l,true)).join('\n'), dirty:false };
   if (S.sel && S.sel.i >= S.lines.length) S.sel = S.lines.length ? { i: S.lines.length - 1, k: 0 } : null;
   if (txt(S.lines) !== before) { S.picked.clear(); buildPreview(true); }
   afterSyncChange(true, 0, false);

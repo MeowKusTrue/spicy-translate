@@ -1,6 +1,6 @@
 // Editing texts and lines: the list inputs, the inline editor on the wave (double click / E), adding and removing
 // lines (own words, background vocals with no lead line), "(…)" -> background vocals. bg = bg translation, bgo = bg original.
-import { repeatAllPlan, planFitAll, stretchLines, alignRows, findAll, fmtTime, insertLine, lineFromWords, lineRow, fitLineToWords, fitsWords, pasteTiming, repeatTranslations, timingOf, transferTiming, parensToBg, parseRow, plainW, remapSync, repeatTiming, replaceUnit, sameLines, slashSyl, shiftLine, type Layer, type Line } from './core/index.ts';
+import { repeatAllPlan, planFitAll, stretchLines, alignRows, reflowTextRows, findAll, fmtTime, insertLine, lineFromWords, lineRow, fitLineToWords, fitsWords, pasteTiming, repeatTranslations, timingOf, transferTiming, parensToBg, parseRow, plainW, remapSync, repeatTiming, replaceUnit, sameLines, slashSyl, shiftLine, type Layer, type Line } from './core/index.ts';
 import { attachPunctuation } from './core/punctuation.ts';
 import { S, clamp, emit, ls, fillLine, isBg, isTr, layerText, lineState, r3, setText, toast, viewWords, wordsOf } from './state.ts';
 import { now } from './audio.ts';
@@ -148,6 +148,14 @@ export function applyFull() {
   if (hasT && t.length !== o.length) return toast(`Строк: оригинал ${o.length}, перевод ${t.length}. Выровняй столбцы: строка перевода стоит напротив своей строки (пустая — без перевода).`, 'err');
   const rows = o.map((x, j) => ({ o: x, t: t[j] || '' })).filter(r => r.o || r.t);
   if (!rows.length) return toast('Пусто — так весь текст не удалить.', 'err');
+  const reflow = reflowTextRows(S.lines, rows, hasT);
+  if (reflow && 'error' in reflow) return toast(reflow.error, 'err');
+  if (reflow) {
+    snap(); S.lines = reflow.lines;
+    S.sel = null; S.picked.clear();
+    afterLines(); S.full = fullDraft(); emit();
+    return toast('Переносы применены. Времена слов сохранены; только новые части разделённого слова отмечены черновиком. Ctrl+Z — отмена.', 'ok');
+  }
   snap();
   const map = alignRows(S.lines.map(l => lineRow(l, false)), rows.map(r => r.o));
   const old = S.lines, next: Line[] = map.map(m => m >= 0 ? old[m] : { t: -1, end: -1, text: '', tr: '' });

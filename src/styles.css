@@ -824,3 +824,15 @@ main.page-sync .stage .lyrics-inner{--ls:clamp(27px,4.8cqw,46px)}main.page-sync 
 .alignment-candidates input { flex:0 0 auto; width:20px; height:20px; margin-top:3px; }
 .alignment-candidates .row, .alignment-review-actions { flex-wrap:wrap; gap:8px; }
 .alignment-review-actions { position:sticky; bottom:0; background:var(--bg); padding:12px 0; }
+/* The text page is a writing workspace; preview stays mounted for other pages. */
+main.page-text,html.app main.page-text { display:block; max-width:none; width:100%; }
+main.page-text>.col:first-child { width:100%; height:100%; max-height:none; }
+main.page-text>.col:nth-child(2) { display:none; }
+.textcard .textab { grid-template-columns:104px minmax(0,1fr) minmax(0,1fr); }
+.textcard .textab-single { grid-template-columns:104px minmax(0,1fr); }
+.textcard .textab [hidden] { display:none; }
+.textcard .textab textarea { font-size:15px; line-height:28px; }
+.textcard .textab .gut { line-height:28px; }
+.textcard .textab .gut div { height:28px; }
+.textcard .textab textarea:focus-visible { outline:2px solid var(--acc); outline-offset:-2px; }
+.textcard [aria-pressed=true] { border-color:var(--acc); color:var(--acc); }

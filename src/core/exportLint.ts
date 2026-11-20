@@ -60,6 +60,16 @@ export function lintExport(o: ExportOpts): ExportIssue[] {
         else if (fixed.bg) fixed.bg[layer === 'bg' ? 'tr' : 'text'] = text;
         return fixed;
       };
+      const invisibleNames: Record<string, string> = { '\u200B': 'пробел нулевой ширины', '\uFEFF': 'скрытый BOM', '\u2060': 'невидимый соединитель слов', '\u00AD': 'мягкий перенос' };
+      const invisible = [...new Set([...before].filter(c => invisibleNames[c]))];
+      if (invisible.length) {
+        const cleaned = before.replace(/[\u200B\uFEFF\u2060\u00AD]/gu, '');
+        const sameUnits = wordList(cleaned).length === wordList(before).length;
+        issues.push({ i, layer, sev: 'warn',
+          msg: `Невидимые символы: ${invisible.map(c => `U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')} (${invisibleNames[c]})`).join(', ')}.`,
+          advice: sameUnits ? 'Скрытые символы мешают поиску и копированию. Можно удалить их без изменения таймингов.' : 'Удаление изменит количество слов или слогов. Убери скрытый символ в редакторе и проверь разметку соседних слов.',
+          ...(sameUnits ? { fix: { label: 'Удалить невидимые символы без изменения времени', line: replaceText(cleaned) } } : {}) });
+      }
       const lookalikes: Record<string, string> = { А:'A', В:'B', С:'C', Е:'E', Н:'H', К:'K', М:'M', О:'O', Р:'P', Т:'T', Х:'X', а:'a', е:'e', о:'o', р:'p', с:'c', у:'y', х:'x' };
       const reverse = Object.fromEntries(Object.entries(lookalikes).map(([a,b]) => [b,a]));
       const mixed = [...before.matchAll(/[\p{L}|]+/gu)].filter(m => /[\p{Script=Cyrillic}]/u.test(m[0]) && /[\p{Script=Latin}]/u.test(m[0]));

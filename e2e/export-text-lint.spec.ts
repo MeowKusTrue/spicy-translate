@@ -1,5 +1,20 @@
 import {expect,test} from '@playwright/test';
 
+test('invisible character warning identifies the row, fixes fresh export and undoes without retiming',async({page,request})=>{
+  const sync=[{a:.564,b:.983},{a:.983,b:1.151},{a:1.151,b:1.355},{a:1.355,b:1.889}];
+  await request.put('/api/project?by=page',{data:{v:1,meta:{title:'Invisible text',artist:'Test',lang:'ru',mode:'original',md:[]},lines:[{t:.564,end:1.889,text:'\u200BRazov on the beat',tr:'',agent:'v2',sync:{orig:sync}}]}});
+  await page.addInitScript(()=>localStorage.setItem('helpSeen','1'));
+  await page.goto('/');await page.locator('#nav-export').click();await page.locator('#btnShow').click();
+  const dialog=page.locator('#exportPreflight');await expect(dialog).toContainText('U+200B');await expect(dialog).toContainText('Razov on the beat');
+  await dialog.getByRole('button',{name:'Удалить невидимые символы без изменения времени',exact:true}).click();
+  await expect.poll(async()=>(await(await request.get('/api/project')).json()).project.lines[0].text).toBe('Razov on the beat');
+  if(await dialog.isVisible()) await page.locator('#btnExportAnyway').click();
+  expect((await page.locator('#out').textContent())!.includes('\u200B')).toBe(false);
+  expect((await(await request.get('/api/project')).json()).project.lines[0].sync.orig).toEqual(sync);
+  await page.keyboard.press('Control+z');
+  await expect.poll(async()=>(await(await request.get('/api/project')).json()).project.lines[0].text).toBe('\u200BRazov on the beat');
+});
+
 test('preflight fixes lookalike letters and offers both ellipsis choices without retiming',async({page,request})=>{
   const sync=[{a:1,b:2},{a:2,b:3}];
   await request.put('/api/project?by=page',{data:{v:1,meta:{title:'Text checks',artist:'Test',lang:'ru',mode:'original',md:[]},lines:[{t:1,end:3,text:'plеase играешь…',tr:'',sync:{orig:sync}}]}});

@@ -8,7 +8,7 @@ import { seekTo, hasVoiceAudio } from '../audio.ts';
 import { buildPreview } from '../preview.ts';
 import { idbPut, listSnaps, newEmptyProject, loadProject, restoreSnap, scheduleSave, snapshot, trackKey, type Snap } from '../persist.ts';
 import { loadManual, loadTrack, openLyricsFile, search, setMode } from '../load.ts';
-import { selectWord, snap } from '../sync.ts';
+import { selectWord, snap, doUndo, doRedo } from '../sync.ts';
 import { CompactLines } from './CompactLines.tsx';
 import { ModePicker } from './Studio.tsx';
 import { LANGS, applyPaste, autoTranslate, clearTr, copyPrompt, llmTranslate } from '../translate.ts';
@@ -330,28 +330,35 @@ function FindBox() {
 
 /** «Текст» tab: the whole song, original and translation side by side, row = line, (…) = background vocals */
 function TextTab() {
+  const [view, setView] = useState<'orig' | 'tr' | 'both'>(S.meta.mode === 'original' ? 'orig' : 'both');
   const refs = { g: useRef<HTMLDivElement>(null), o: useRef<HTMLTextAreaElement>(null), t: useRef<HTMLTextAreaElement>(null) };
   const f = S.full; if (!f) return null;
   const { o, t, map } = fullRows(), n = Math.max(o.length, t.length, 1), hasT = t.some(Boolean), bad = hasT && t.length !== o.length;
   const added = map.filter(m => m < 0).length, removed = S.lines.length - map.filter(m => m >= 0).length;
   const scroll = (src: HTMLElement) => { for (const r of [refs.g, refs.o, refs.t]) if (r.current && r.current !== src) r.current.scrollTop = src.scrollTop; };
   const edit = (k: 'o' | 't', v: string) => set(() => { S.full![k] = v; S.full!.dirty = true; });
-  const key = (e: React.KeyboardEvent) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); applyFull(); } };
-  return <div className="textab-wrap">
+  const key = (e: React.KeyboardEvent) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); applyFull(); }
+    else if (e.key.toLowerCase() === 'z' && !f.dirty) { e.preventDefault(); e.stopPropagation(); e.shiftKey ? doRedo() : doUndo(); }
+  };
+  return <div className="textab-wrap" onKeyDown={key}>
     <div className="row" style={{ marginBottom: 8, flexWrap: 'wrap' }}>
       <button className="pri sm" id="btnFullApply" disabled={!f.dirty} title="Ctrl+Enter" onClick={applyFull}>Применить</button>
       <button className="sm" id="btnFullReset" disabled={!f.dirty} onClick={resetFull}>Сбросить</button>
+      <span role="group" aria-label="Поля текстового редактора">{([['orig','Оригинал'],['tr','Перевод'],['both','Рядом']] as const).map(([value,label]) => <button key={value} className="sm" aria-pressed={view===value} onClick={() => setView(value)}>{label}</button>)}</span>
       <small className={'hint' + (bad ? ' err' : '')} id="fullStat" style={{ margin: 0 }}>{bad ? `оригинал ${o.length} строк, перевод ${t.length} — выровняй столбцы`
         : f.dirty ? `не применено${added ? ` · новых строк ${added}` : ''}${removed ? ` · удалится ${removed}` : ''}` : 'строка = строка песни · (в скобках) = бэк · | = граница слога'}</small>
     </div>
-    <div className="textab">
-      <div className="th">#</div><div className="th">Оригинал</div><div className="th">Перевод</div>
+    <p className="hint">Переносы строк сохраняют времена слов, если порядок текста прежний. При разделении самого слова его время делится только между новыми частями. Ctrl+Enter — применить, Ctrl+Z после применения — отменить.</p>
+    <div className={'textab' + (view !== 'both' ? ' textab-single' : '')}>
+      <div className="th">Строка · время</div><div className="th" hidden={view==='tr'}>Оригинал</div><div className="th" hidden={view==='orig'}>Перевод</div>
       <div className="gut" ref={refs.g}>{Array.from({ length: n }, (_, j) => {
         const m = j < o.length ? map[j] : -2, l = m >= 0 ? S.lines[m] : null;
-        return <div key={j} className={m === -1 ? 'new' : ''} title={l ? 'перейти к строке' : m === -1 ? 'новая строка' : ''} onClick={() => { if (l) seekTo(l.t); }}>{l ? mmss(l.t) : m === -1 ? '+ new' : ''}</div>;
+        return <div key={j} className={m === -1 ? 'new' : ''} title={l ? 'перейти к строке' : m === -1 ? 'новая строка' : ''} onClick={() => { if (l) seekTo(l.t); }}>{j+1} · {l ? mmss(l.t) : m === -1 ? 'новая' : ''}</div>;
       })}</div>
-      <textarea id="fullO" ref={refs.o} wrap="off" spellCheck={false} value={f.o} onScroll={e => scroll(e.currentTarget)} onKeyDown={key} onChange={e => edit('o', e.target.value)} />
-      <textarea id="fullT" ref={refs.t} wrap="off" spellCheck={false} value={f.t} placeholder="перевод — напротив своей строки" onScroll={e => scroll(e.currentTarget)} onKeyDown={key} onChange={e => edit('t', e.target.value)} />
+      <textarea id="fullO" aria-label="Оригинал песни" hidden={view==='tr'} ref={refs.o} wrap="off" spellCheck={false} value={f.o} onScroll={e => scroll(e.currentTarget)} onChange={e => edit('o', e.target.value)} />
+      <textarea id="fullT" aria-label="Перевод песни" hidden={view==='orig'} ref={refs.t} wrap="off" spellCheck={false} value={f.t} placeholder="перевод — напротив своей строки" onScroll={e => scroll(e.currentTarget)} onChange={e => edit('t', e.target.value)} />
     </div>
   </div>;
 }
@@ -359,7 +366,7 @@ function TextTab() {
 /** «Текст» tab: the whole song */
 export function TextCard() {
   if (!S.lines.length) return <section className="card"><h2>Текст песни</h2><p className="hint">Сначала загрузи текст на вкладке «Трек».</p><Next to="track" label="К выбору трека" /></section>;
-  return <section className="card textcard"><h2>Текст песни <small>оригинал и перевод рядом</small></h2><TextTab /></section>;
+  return <section className="card textcard"><h2>Текст песни <small>слова сохраняют свои тайминги при переносах</small></h2><TextTab /></section>;
 }
 export function AudioCard() {
   return <section className="card">
