@@ -156,7 +156,7 @@ async function setupAlign(want?: Backend) {
   step('готово', 100); SETUP.done = true;
 }
 /** bump when the editor needs new server endpoints (3: auto-timing install / GPU / open folder) */
-const API = 24; // 24: Kim Vocal 2 separator · 23: review-only acoustic recovery candidates · 22: explicit empty-track transcription from cached vocal · 21: independent separation/words and durable keyed audio · 20: ASR location of known lyric lines · 15: original project/export mode · 14: moved data paths and GPU memory · 13: selectable ASR / aligner and backing candidates · 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes · 10: install pins torch, Python found without LOCALAPPDATA · 11: installs noted for each other (python-path.txt) · 12: /api/spell
+const API = 25; // 25: generated-only vocal downloads after explicit separation · 24: Kim Vocal 2 separator · 23: review-only acoustic recovery candidates · 22: explicit empty-track transcription from cached vocal · 21: independent separation/words and durable keyed audio · 20: ASR location of known lyric lines · 15: original project/export mode · 14: moved data paths and GPU memory · 13: selectable ASR / aligner and backing candidates · 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes · 10: install pins torch, Python found without LOCALAPPDATA · 11: installs noted for each other (python-path.txt) · 12: /api/spell
 /* ---------- Genius (lyrics makers take the text from there). No CORS for pages, so the server fetches them. ---------- */
 const GH = { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', 'accept-language': 'en-US,en;q=0.9' };
 type GeniusHit = { id: number; title: string; artist: string; url: string; art: string };
@@ -207,7 +207,7 @@ function readBody(req: http.IncomingMessage, limit = 512 * 1024 * 1024): Promise
 const cacheDir = (key: string) => path.join(alDir(), 'cache', key);
 const separator = (u: URL) => { const value = u.searchParams.get('sep'); return value === 'roformer' || value === 'kim-vocal-2' ? value : 'htdemucs'; };
 const separatorModel = (sep: string) => sep === 'roformer' ? 'vocals_mel_band_roformer.ckpt' : sep === 'kim-vocal-2' ? 'Kim_Vocal_2.onnx' : 'htdemucs';
-function cachedVocal(key: string, sep: string): { file: string; source: string } {
+function cachedVocal(key: string, sep: string, generatedOnly = false): { file: string; source: string } {
   if (!/^[a-f0-9]{64}$/.test(key)) return { file: '', source: '' };
   const dir = cacheDir(key), imported = path.join(dir, 'imported.wav');
   const committed = (file: string, marker: string, source: string, model?: string) => {
@@ -216,7 +216,8 @@ function cachedVocal(key: string, sep: string): { file: string; source: string }
       return fs.statSync(file).isFile() && fs.statSync(file).size > 0 && meta.source === source && (!model || meta.model === model);
     } catch { return false; }
   };
-  if (committed(imported, path.join(dir, 'imported.json'), 'imported')) return { file: imported, source: 'imported' };
+  // An RX import is preferred for restore/words/transcribe, but it is never the result of a newly requested separator.
+  if (!generatedOnly && committed(imported, path.join(dir, 'imported.json'), 'imported')) return { file: imported, source: 'imported' };
   const stems = path.join(dir, sep, 'out.spicy.stems');
   if (sep !== 'htdemucs') {
     const file = path.join(stems, `vocals-${sep}.wav`);
@@ -289,7 +290,7 @@ async function alignRoute(req: http.IncomingMessage, res: http.ServerResponse, u
     const env = alignEnv();
     if (!env) return json(res, { error: 'авто-тайминг не установлен — нажми «Установить авто-тайминг» (или поставь по experiments/auto-align/README.md, SPICY_ALIGN_DIR / SPICY_ALIGN_PY)' }, 501);
     if (!AL.audio || !fs.existsSync(AL.audio)) return json(res, { error: 'сначала загрузи аудио' }, 400);
-    const sep = separator(u), vocal = cachedVocal(AL.audioKey, sep);
+    const sep = separator(u), vocal = cachedVocal(AL.audioKey, sep, operation === 'separate');
     if ((operation === 'words' || operation === 'transcribe') && !vocal.file) return json(res, { error: 'сначала выдели или импортируй вокал' }, 409);
     if (operation === 'transcribe' && u.searchParams.get('detectBack') === '1') return json(res, { error: 'transcribe распознаёт только основной текст, без новых бэков' }, 400);
     if (operation === 'words' && (u.searchParams.get('detectBack') === '1' || u.searchParams.get('transcribe') === '1')) return json(res, { error: 'words обрабатывает только существующий текст, без новых слов и бэков' }, 400);
@@ -375,15 +376,23 @@ async function alignRoute(req: http.IncomingMessage, res: http.ServerResponse, u
   }
   if (u.pathname === '/api/align' && req.method === 'GET') {
     const env = alignEnv(), result = !AL.running && AL.out && fs.existsSync(AL.out) ? JSON.parse(fs.readFileSync(AL.out, 'utf8')) : null;
-    const vocal = cachedVocal(AL.audioKey, u.searchParams.has('sep') ? separator(u) : AL.sep);
+    const vocal = cachedVocal(AL.audioKey, u.searchParams.has('sep') ? separator(u) : AL.sep, AL.operation === 'separate');
     return json(res, { audioKey: AL.audioKey, runId: AL.runId, operation: AL.operation, vocalSource: vocal.source, available: !!env, canSetup: process.platform === 'win32' && !!(process.env.SPICY_ALIGN_DIR || fs.existsSync(path.join(root, 'experiments', 'auto-align'))), running: AL.running, stage: AL.stage, done: AL.done, total: AL.total, device: AL.device, error: AL.error, plan: AL.plan, sub: AL.sub, subDone: AL.subDone, subTotal: AL.subTotal, bytes: AL.bytes, elapsed: AL.running ? Date.now() - AL.t0 : 0, hasAudio: !!AL.audio, vocals: !!vocal.file, result });
   }
   if (u.pathname === '/api/align/vocals' && req.method === 'GET') { // the separated voice, for a clearer waveform
     const key = u.searchParams.get('audioKey') || AL.audioKey;
     if (!/^[a-f0-9]{64}$/.test(key)) return json(res, { error: 'неверный audioKey' }, 400);
-    const vocal = cachedVocal(key, u.searchParams.has('sep') ? separator(u) : AL.sep);
+    const generatedOnly = u.searchParams.get('operation') === 'separate';
+    const vocal = cachedVocal(key, u.searchParams.has('sep') ? separator(u) : AL.sep, generatedOnly);
     if (!vocal.file) return json(res, { error: 'нет' }, 404);
-    res.setHeader('content-type', 'audio/wav'); return fs.createReadStream(vocal.file).pipe(res);
+    try {
+      const fd = fs.openSync(vocal.file, 'r'), size = fs.fstatSync(fd).size;
+      res.setHeader('content-type', 'audio/wav'); res.setHeader('content-length', size); res.setHeader('cache-control', 'no-store');
+      const stream = fs.createReadStream(vocal.file, { fd });
+      stream.on('error', error => { log('vocal stream: ' + error.message); res.destroy(error); });
+      res.on('close', () => stream.destroy());
+      return stream.pipe(res);
+    } catch { return json(res, { error: 'сохранённый вокал недоступен' }, 404); }
   }
   json(res, { error: 'not found' }, 404);
 }
@@ -566,7 +575,7 @@ if (!process.argv.includes('--http')) {
     const { id, method, params } = msg;
     if (id === undefined) return; // notification
     try {
-      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.8.9' } } });
+      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.8.10' } } });
       if (method === 'ping') return send({ id, result: {} });
       if (method === 'tools/list') return send({ id, result: { tools: Object.entries(tools).map(([name, t]) => ({ name, description: t.description, inputSchema: t.schema })) } });
       if (method === 'tools/call') {

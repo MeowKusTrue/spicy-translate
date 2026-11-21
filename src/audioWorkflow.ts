@@ -138,7 +138,7 @@ export async function runAudioWorkflow(operation: AudioOperation, options: Align
     if (result.vocals) {
       if (operation === 'separate' && result.vocalSource === 'htdemucs' && options.sep !== 'htdemucs') toast(`${options.sep === 'kim-vocal-2' ? 'Kim Vocal 2' : 'RoFormer'} не применён: доступен сохранённый вокал HTDemucs. Это другой разделитель.`, 'err');
       stage('cache');
-      const vocal = await downloadVocal(uploaded.key, options.sep);
+      const vocal = await downloadVocal(uploaded.key, options.sep, operation === 'separate' ? 'generated' : 'auto');
       if (active()) await attachVoice(source.original, vocal, active);
     } else if (operation === 'separate') throw new Error('Сервер завершил выделение, но не вернул вокал.');
     if (wordSummary && active()) {

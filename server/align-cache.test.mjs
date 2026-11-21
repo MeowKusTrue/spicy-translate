@@ -174,7 +174,13 @@ test('durable hash cache, isolated operations, RX import and conflict safety', {
     const importFile = path.join(cache, 'imported.wav'); fs.renameSync(importFile, importFile + '.hold');
     assert.equal((await request('/api/align?sep=roformer')).data.vocalSource, 'htdemucs', 'marker without WAV is ignored');
     fs.renameSync(importFile + '.hold', importFile);
-    const getVocal = () => fetch(base + '/api/align/vocals?audioKey=' + key + '&sep=roformer').then(r => r.arrayBuffer()).then(x => Buffer.from(x));
+    const getVocal = async () => {
+      const response = await fetch(base + '/api/align/vocals?audioKey=' + key + '&sep=roformer', { cache: 'no-store' });
+      assert.equal(response.status, 200);
+      assert.ok(Number(response.headers.get('content-length')) > 44, 'WAV length lets the browser verify a complete response');
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+      return Buffer.from(await response.arrayBuffer());
+    };
     const imported = await getVocal(); assert.ok(imported.length > 44);
     assert.equal((await request('/api/align?sep=roformer')).data.vocalSource, 'imported');
     const importedMarkerBefore = fs.readFileSync(importMarker, 'utf8');
@@ -184,6 +190,21 @@ test('durable hash cache, isolated operations, RX import and conflict safety', {
     assert.equal(importedArgs[importedArgs.indexOf('--vocal-file') + 1], importFile);
     assert.deepEqual(await getVocal(), imported); assert.equal(fs.readFileSync(importMarker, 'utf8'), importedMarkerBefore);
     assert.equal(fs.readFileSync(extractionLog, 'utf8'), beforeTranscribe);
+    // Explicit separation must use the selected generated cache, never silently substitute an RX import.
+    fs.writeFileSync(direct, wav(2));
+    fs.writeFileSync(direct + '.json', JSON.stringify({source: 'roformer', model: 'vocals_mel_band_roformer.ckpt'}));
+    const runsBeforeExplicitSeparate = fs.readFileSync(runsLog, 'utf8');
+    r = await request('/api/align?operation=separate&sep=roformer', 'POST', JSON.stringify(project));
+    assert.equal(r.status, 200); status = await finished();
+    assert.equal(status.vocalSource, 'roformer', 'an imported stem must not replace explicit model separation');
+    const generatedResponse = await fetch(base + '/api/align/vocals?audioKey=' + key + '&sep=roformer&operation=separate', { cache: 'no-store' });
+    assert.equal(generatedResponse.status, 200);
+    assert.deepEqual(Buffer.from(await generatedResponse.arrayBuffer()), wav(2), 'generated download matches the selected model');
+    assert.deepEqual(await getVocal(), imported, 'ordinary restore still prefers the explicitly imported stem');
+    const explicitSeparateArgs = JSON.parse(fs.readFileSync(runsLog, 'utf8').trim().split('\n').at(-1));
+    assert.equal(explicitSeparateArgs[explicitSeparateArgs.indexOf('--vocal-file') + 1], direct);
+    assert.equal(fs.readFileSync(extractionLog, 'utf8'), beforeTranscribe, 'cached selected model does not run extraction twice');
+    assert.notEqual(fs.readFileSync(runsLog, 'utf8'), runsBeforeExplicitSeparate);
     assert.equal((await request('/api/align/vocals?audioKey=' + key, 'POST', Buffer.from('not audio'))).status, 422);
     assert.deepEqual(await getVocal(), imported);
     assert.equal((await request('/api/align/vocals?audioKey=' + key, 'POST', wav(2))).status, 422);
