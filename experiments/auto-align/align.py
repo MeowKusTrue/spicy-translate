@@ -2,7 +2,7 @@
 
 python align.py song.mp3 project.spicy.json -o out.spicy.json [--device auto|cuda|xpu|dml|cpu] [--lang ru|en]
 
-Demucs (htdemucs; --sep roformer: MelBand-RoFormer) -> vocals; optional UVR karaoke model (audio-separator) -> backing;
+Demucs, MelBand-RoFormer or MDX-Net Kim Vocal 2 -> vocals; optional UVR Karaoke 2 (audio-separator) -> backing;
 then CTC forced alignment of the KNOWN text of each line inside [t-pad, end+pad]: wav2vec2 xlsr-53 for the lead,
 torchaudio MMS-FA for backing vocals (what bench.py measured best). No lyrics: --transcribe (Whisper) writes them first.
 Each auto word gets c = the model's confidence (the editor marks low ones for checking).
@@ -215,29 +215,46 @@ def roformer_vocals(song, voc, work):
     if not os.path.exists(voc): raise RuntimeError('RoFormer gave no vocal stem')
 
 
+KIM_VOCAL = 'Kim_Vocal_2.onnx'
+
+
+def kim_vocal_2(song, voc, work):
+    """UVR MDX-Net Kim Vocal 2; the CPU ONNX build also works without a supported GPU."""
+    from audio_separator.separator import Separator
+    sep = Separator(output_dir=work, output_format='WAV', output_single_stem='Vocals')
+    sep.load_model(model_filename=KIM_VOCAL)
+    for f in sep.separate(song):
+        f = f if os.path.isabs(f) else os.path.join(work, f)
+        if '(vocals)' in os.path.basename(f).lower(): os.replace(f, voc)
+        elif os.path.exists(f): os.remove(f)
+    if not os.path.exists(voc): raise RuntimeError('Kim Vocal 2 gave no vocal stem')
+
+
 def separate(song, work, device, karaoke=True, emit=lambda **k: None, sep='htdemucs'):
     """-> (vocals_16k, backing_16k or None, vocals path); stems cached in `work`, per separator"""
+    models = {'htdemucs': 'htdemucs', 'roformer': ROFORMER, 'kim-vocal-2': KIM_VOCAL}
     os.makedirs(work, exist_ok=True)
     tag = '' if sep == 'htdemucs' else '-' + sep
     voc = os.path.join(work, f'vocals{tag}.wav')
     def committed(file, source):
         try:
             with open(file + '.json', encoding='utf-8') as f: meta = json.load(f)
-            return os.path.isfile(file) and os.path.getsize(file) > 0 and meta == {'source': source, 'model': ROFORMER if source == 'roformer' else 'htdemucs'}
+            return os.path.isfile(file) and os.path.getsize(file) > 0 and meta == {'source': source, 'model': models[source]}
         except (OSError, ValueError): return False
     emit(stage='demucs', done=0, total=1)
     fallback = os.path.join(work, 'vocals.wav')
     ready = committed(voc, sep)
-    if sep == 'roformer' and not ready:
+    if sep != 'htdemucs' and not ready:
         if committed(fallback, 'htdemucs'): voc, ready = fallback, True
         else:
             temp_voc = voc + '.tmp.wav'
             try:
-                roformer_vocals(song, temp_voc, work)
+                if sep == 'roformer': roformer_vocals(song, temp_voc, work)
+                else: kim_vocal_2(song, temp_voc, work)
                 os.replace(temp_voc, voc)
                 ready = True
             except Exception as e:
-                print(f'roformer failed ({type(e).__name__}: {e}); using htdemucs', file=sys.stderr)
+                print(f'{sep} failed ({type(e).__name__}: {e}); using htdemucs', file=sys.stderr)
                 voc, ready = fallback, committed(fallback, 'htdemucs')
             finally:
                 if os.path.exists(temp_voc): os.remove(temp_voc)
@@ -260,11 +277,11 @@ def separate(song, work, device, karaoke=True, emit=lambda **k: None, sep='htdem
             del m; torch.cuda.empty_cache() if str(dev) == 'cuda' else None
         # DirectML has no complex STFT, which htdemucs needs: Demucs goes to the CPU there right away
         on_device('cpu' if dev_name(device) == 'dml' else device, demucs, 'demucs')
-    actual_sep = 'roformer' if os.path.basename(voc) == 'vocals-roformer.wav' else 'htdemucs'
+    actual_sep = sep if os.path.basename(voc) == f'vocals-{sep}.wav' else 'htdemucs'
     marker = voc + '.json.tmp'
     try:
         with open(marker, 'w', encoding='utf-8') as f:
-            json.dump({'source': actual_sep, 'model': ROFORMER if actual_sep == 'roformer' else 'htdemucs'}, f)
+            json.dump({'source': actual_sep, 'model': models[actual_sep]}, f)
         os.replace(marker, voc + '.json')
     finally:
         if os.path.exists(marker): os.remove(marker)
@@ -613,7 +630,7 @@ def main(argv=None):
     ap.add_argument('--no-karaoke', action='store_true', help='skip lead/backing split')
     ap.add_argument('--force', action='store_true', help='re-align hand-marked layers too and print error vs them')
     ap.add_argument('--json-progress', action='store_true', help='stdout: one JSON object per line (for the editor server)')
-    ap.add_argument('--sep', choices=['htdemucs', 'roformer'], default='htdemucs', help='vocal separator')
+    ap.add_argument('--sep', choices=['htdemucs', 'roformer', 'kim-vocal-2'], default='htdemucs', help='vocal separator')
     ap.add_argument('--transcribe', action='store_true', help='write the lyrics from the voice (Whisper) first; on by itself when the project has no lines')
     ap.add_argument('--locate-lines', action='store_true', help='find known lyrics in ASR before fine alignment; skip unsupported lines rather than guess')
     ap.add_argument('--asr', choices=list(WHISPER_MODELS), default='turbo', help='Whisper model for lyrics and backing recognition')

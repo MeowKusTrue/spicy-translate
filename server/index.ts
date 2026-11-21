@@ -156,7 +156,7 @@ async function setupAlign(want?: Backend) {
   step('готово', 100); SETUP.done = true;
 }
 /** bump when the editor needs new server endpoints (3: auto-timing install / GPU / open folder) */
-const API = 23; // 23: review-only acoustic recovery candidates · 22: explicit empty-track transcription from cached vocal · 21: independent separation/words and durable keyed audio · 20: ASR location of known lyric lines · 15: original project/export mode · 14: moved data paths and GPU memory · 13: selectable ASR / aligner and backing candidates · 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes · 10: install pins torch, Python found without LOCALAPPDATA · 11: installs noted for each other (python-path.txt) · 12: /api/spell
+const API = 24; // 24: Kim Vocal 2 separator · 23: review-only acoustic recovery candidates · 22: explicit empty-track transcription from cached vocal · 21: independent separation/words and durable keyed audio · 20: ASR location of known lyric lines · 15: original project/export mode · 14: moved data paths and GPU memory · 13: selectable ASR / aligner and backing candidates · 4: /api/yield, --auto-exit, /api/bye · 5: /api/genius · 6: /api/genius/writers · 7: + album · 8: auto-timing transcribe / cancel / stage progress · 9: shared Python, no worktree prototypes · 10: install pins torch, Python found without LOCALAPPDATA · 11: installs noted for each other (python-path.txt) · 12: /api/spell
 /* ---------- Genius (lyrics makers take the text from there). No CORS for pages, so the server fetches them. ---------- */
 const GH = { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', 'accept-language': 'en-US,en;q=0.9' };
 type GeniusHit = { id: number; title: string; artist: string; url: string; art: string };
@@ -205,7 +205,8 @@ const AL = { running: false, stage: '', done: 0, total: 0, error: '', out: '', v
 const alDir = () => { const d = path.join(DATA, 'align'); fs.mkdirSync(d, { recursive: true }); return d; };
 function readBody(req: http.IncomingMessage, limit = 512 * 1024 * 1024): Promise<Buffer> { return new Promise((res, rej) => { const ch: Buffer[] = []; let size = 0; req.on('data', c => { size += c.length; if (size > limit) { ch.length = 0; rej(Object.assign(new Error('тело запроса слишком большое'), { status: 413 })); } else ch.push(c); }); req.on('end', () => res(Buffer.concat(ch))); req.on('error', rej); }); }
 const cacheDir = (key: string) => path.join(alDir(), 'cache', key);
-const separator = (u: URL) => u.searchParams.get('sep') === 'roformer' ? 'roformer' : 'htdemucs';
+const separator = (u: URL) => { const value = u.searchParams.get('sep'); return value === 'roformer' || value === 'kim-vocal-2' ? value : 'htdemucs'; };
+const separatorModel = (sep: string) => sep === 'roformer' ? 'vocals_mel_band_roformer.ckpt' : sep === 'kim-vocal-2' ? 'Kim_Vocal_2.onnx' : 'htdemucs';
 function cachedVocal(key: string, sep: string): { file: string; source: string } {
   if (!/^[a-f0-9]{64}$/.test(key)) return { file: '', source: '' };
   const dir = cacheDir(key), imported = path.join(dir, 'imported.wav');
@@ -217,11 +218,11 @@ function cachedVocal(key: string, sep: string): { file: string; source: string }
   };
   if (committed(imported, path.join(dir, 'imported.json'), 'imported')) return { file: imported, source: 'imported' };
   const stems = path.join(dir, sep, 'out.spicy.stems');
-  if (sep === 'roformer') {
-    const file = path.join(stems, 'vocals-roformer.wav');
-    if (committed(file, file + '.json', 'roformer', 'vocals_mel_band_roformer.ckpt')) return { file, source: 'roformer' };
+  if (sep !== 'htdemucs') {
+    const file = path.join(stems, `vocals-${sep}.wav`);
+    if (committed(file, file + '.json', sep, separatorModel(sep))) return { file, source: sep };
   }
-  // A completed RoFormer -> Demucs fallback is reusable, but never labelled as RoFormer.
+  // A completed MDX/RoFormer -> Demucs fallback is reusable, but never labelled as the requested model.
   const file = path.join(stems, 'vocals.wav');
   return committed(file, file + '.json', 'htdemucs', 'htdemucs') ? { file, source: 'htdemucs' } : { file: '', source: '' };
 }
@@ -565,7 +566,7 @@ if (!process.argv.includes('--http')) {
     const { id, method, params } = msg;
     if (id === undefined) return; // notification
     try {
-      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.8.8' } } });
+      if (method === 'initialize') return send({ id, result: { protocolVersion: params?.protocolVersion || '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'spicy-translate', version: '1.8.9' } } });
       if (method === 'ping') return send({ id, result: {} });
       if (method === 'tools/list') return send({ id, result: { tools: Object.entries(tools).map(([name, t]) => ({ name, description: t.description, inputSchema: t.schema })) } });
       if (method === 'tools/call') {

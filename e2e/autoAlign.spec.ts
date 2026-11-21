@@ -75,6 +75,10 @@ test('inline model hints and hardware preset explain the choice and preserve bac
   await expect(page.locator('#alignSeparator')).toHaveValue('roformer');
   await expect(page.locator('#alignAsr')).toHaveValue('turbo');
   await expect(page.locator('#alignDetectBack')).toHaveCount(0);
+  await page.locator('#alignSeparator').selectOption('kim-vocal-2');
+  await expect(page.locator('#alignSeparator')).toHaveValue('kim-vocal-2');
+  await expect(page.locator('#alignSepHint')).toContainText('Karaoke 2');
+  await expect(page.locator('#alignSepHint')).toContainText('около 64 МБ');
   await page.locator('#alignAsr').selectOption('large-v3');
   await expect(page.locator('#alignAsrHint')).toContainText('при нехватке памяти верни Turbo');
   await expect(page.locator('#alignAsrHint')).toContainText('только если включено «Сначала найти строки по аудио»');

@@ -31,6 +31,8 @@ describe('auto alignment models and backing import', () => {
   it('forwards supported models and backing recognition only', () => {
     expect(alignArgs(new URLSearchParams('sep=roformer&asr=large-v3&aligner=mms&detectBack=1&transcribe=1&lang=ru')))
       .toEqual(['--sep', 'roformer', '--asr', 'large-v3', '--aligner', 'mms', '--transcribe', '--detect-back', '--song-lang', 'ru']);
+    expect(alignArgs(new URLSearchParams('sep=kim-vocal-2')))
+      .toEqual(['--sep', 'kim-vocal-2', '--asr', 'turbo', '--aligner', 'w2v']);
     expect(alignArgs(new URLSearchParams('sep=../../file&asr=--force&aligner=evil&lang=--force&detectBack=true')))
       .toEqual(['--sep', 'htdemucs', '--asr', 'turbo', '--aligner', 'w2v']);
   });

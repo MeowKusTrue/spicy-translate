@@ -165,5 +165,22 @@ class OperationsTest(unittest.TestCase):
                 with open(fallback + '.json', encoding='utf8') as f:
                     self.assertEqual(json.load(f), {'source': 'htdemucs', 'model': 'htdemucs'})
 
+    def test_kim_vocal_2_uses_its_mdx_model_and_committed_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            direct = os.path.join(tmp, 'vocals-kim-vocal-2.wav')
+            def generate(song, output, work):
+                with open(output, 'wb') as f: f.write(b'kim stem')
+            with patch.object(align, 'kim_vocal_2', side_effect=generate) as generate_mock, \
+                 patch.object(align, 'decode', return_value=np.zeros((1, 16))):
+                self.assertEqual(align.separate('original', tmp, 'cpu', False, sep='kim-vocal-2')[2], direct)
+                generate_mock.assert_called_once()
+                with open(direct + '.json', encoding='utf8') as f:
+                    self.assertEqual(json.load(f), {'source': 'kim-vocal-2', 'model': 'Kim_Vocal_2.onnx'})
+                align.separate('original', tmp, 'cpu', False, sep='kim-vocal-2')
+                generate_mock.assert_called_once()
+                with open(direct + '.json', 'w') as f: json.dump({'source': 'kim-vocal-2', 'model': 'wrong'}, f)
+                align.separate('original', tmp, 'cpu', False, sep='kim-vocal-2')
+                self.assertEqual(generate_mock.call_count, 2)
+
 
 if __name__ == '__main__': unittest.main()

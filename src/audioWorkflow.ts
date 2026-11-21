@@ -11,6 +11,7 @@ import { buildVoicePeaks, drawWave, W } from './waveform/wave.ts';
 import { session } from './projectSession.ts';
 import { alignmentCandidates, alignmentSelection, prepareWordAlignment, wordAlignmentScope, type AlignOptions } from './core/autoAlign.ts';
 import type { Line } from './core/index.ts';
+import { downloadVocal } from './vocalDownload.ts';
 
 export type AudioOperation = 'separate' | 'words' | 'transcribe';
 let workflow: { cancelled: boolean } | null = null;
@@ -111,7 +112,7 @@ export async function runAudioWorkflow(operation: AudioOperation, options: Align
       const separated = await execute('separate');
       if (!separated || !active()) return;
       if (!separated.vocals) throw new Error('Выделение закончилось без вокала. Распознавание не запущено.');
-      if (separated.vocalSource === 'htdemucs' && options.sep === 'roformer') toast('RoFormer не применён: используется вокал HTDemucs.', 'err');
+      if (separated.vocalSource === 'htdemucs' && options.sep !== 'htdemucs') toast(`${options.sep === 'kim-vocal-2' ? 'Kim Vocal 2' : 'RoFormer'} не применён: используется вокал HTDemucs.`, 'err');
     }
     const result = await execute(operation);
     if (!result || !active()) return;
@@ -135,11 +136,9 @@ export async function runAudioWorkflow(operation: AudioOperation, options: Align
       }
     }
     if (result.vocals) {
-      if (operation === 'separate' && result.vocalSource === 'htdemucs' && options.sep === 'roformer') toast('RoFormer не применён: доступен сохранённый вокал HTDemucs. Это другой разделитель.', 'err');
+      if (operation === 'separate' && result.vocalSource === 'htdemucs' && options.sep !== 'htdemucs') toast(`${options.sep === 'kim-vocal-2' ? 'Kim Vocal 2' : 'RoFormer'} не применён: доступен сохранённый вокал HTDemucs. Это другой разделитель.`, 'err');
       stage('cache');
-      const response = await fetch('/api/align/vocals?' + new URLSearchParams({ audioKey: uploaded.key, sep: options.sep }));
-      if (!response.ok) throw new Error('Не удалось получить вокал: HTTP ' + response.status);
-      const vocal = await response.blob();
+      const vocal = await downloadVocal(uploaded.key, options.sep);
       if (active()) await attachVoice(source.original, vocal, active);
     } else if (operation === 'separate') throw new Error('Сервер завершил выделение, но не вернул вокал.');
     if (wordSummary && active()) {
@@ -187,9 +186,7 @@ export async function importVocalFile(file: File, sep: AlignOptions['sep']) {
     await api('/api/align/vocals?audioKey=' + key, { method: 'POST', body: file });
     if (!source.current()) return;
     // Play and cache exactly the validated WAV used by the server's word aligner.
-    const response = await fetch('/api/align/vocals?' + new URLSearchParams({ audioKey: key, sep }));
-    if (!response.ok) throw new Error('Сервер сохранил вокал, но загрузка WAV не удалась: HTTP ' + response.status);
-    const vocal = await response.blob();
+    const vocal = await downloadVocal(key, sep);
     if (source.current()) await attachVoice(source.original, vocal, source.current);
   } catch (error) { if (source.current()) toast('Вокал не подключён: ' + (error as Error).message, 'err'); }
   finally { S.align = null; emit(); drawWave(); }

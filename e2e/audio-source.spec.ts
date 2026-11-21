@@ -87,7 +87,10 @@ test('late vocals response cannot attach to a replacement original or autoplay i
     return route.fulfill({ json: { available: true, running: false, vocals: started, audioKey: createHash('sha256').update(original).digest('hex'), result: started ? fixture : null } });
   });
   await page.route('**/api/align/audio?*', route => route.fulfill({ json: { ok: true, audioKey: createHash('sha256').update(original).digest('hex'), vocals: false } }));
-  await page.route('**/api/align/vocals*', async route => { if (!started) return route.fulfill({ status: 404 }); await blocked; await route.fulfill({ contentType: 'audio/wav', body: wav(440) }); });
+  await page.route('**/api/align/vocals*', async route => {
+    if (!started || new URL(route.request().url()).searchParams.get('audioKey') !== createHash('sha256').update(original).digest('hex')) return route.fulfill({ status: 404 });
+    await blocked; await route.fulfill({ contentType: 'audio/wav', body: wav(440) });
+  });
   await page.goto('/');
   await page.locator('#fileAudio').setInputFiles({ name: 'original.wav', mimeType: 'audio/wav', buffer: wav(220) });
   await page.locator('#nav-sync').click(); await page.locator('#btnEditorCommands').click();

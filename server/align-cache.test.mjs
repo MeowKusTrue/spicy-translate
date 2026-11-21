@@ -55,10 +55,11 @@ test('durable hash cache, isolated operations, RX import and conflict safety', {
     let vocal = args.includes('--vocal-file') ? args[args.indexOf('--vocal-file') + 1] : '';
     if (!vocal) {
       const stems = out.replace(/\\.json$/, '.stems'); fs.mkdirSync(stems, {recursive:true});
-      vocal = path.join(stems, args[args.indexOf('--sep')+1] === 'roformer' ? 'vocals-roformer.wav' : 'vocals.wav');
+      const requested = args[args.indexOf('--sep')+1], source = ['roformer', 'kim-vocal-2'].includes(requested) ? requested : 'htdemucs';
+      vocal = path.join(stems, source === 'htdemucs' ? 'vocals.wav' : 'vocals-' + source + '.wav');
       fs.copyFileSync(args[0], vocal);
-      const source = args[args.indexOf('--sep')+1] === 'roformer' ? 'roformer' : 'htdemucs';
-      fs.writeFileSync(vocal + '.json', JSON.stringify({source, model: source === 'roformer' ? 'vocals_mel_band_roformer.ckpt' : 'htdemucs'}));
+      const model = source === 'roformer' ? 'vocals_mel_band_roformer.ckpt' : source === 'kim-vocal-2' ? 'Kim_Vocal_2.onnx' : 'htdemucs';
+      fs.writeFileSync(vocal + '.json', JSON.stringify({source, model}));
       fs.appendFileSync(path.join(__dirname, 'extractions.log'), source + '\\n');
     }
     fs.appendFileSync(path.join(__dirname, 'runs.log'), JSON.stringify(args) + '\\n');
@@ -147,6 +148,13 @@ test('durable hash cache, isolated operations, RX import and conflict safety', {
     assert.equal((await request('/api/align?sep=roformer')).data.vocals, false, 'fallback also requires marker');
     fs.writeFileSync(fallback + '.json', JSON.stringify({source: 'htdemucs', model: 'htdemucs'}));
     assert.equal((await request('/api/align?sep=roformer')).data.vocalSource, 'htdemucs', 'fallback reports actual source');
+    const kim = path.join(cache, 'kim-vocal-2', 'out.spicy.stems'); fs.mkdirSync(kim, { recursive: true });
+    const kimVocal = path.join(kim, 'vocals-kim-vocal-2.wav'); fs.writeFileSync(kimVocal, original);
+    assert.equal((await request('/api/align?sep=kim-vocal-2')).data.vocals, false, 'unmarked Kim Vocal 2 stem is not committed');
+    fs.writeFileSync(kimVocal + '.json', JSON.stringify({source: 'kim-vocal-2', model: 'wrong-model'}));
+    assert.equal((await request('/api/align?sep=kim-vocal-2')).data.vocals, false, 'wrong Kim Vocal 2 model rejected');
+    fs.writeFileSync(kimVocal + '.json', JSON.stringify({source: 'kim-vocal-2', model: 'Kim_Vocal_2.onnx'}));
+    assert.equal((await request('/api/align?sep=kim-vocal-2')).data.vocalSource, 'kim-vocal-2');
     const count = fs.readFileSync(path.join(fake, 'extractions.log'), 'utf8');
     assert.equal((await request('/api/align?operation=words&sep=roformer', 'POST', JSON.stringify(project))).status, 200);
     status = await finished(); assert.equal(status.vocalSource, 'htdemucs');

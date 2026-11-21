@@ -78,7 +78,7 @@ describe('content-addressed durable audio', () => {
     const original = new Blob(['original']), voice = new Blob(['voice']); mock.state.audioBlob = original;
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, blob: async () => voice }));
     expect(await restoreCachedVoice(original)).toBe(true);
-    expect(fetch).toHaveBeenCalledWith('/api/align/vocals?audioKey=' + await originalAudioKey(original));
+    expect(fetch).toHaveBeenCalledWith('/api/align/vocals?audioKey=' + await originalAudioKey(original), { cache: 'no-store' });
     expect(mock.put).toHaveBeenCalledTimes(1); expect(mock.voice).toHaveBeenCalledWith(voice);
   });
 });

@@ -4,6 +4,7 @@ import { cacheVoiceAudio } from './audio.ts';
 import { buildVoicePeaks, drawWave } from './waveform/wave.ts';
 import { idbGet, idbPutAudioRecords, trackKey } from './persist.ts';
 import { session } from './projectSession.ts';
+import { downloadVocal } from './vocalDownload.ts';
 
 const REFERENCE = 'audio:last';
 const originalKey = (key: string) => 'content:original:' + key;
@@ -88,9 +89,7 @@ export async function restoreCachedVoice(original: Blob): Promise<boolean> {
     if (!current()) return false;
     const fromServer = !vocal;
     if (!vocal) {
-      const response = await fetch('/api/align/vocals?audioKey=' + key);
-      if (!response.ok || !current()) return false;
-      vocal = await response.blob();
+      vocal = await downloadVocal(key);
       if (!current()) return false;
     }
     if (!await buildVoicePeaks(vocal) || !current()) return false;
