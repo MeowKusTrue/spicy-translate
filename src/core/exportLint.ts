@@ -8,6 +8,7 @@ import { exportedLayers, syllableConsistency } from './syllableConsistency.ts';
 export type ExportIssue = {
   i: number; sev: 'err' | 'warn'; msg: string;
   layer?: Layer; advice?: string; ignoredKey?: string;
+  action?: 'metadata';
   fix?: { label: string; line: Line };
   fixes?: { label: string; line: Line }[];
   batchFixes?: { label:string; changes:{i:number;line:Line}[] }[];
@@ -18,6 +19,8 @@ export type ExportIssue = {
 export function lintExport(o: ExportOpts): ExportIssue[] {
   const mode = o.mode || 'translation', issues: ExportIssue[] = qaCheck(o.lines, mode, { wordSpread: o.wordSpread });
   const first = o.lines.reduce((best, l, i) => l.t < (o.lines[best]?.t ?? Infinity) ? i : best, 0);
+  const writers = [...(o.songwriters || []), ...(o.meta || []).filter(m => m.key === 'songwriter').flatMap(m => m.value)];
+  if (o.lines.length && !writers.some(s => s.trim())) issues.push({i:first,sev:'warn',action:'metadata',msg:'Не указаны авторы песни (songwriters).',advice:'Добавь каждого автора отдельным именем в метаданные. Исполнитель и автор могут быть разными людьми; имя не подставляется автоматически.'});
   let previous: { i: number; end: number } | undefined;
   o.lines.forEach((line, i) => {
     if (!Number.isFinite(line.t) || !Number.isFinite(line.end) || line.t < 0 || line.end <= line.t) issues.push({ i, sev: 'err', msg: 'Некорректное начало или конец строки. Исправь время в редакторе.' });
@@ -79,9 +82,14 @@ export function lintExport(o: ExportOpts): ExportIssue[] {
         const canFix = cyr !== lat && [...word].every(c => !minority.test(c) || mapping[c]);
         const corrected = [...word].map(c => minority.test(c) ? mapping[c] || c : c).join('');
         const text = before.slice(0,match.index) + corrected + before.slice(match.index! + word.length);
+        const alternatives = cyr === lat ? [
+          {text:[...word].map(c=>reverse[c] || c).join(''),alphabet:'кириллицей'},
+          {text:[...word].map(c=>lookalikes[c] || c).join(''),alphabet:'латиницей'}
+        ].filter(x => !(/\p{Script=Cyrillic}/u.test(x.text) && /\p{Script=Latin}/u.test(x.text)))
+          .map(x=>({label:`Записать «${x.text.replace(/\|/g,'')}» ${x.alphabet} без сдвига времени`,line:replaceText(before.slice(0,match.index)+x.text+before.slice(match.index!+word.length))})) : [];
         issues.push({ i, layer, sev:'err', msg:`«${word.replace(/\|/g,'')}»: русские и английские буквы в одном слове.`,
           advice:'Проверь язык слова. Похожие буквы из другой раскладки нужно заменить; произвольные смешанные названия требуют ручной проверки.',
-          ...(canFix ? {fix:{label:`Заменить на «${corrected.replace(/\|/g,'')}» без сдвига времени`,line:replaceText(text)}} : {}) });
+          ...(canFix ? {fix:{label:`Заменить на «${corrected.replace(/\|/g,'')}» без сдвига времени`,line:replaceText(text)}} : alternatives.length ? {fixes:alternatives} : {}) });
       }
       if (/…|\.{3,}/u.test(before)) {
         const remove = before.replace(/…|\.{3,}/gu,''), dash = before.replace(/…|\.{3,}/gu,'—');

@@ -1,6 +1,20 @@
 import { expect, it } from 'vitest';
 import { buildTTML, lintExport, type Line } from '../src/core/index.ts';
 
+it('offers both alphabets for a balanced lookalike in backing vocals, preserving times',()=>{
+  const line:Line={t:89.455,end:95,text:'',tr:'',bg:{text:'Са, йо-о cа, йо-о',tr:''},sync:{bgo:[{a:89.455,b:90},{a:90,b:92},{a:92.163,b:93},{a:93,b:95}]}};
+  const before=structuredClone(line),issue=lintExport({lines:[line],mode:'original'}).find(x=>x.msg.includes('«cа»'))!;
+  expect(issue.layer).toBe('bgo');expect(issue.fixes!.map(x=>x.line.bg!.text)).toEqual(['Са, йо-о са, йо-о','Са, йо-о ca, йо-о']);
+  for(const fix of issue.fixes!)expect(fix.line.sync).toEqual(line.sync);
+  expect(line).toEqual(before);
+});
+it('reports missing writers once, accepts either export metadata representation, and never invents a name',()=>{
+  const line:Line={t:1,end:2,text:'слово',tr:''},missing=lintExport({lines:[line,line],mode:'original'}).filter(x=>x.action==='metadata');
+  expect(missing).toHaveLength(1);expect(missing[0].fix).toBeUndefined();expect(missing[0].sev).toBe('warn');
+  for(const extra of [{songwriters:['Lucas Bradford']},{meta:[{key:'songwriter',value:['Lucas Bradford']}]}]) expect(lintExport({lines:[line],mode:'original',...extra}).some(x=>x.action==='metadata')).toBe(false);
+  expect(lintExport({lines:[line],mode:'original',songwriters:[' '],meta:[{key:'songwriter',value:['']}]}).some(x=>x.action==='metadata')).toBe(true);
+});
+
 it('finds invisible characters on exported tracks and removes them without changing timing or source', () => {
   const line: Line = {t:0,end:2,text:'\u200BRa\u2060zov',tr:'\u200BПеревод',agent:'v2',bg:{text:'Э\u00ADй',tr:'\u200BHey'},sync:{orig:[{a:0,b:2}],bgo:[{a:1,b:2}]}};
   const original = structuredClone(line);

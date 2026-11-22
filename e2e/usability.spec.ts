@@ -1,7 +1,7 @@
 import { expect, test, type Page, type APIRequestContext } from '@playwright/test';
 
 async function seed(page:Page,request:APIRequestContext,lines:any[]) {
-  await request.put('/api/project?by=page',{data:{v:1,meta:{title:'Usability',artist:'Test',lang:'ru',mode:'original',md:[]},lines}});
+  await request.put('/api/project?by=page',{data:{v:1,meta:{title:'Usability',artist:'Test',lang:'ru',mode:'original',md:[{key:'songwriter',value:['Test Writer']}]},lines}});
   await page.addInitScript(() => {localStorage.setItem('helpSeen','1');localStorage.setItem('sylMem','0');});
   await page.setViewportSize({width:1600,height:1000}); await page.goto('/');
 }

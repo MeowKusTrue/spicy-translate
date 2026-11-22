@@ -2,7 +2,7 @@
 // Hot paths (rAF loop, wave drag) mutate S and paint the DOM/canvas directly; everything else calls emit().
 import { useSyncExternalStore } from 'react';
 import { splitWords, syncComplete, units, wordList } from './core/index.ts';
-import type { Layer, Line, MetaEntry, Mode, QaItem, WordSync } from './core/index.ts';
+import type { Layer, Line, MetaEntry, Mode, WordSync } from './core/index.ts';
 
 export type Msg = { msg: string; cls: string };
 export type Page = 'track' | 'text' | 'tr' | 'sync' | 'export';
@@ -45,7 +45,7 @@ export const S = {
   // ui
   st1: { msg: '', cls: '' } as Msg, st2: { msg: '', cls: '' } as Msg, toast: { msg: '', cls: '' } as Msg,
   save: { msg: '💾 —', cls: '' } as Msg, live: null as Msg | null,
-  qa: null as QaItem[] | null, paste: null as string | null, out: null as string | null,
+  qa: null as import('./core/exportLint.ts').ExportIssue[] | null, paste: null as string | null, out: null as string | null,
   help: false, metaEd: false, typing: false, busyAuto: false, busyLlm: false,
   palette: null as null | { q: string; i: number }, // Ctrl+K
   maxed: false, // desktop app window maximized

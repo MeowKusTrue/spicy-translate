@@ -5,6 +5,7 @@ import { buildPreview } from '../preview.ts';
 import { seekTo } from '../audio.ts';
 import { setPage } from '../hotkeys.ts';
 import { centerOnSel } from '../waveform/wave.ts';
+import { openSongwriters } from './MetaModal.tsx';
 
 /** One open check shared by download, clipboard and folder exports. */
 let pending: Promise<boolean> | null = null;
@@ -34,14 +35,14 @@ export function reviewExport(options: () => ExportOpts): Promise<boolean> {
         const item = document.createElement('section'); item.className = 'export-issue';
         const line = S.lines[issue.i], layer = issue.layer || mainLayerFor(issue.i);
         const heading = document.createElement('div'); heading.className = 'export-issue-heading';
-        const title = document.createElement('b'); title.textContent = `Строка ${issue.i + 1} · ${fmtTime(line.t)} — ${fmtTime(line.end)}`;
+        const title = document.createElement('b'); title.textContent = issue.action === 'metadata' ? 'Метаданные песни' : `Строка ${issue.i + 1} · ${fmtTime(line.t)} — ${fmtTime(line.end)}`;
         const badge = document.createElement('span'); badge.textContent = issue.sev === 'err' ? 'Ошибка' : 'Проверить'; badge.className = issue.sev;
         heading.append(title,badge);
         const lyric = document.createElement('blockquote'); lyric.textContent = plainW(layerText(line,layer) || line.bg?.text || line.bg?.tr || 'Пустая строка');
         const track = document.createElement('small'); track.textContent = trackNames[layer];
         const text = document.createElement('p'); text.textContent = issue.msg === 'слова не размечены — будет равномерный спред' ? 'У слов ещё нет индивидуального времени. Можно распределить их внутри строки как черновик.' : issue.msg;
         const related = issue.msg.match(/конца строки (\d+)/), previous = related ? S.lines[+related[1] - 1] : null;
-        item.append(heading, track, lyric, text);
+        if (issue.action === 'metadata') item.append(heading,text); else item.append(heading, track, lyric, text);
         for(const example of issue.examples || []) {
           const context=document.createElement('p');context.className='export-issue-context';
           context.textContent=`«${example.text}» — ${example.locations.map(x=>`строка ${x.i+1} (${trackNames[x.layer]})`).join(', ')}`;item.append(context);
@@ -55,6 +56,10 @@ export function reviewExport(options: () => ExportOpts): Promise<boolean> {
         const advice = document.createElement('p'); advice.className = 'export-issue-advice';
         advice.textContent = issue.advice || (issue.fix ? 'Предложенное исправление применяется только по кнопке ниже.' : 'Открой строку, проверь её на слух и поправь текст или границы слов на таймлайне.'); item.append(advice);
         const buttons = document.createElement('div'); buttons.className = 'export-issue-actions';
+        if (issue.action === 'metadata') {
+          const metadata = document.createElement('button'); metadata.type='button'; metadata.className='sm'; metadata.textContent='Указать авторов песни';
+          metadata.onclick=()=>{finish(false);openSongwriters();}; buttons.append(metadata); item.append(buttons); list.append(item); continue;
+        }
         for(const plan of issue.batchFixes || []) {
           const fix=document.createElement('button');fix.type='button';fix.className='sm';fix.textContent=plan.label;
           fix.onclick=()=>{

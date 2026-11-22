@@ -22,7 +22,7 @@ import { focusRow, shiftPicked, slashCommit } from '../lineEdit.ts';
 import { spellCheck, spellFix, spellIgnore, spellLeft } from '../spell.ts';
 import { addBg, addBgHere, addLineAfter, addLineHere, applyFull, bracketsToBg, delBg, delLine, editText, fillRepeats, findOpts, focusLine, fullRows, replaceEverywhere, resetFull } from '../lineEdit.ts';
 import { setPage } from '../hotkeys.ts';
-import { META_KEYS, openMeta } from './MetaModal.tsx';
+import { META_KEYS, openMeta, openSongwriters } from './MetaModal.tsx';
 /** «✍ Автор: A, B · 💿 Album» for the export card */
 const metaSummary = () => S.meta.md.map(m => { const v = m.value.filter(x => x.trim()); const d = META_KEYS.find(k => k[0] === m.key); return v.length ? (d ? d[2] : m.key + ':') + ' ' + v.join(', ') : ''; }).filter(Boolean).join(' · ');
 import { autoAlign, importVocals, openFolder } from '../autoAlign.ts';
@@ -298,7 +298,7 @@ export function ExportCard() {
     </div>}
     <div className="row" style={{ marginTop: 8 }}><button className="sm" id="btnQa" title="Проверка перед экспортом: пустые, перекрытия, слишком короткие слова…" onClick={runQa}>✔ Проверка (QA)</button>
       <small className="hint" id="qaSum" style={{ margin: 0 }}>{qa && S.lines.length ? (qa.length ? `ошибок: ${errs}, замечаний: ${qa.length - errs}` : 'всё чисто ✓') : ''}</small></div>
-    <div className="qa" id="qaOut">{(qa || []).slice(0, 80).map((x, k) => <div key={k} className={x.sev} onClick={() => gotoQa(x.i)}>{`строка ${x.i + 1}: ${x.msg}`}</div>)}</div>
+    <div className="qa" id="qaOut">{(qa || []).slice(0, 80).map((x, k) => <div key={k} className={x.sev} onClick={() => x.action === 'metadata' ? openSongwriters() : gotoQa(x.i)}>{`${x.action === 'metadata' ? 'Метаданные песни' : `строка ${x.i + 1}`}: ${x.msg}`}</div>)}</div>
     <pre className="out" id="out" hidden={S.out == null}>{S.out}</pre>
     <ol className="steps" style={{ marginTop: 14 }}>
       <li>Открой песню в Spotify со Spicy Lyrics, нажми <b>Lyrics Manager</b>.</li>

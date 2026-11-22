@@ -15,6 +15,7 @@ const NAMES_SEP = /\s*[,;、，；]\s*|\s+&\s+/;
 
 const change = (f: () => void) => { f(); emit(); scheduleSave(); };
 export const openMeta = () => { S.metaEd = true; emit(); };
+export const openSongwriters = () => { openMeta(); if (!S.meta.md.some(m=>m.key==='songwriter')) add('songwriter'); else focusAt('songwriter',0); };
 const close = () => { S.metaEd = false; emit(); };
 const focusAt = (key: string, i: number) => setTimeout(() => {
   const all = document.querySelectorAll<HTMLInputElement>(`#metaEd input[data-k="${CSS.escape(key)}"]`), el = all[Math.min(i, all.length - 1)];
